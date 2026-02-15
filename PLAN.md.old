@@ -1,0 +1,94 @@
+# 🗺️ Project: Fallout Hex-Mapper (Mutagen + Leaflet)
+
+## 1. Executive Summary
+This tool extracts Map Markers, World Coordinates, Heightmap Data, and Terrain Textures from a Bethesda Fallout 4/76 load order using the Mutagen library. It then translates those coordinates into a web-based Side-by-Side Viewer where the user can overlay a procedural hex grid onto the game’s map textures for D&D planning.
+
+## 2. Technical Stack
+- **Backend (Data Extraction)**: C# (.NET 8.0) using `Mutagen.Bethesda.Fallout4`.
+- **Frontend (Visualization)**: HTML5/JavaScript using `Leaflet.js` (mapping) and `Honeycomb.js` (hex math).
+- **Data Format**: JSON (Intermediate storage for markers, cell data, and terrain).
+
+## 3. Phase 1: The Mutagen Extractor (C#)
+
+### Objective
+Create a CLI tool that outputs `$WorldspaceName_data.json` containing markers, terrain types, and height data.
+
+### Logic Requirements
+- **Environment**: Load the Fallout 4/76 environment using the user’s actual data folder and load order.
+- **Target**: Iterate through the Commonwealth (`Fallout4.esm`) or Appalachia (`SeventySix.esm`) Worldspace.
+
+### Data Extraction Points
+
+#### A. Map Markers
+- **Source**: `ObjectReferences` (REFR) filtered by `BaseForm: MapMarker` [STAT:00000010].
+- **Data**:
+  - `Name`: From `LNAM` sub-record (Marker Data) or Linked Ref.
+  - `Position`: `refr.Position.X`, `refr.Position.Y`.
+  - **Icons**: Extract the specific Map Marker Icon type (e.g., City, Settlement, Factory).
+
+#### B. Terrain & Heightmap
+- **Heightmap Data**: Extract Z-height data for valid playable cells to generate a topographic layout.
+- **Water**:
+  - Global worldspace water height.
+  - **Placed Water**: Identify `PlacedObject` locations utilizing water activators/planes to override local water levels.
+
+#### C. Ground Texture Analysis (Mutagen)
+- **Method**: Iterate through Land Textures (LTEX) used in the worldspace cells.
+- **Classification Logic**: Map raw texture names to simplified terrain types using a **Hardcoded List**:
+  - **RUBBLE**: `ground01`, `rubbleMojave`, `groundCapital02`.
+  - **SAND**: `mojave`, `desert01`, `beach`.
+  - **DIRT/GRASS**: Default/Other organic textures.
+  - **ROAD**: Asphalt and road textures.
+- **Output**: A grid of cells with their dominant terrain type.
+
+#### D. Map Textures
+- Extract the worldspace LOD textures or relevant map files to be used as the background layer in the viewer. As well as the map marker icons.
+
+### Normalization Formula
+```csharp
+// Bethesda 1 Cell = 4096 units.
+// Scale for Leaflet (which prefers smaller coordinate systems)
+double normalizedX = (rawX / 4096.0);
+double normalizedY = (rawY / 4096.0);
+```
+
+## 4. Phase 2: The Hex-Grid Viewer (JS)
+
+### Objective
+A dual-pane web interface for "Painting" the D&D world.
+
+### UI Layout
+- **Left Pane**: High-res PNG of the extracted Map Texture.
+- **Right Pane**: Interactive Hex Grid (The procedural D&D map).
+- **Sync**: Moving the camera on the Left Pane scrolls/pans the Right Pane simultaneously.
+
+### Hex Features
+- **Floating Markers**: Markers from Phase 1 appear as "Pins" on top of the hexes with correct icons.
+- **Cell States**: Each hex stores a "Condition" property derived from Phase 1 data:
+  - **Standard** (Green/Forest)
+  - **Urban** (Rublbe/Ruins - Derived from "Rubble" textures)
+  - **Desert** (Sand - Derived from "Sand" textures)
+  - **Radioactive** (Yellow/Glowing Sea)
+  - **Water** (Blue - Derived from Heightmap/Water level)
+- **Overlay Toggle**: Ability to "ghost" the original game map at 30% opacity behind the hexes on the right pane.
+
+## 5. Implementation Instructions for AI Agents
+
+Follow these steps in order within the workspace:
+
+1.  **Initialize**: Create a .NET Console project. Add `Mutagen.Bethesda.Fallout4`.
+2.  **Extractor Logic**:
+     - Implement the hardcoded Texture->Type mapping.
+     - Extract Markers, Icons, Height, Water, and Textures.
+     - Export to `world_data.json`.
+3.  **Web Server**: Create a simple local web server structure (`index.html`, `map.js`).
+4.  **Leaflet Integration**: Render a coordinate plane using the extracted map texture.
+5.  **Hex Generation**:
+     - Use `Honeycomb.js` to generate the grid.
+     - Populate hexes based on the extracted Terrain Type (Sand, Rubble, etc.).
+6.  **Interaction**: Add click listeners to cycle terrain types and tooltips for markers.
+
+## 6. Key "Bethesda Truths" to Handle
+
+- **The Y-Axis Flip**: In Fallout, Y increases as you go North. In CSS/Web coordinates, Y increases as you go South. The AI must multiply the Y coordinate by -1 during conversion.
+- **Mod Overwrites**: If two mods touch the same marker, Mutagen's LoadOrder naturally resolves the winner. Ensure the script iterates through the ListedOrder to get the final state.
