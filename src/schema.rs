@@ -6,6 +6,9 @@ pub enum IconType {
     Vault,
     Store,
     Casino,
+    Hospital,
+    Radio,
+    Other,
     Misc,
 }
 
@@ -15,10 +18,14 @@ impl IconType {
         
         if name_lower.contains("vault") {
             IconType::Vault
-        } else if name_lower.contains("store") || name_lower.contains("shop") {
+        } else if name_lower.contains("store") || name_lower.contains("shop") || name_lower.contains("market") {
             IconType::Store
         } else if name_lower.contains("casino") {
             IconType::Casino
+        } else if name_lower.contains("hospital") || name_lower.contains("medical") || name_lower.contains("clinic") {
+            IconType::Hospital
+        } else if name_lower.contains("radio") || name_lower.contains("broadcast") {
+            IconType::Radio
         } else if name_lower.contains("city") 
             || name_lower.contains("town") 
             || name_lower.contains("sands")
@@ -29,7 +36,7 @@ impl IconType {
             || name_lower.contains("cathedral") {
             IconType::City
         } else {
-            IconType::Misc
+            IconType::Other
         }
     }
     
@@ -39,6 +46,9 @@ impl IconType {
             IconType::Vault => "Vault",
             IconType::Store => "Store",
             IconType::Casino => "Casino",
+            IconType::Hospital => "Hospital",
+            IconType::Radio => "Radio", 
+            IconType::Other => "Other",
             IconType::Misc => "Misc",
         }
     }

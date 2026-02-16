@@ -33,7 +33,7 @@ fn main() -> std::io::Result<()> {
     let extractors: Vec<Box<dyn Extractor>> = vec![
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
-        Box::new(extractors::manual::ManualExtractor::new("input/manual".to_string())),
+        Box::new(extractors::manual::ManualExtractor::new("input/manual".to_string(), 6.0)),
     ];
 
     pipeline::run_pipeline(extractors, maps_dir);

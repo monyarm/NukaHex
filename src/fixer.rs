@@ -32,14 +32,13 @@ const FALLOUT1_REAL_COORDS: &[(&str, &str)] = &[
     ("Broken Hills", "39.5380233,-118.9489428"),
 ];
 
-const MILES_PER_HEX: f32 = 6.0;
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
 const MILES_PER_DEGREE_LON_AT_35N: f32 = 56.5;
 
-const LAT_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LAT;
-const LON_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LON_AT_35N;
+// const LAT_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LAT;
+// const LON_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LON_AT_35N;
 
-pub fn fix(raw_maps: Vec<RawMapData>) -> FixedMapData {
+pub fn fix(raw_maps: Vec<RawMapData>, miles_per_hex: Option<f32>) -> FixedMapData {
     println!("Running Fixer on {} raw maps...", raw_maps.len());
 
     // Check if we should apply rubbersheeting (Fallout 1 data with control points)
@@ -47,9 +46,10 @@ pub fn fix(raw_maps: Vec<RawMapData>) -> FixedMapData {
     let has_tiles = raw_maps.iter().any(|m| !m.tiles.is_empty());
     
     // If we have both locations and terrain, use Inverse Warping
+    let resolution = miles_per_hex.unwrap_or(6.0);
     if has_locations && has_tiles {
-        println!("Invoking Inverse Warping pipeline for terrain + locations...");
-        return fix_with_terrain_inverse_warping(raw_maps);
+        println!("Invoking Inverse Warping pipeline for terrain + locations at {} miles/hex...", resolution);
+        return fix_with_terrain_inverse_warping(raw_maps, resolution);
     }
     
     // Fallback logic for extraction without terrain
@@ -116,7 +116,7 @@ struct MapGroup {
     pub id: usize,
 }
 
-fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>) -> FixedMapData {
+fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f32) -> FixedMapData {
     if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0 }; }
 
     // --- GLOBAL COORDINATE SYSTEM ---
@@ -124,15 +124,18 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>) -> FixedMapData {
     let universe_origin_lon = -130.0;
 
     // 0. Build a Geographic Tile Map for all tiles that ALREADY have lat/lon (Manual data)
+    let lat_step = miles_per_hex / MILES_PER_DEGREE_LAT;
+    let lon_step = miles_per_hex / MILES_PER_DEGREE_LON_AT_35N;
     let mut geo_tile_map: HashMap<(i32, i32), String> = HashMap::new();
+
     let mut manual_projected_lats = Vec::new();
     let mut manual_projected_lons = Vec::new();
 
     for map in &raw_maps {
         for tile in &map.tiles {
             if let (Some(lat), Some(lon)) = (tile.real_lat, tile.real_lon) {
-                let lat_idx = ((lat - universe_origin_lat) / LAT_STEP).round() as i32;
-                let lon_idx = ((lon - universe_origin_lon) / LON_STEP).round() as i32;
+                let lat_idx = ((lat - universe_origin_lat) / lat_step).round() as i32;
+                let lon_idx = ((lon - universe_origin_lon) / lon_step).round() as i32;
                 geo_tile_map.insert((lat_idx, lon_idx), tile.tile_type.clone());
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
@@ -295,10 +298,10 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>) -> FixedMapData {
     // Instead of aligning to the current bounds (which shift when markers are added),
     // we align to an absolute origin in the universe (e.g. 50N, 130W).
 
-    let min_lat_idx = ((min_lat_raw - universe_origin_lat) / LAT_STEP).floor() as i32;
-    let max_lat_idx = ((max_lat_raw - universe_origin_lat) / LAT_STEP).ceil() as i32;
-    let min_lon_idx = ((min_lon_raw - universe_origin_lon) / LON_STEP).floor() as i32;
-    let max_lon_idx = ((max_lon_raw - universe_origin_lon) / LON_STEP).ceil() as i32;
+    let min_lat_idx = ((min_lat_raw - universe_origin_lat) / lat_step).floor() as i32;
+    let max_lat_idx = ((max_lat_raw - universe_origin_lat) / lat_step).ceil() as i32;
+    let min_lon_idx = ((min_lon_raw - universe_origin_lon) / lon_step).floor() as i32;
+    let max_lon_idx = ((max_lon_raw - universe_origin_lon) / lon_step).ceil() as i32;
 
     let grid_height = (max_lat_idx - min_lat_idx + 1).abs() as u32;
     let grid_width = (max_lon_idx - min_lon_idx + 1).abs() as u32;
@@ -307,11 +310,11 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>) -> FixedMapData {
              grid_width, grid_height, min_lat_idx, max_lat_idx, min_lon_idx, max_lon_idx);
 
     // Helper to get absolute lat/lon from absolute indices
-    let get_lat = |idx: i32| universe_origin_lat + idx as f32 * LAT_STEP;
-    let get_lon = |idx: i32| universe_origin_lon + idx as f32 * LON_STEP;
+    let get_lat = |idx: i32| universe_origin_lat + idx as f32 * lat_step;
+    let get_lon = |idx: i32| universe_origin_lon + idx as f32 * lon_step;
 
-    println!("Stable Grid: {}x{} hexes anchored at lat={}, lon={}", 
-             grid_width, grid_height, get_lat(max_lat_idx), get_lon(min_lon_idx));
+    println!("Stable Grid ({:.1} mi/hex): {}x{} hexes anchored at lat={}, lon={}", 
+             miles_per_hex, grid_width, grid_height, get_lat(max_lat_idx), get_lon(min_lon_idx));
 
     // 4. Inverse Sampling Loop (Composite)
     let mut fixed_tiles = Vec::new();
@@ -372,8 +375,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>) -> FixedMapData {
     let mut all_locations_placed: Vec<FixedLocation> = Vec::new();
     
     for (name, lat, lon, icon_type) in all_real_world_locs.iter() {
-        let f_lat_idx = (lat - universe_origin_lat) / LAT_STEP;
-        let f_lon_idx = (lon - universe_origin_lon) / LON_STEP;
+        let f_lat_idx = (lat - universe_origin_lat) / lat_step;
+        let f_lon_idx = (lon - universe_origin_lon) / lon_step;
         let grid_x = f_lon_idx - (min_lon_idx as f32);
         let grid_y = (max_lat_idx as f32) - f_lat_idx;
         
@@ -525,8 +528,9 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
     let lon_range = max_lon - min_lon;
     
     // Hex sizes in degrees
-    let hex_height_deg = MILES_PER_HEX / MILES_PER_DEGREE_LAT; // ~0.087
-    let hex_width_deg = MILES_PER_HEX / MILES_PER_DEGREE_LON_AT_35N; // ~0.106
+    // Hex sizes in degrees (Legacy constant 6.0)
+    let hex_height_deg = 6.0 / MILES_PER_DEGREE_LAT; // ~0.087
+    let hex_width_deg = 6.0 / MILES_PER_DEGREE_LON_AT_35N; // ~0.106
     
     let grid_height = (lat_range / hex_height_deg).ceil() as u32;
     let grid_width = (lon_range / hex_width_deg).ceil() as u32;

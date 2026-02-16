@@ -90,7 +90,7 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
     Ok(gid_map)
 }
 
-pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
+pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>) -> std::io::Result<()> {
     let width = map_data.width;
     let height = map_data.height;
     
@@ -148,17 +148,17 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
             .or_else(|| gid_map.get("marker"))
             .cloned();
 
-        
+        // Filter by type if a filter list is provided
+        if let Some(types) = allowed_types {
+            let type_str = loc.icon_type.to_string();
+            if !types.iter().any(|&t| t.eq_ignore_ascii_case(&type_str)) {
+                continue;
+            }
+        }
+
         // Apply visual offset for Fake Vaults (purely cosmetic, doesn't affect rubbersheeting)
         let mut adjusted_x = loc.x;
         let mut adjusted_y = loc.y;
-        
-        if loc.name == "Fake Vault 13a" {
-            // Do nothing
-        } else if loc.name == "Fake Vault 13b" {
-            adjusted_x -= 0.3;
-            adjusted_y += 0.3;
-        }
         
         // Pixel coordinates (Approx for Stagger Y, H=76, S=38)
         // Vertical Step = 19 * 3 = 57. Horizontal Step = 66 (odd row center offset 33).
@@ -275,8 +275,9 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
     };
 
     let json = serde_json::to_string_pretty(&map)?;
-    fs::write(output_dir.join("map.tmj"), json)?;
-    println!("Generated map.tmj ({}x{})", width, height);
+    let json = serde_json::to_string_pretty(&map)?;
+    fs::write(output_dir.join(filename), json)?;
+    println!("Generated {} ({}x{})", filename, width, height);
 
     Ok(())
 }

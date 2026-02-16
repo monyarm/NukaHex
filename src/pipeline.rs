@@ -150,7 +150,7 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
              }
          }
 
-         let data = fixer::fix(raw_maps);
+         let data = fixer::fix(raw_maps.clone(), None); // Default 6.0 miles/hex resolution
          
          fs::write(&fixed_cache, serde_json::to_string_pretty(&data).unwrap()).unwrap();
          fs::write(&fixed_hash_file, &combined_fixer_hash).unwrap();
@@ -182,9 +182,196 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         println!("[Builder] Running...");
         // Call map generator with FixedMapData
         let gid_map = map_gen::generate_tsj(output_dir).unwrap();
-        map_gen::generate_tmj(output_dir, &final_fixed_data, &gid_map).unwrap();
+        
+        // 1. Generate map with ALL markers
+        map_gen::generate_tmj(output_dir, "map_all.tmj", &final_fixed_data, &gid_map, None).unwrap();
+
+        // 2. Generate map with FILTERED markers (Cities, Vaults, Monuments)
+        // Note: Filters are case-insensitive
+        let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Ruins", "Landmark"]; 
+        map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types)).unwrap();
         
         fs::write(&builder_hash_file, &builder_hash).unwrap();
+    }
+
+    // --- STAGE 3.1: CITY MAP GENERATION ---
+    println!("[Pipeline] Generating City Maps...");
+    let cities_dir = output_dir.join("cities");
+    fs::create_dir_all(&cities_dir).unwrap();
+
+    // 1. Identify Target Locations
+    let city_targets: Vec<&crate::schema::FixedLocation> = final_fixed_data.locations.iter()
+        .filter(|loc| {
+            let t = loc.icon_type.to_string();
+            matches!(t, "City" | "Vault" | "Monument" | "Settlement" | "Ruins" | "Landmark")
+        })
+        .collect();
+
+    if !city_targets.is_empty() {
+        println!("Found {} city/vault/landmark targets for detailed maps.", city_targets.len());
+
+        // 2. Cluster Locations (Simple Distance-Based Clustering)
+        // Groups locations within 30 miles (15 mile radius overlap)
+        let mut clusters: Vec<Vec<&crate::schema::FixedLocation>> = Vec::new();
+        
+        for loc in &city_targets {
+            let mut added_to_cluster = false;
+            // Check existing clusters
+            for cluster in &mut clusters {
+                 // Check if ANY point in the cluster is close enough to ANY point in the new cluster 
+                 // (Transitive clustering: A near B, B near C -> A, B, C cluster)
+                 // This is O(N^2) but N is small (<100)
+                 if cluster.iter().any(|existing| {
+                     // Dist check in grid units (6 miles/hex at scale 6.0)
+                     // Target: 30 miles. 
+                     // Grid distance = sqrt(dx^2 + dy^2). 
+                     // At 6.0 mi/hex, 30 miles is 5 hexes.
+                     // But Grid X/Y are "Hex Indices". 
+                     let dx = loc.x - existing.x;
+                     let dy = loc.y - existing.y;
+                     let dist_hexes = (dx*dx + dy*dy).sqrt();
+                     let dist_miles = dist_hexes * 6.0; // FixedData was generated at 6.0
+                     dist_miles <= 30.0 
+                 }) {
+                     cluster.push(loc);
+                     added_to_cluster = true;
+                     break; 
+                 }
+            }
+            if !added_to_cluster {
+                clusters.push(vec![loc]);
+            }
+        }
+
+        // Merge clusters that might have bridged (Naive start, better merge logic would be union-find but simple iteration works for now)
+        // Actually, the above loop is greedy and order-dependent. Let's do a quick merge pass.
+        let mut merged = true;
+        while merged {
+            merged = false;
+            let mut i = 0;
+            while i < clusters.len() {
+                let mut j = i + 1;
+                while j < clusters.len() {
+                    let should_merge = clusters[i].iter().any(|a| {
+                        clusters[j].iter().any(|b| {
+                             let dx = a.x - b.x;
+                             let dy = a.y - b.y;
+                             let dist = (dx*dx + dy*dy).sqrt() * 6.0;
+                             dist <= 30.0
+                        })
+                    });
+
+                    if should_merge {
+                        let mut other = clusters.remove(j);
+                        clusters[i].append(&mut other);
+                        merged = true;
+                    } else {
+                        j += 1;
+                    }
+                }
+                i += 1;
+            }
+        }
+        
+        println!("Identified {} distinct clusters.", clusters.len());
+
+        // 3. Generate Maps for Clusters
+        // Re-run fixer at 1.0 resolution for the whole world (inefficient but safe for now)
+        // TODO: Optimize to only tile the bounding box
+        println!("Generating high-res world data (1.0 mi/hex) for city crops...");
+        let high_res_data = fixer::fix(raw_maps, Some(1.0));
+        let gid_map_hr = map_gen::generate_tsj(output_dir).unwrap(); // Reuse tileset logic
+
+        for (_idx, cluster) in clusters.iter().enumerate() {
+            // Naming: Use the most significant location name
+            // Logic: Vault > City > Other? Or just first one?
+            // Let's sort by type priority then name length
+            let mut sorted_locs = cluster.clone();
+            sorted_locs.sort_by(|a, b| {
+                let score_a = match a.icon_type.to_string() { "Vault" => 3, "City" => 2, _ => 1 };
+                let score_b = match b.icon_type.to_string() { "Vault" => 3, "City" => 2, _ => 1 };
+                if score_a != score_b { score_b.cmp(&score_a) } else { a.name.len().cmp(&b.name.len()) }
+            });
+            let main_name = &sorted_locs[0].name;
+            let safe_name = main_name.replace(" ", "_").replace("/", "-");
+            let filename = format!("city_{}.tmj", safe_name);
+            let png_name = format!("{}.png", safe_name);
+            
+            println!("Generating city map for cluster '{}' ({} locations)...", main_name, cluster.len());
+            
+            // We need to CROP the high_res_data to the cluster bounds
+            // 1. Calculate cluster bounds in Lat/Lon
+            // We can't use .x/.y from FixedData as that's 6.0 scale.
+            // We need to find the raw lat/lon of these locations. Use High Res Data locations.
+            
+            // Match cluster items to high_res_data items by Name
+            let cluster_names: Vec<String> = cluster.iter().map(|l| l.name.clone()).collect();
+            let hr_locs: Vec<&crate::schema::FixedLocation> = high_res_data.locations.iter()
+                .filter(|l| cluster_names.contains(&l.name))
+                .collect();
+
+            if hr_locs.is_empty() { continue; }
+
+            // Bounds in High Res Grid Space
+            let min_x = hr_locs.iter().map(|l| l.x).fold(f32::INFINITY, |a, b| a.min(b));
+            let max_x = hr_locs.iter().map(|l| l.x).fold(f32::NEG_INFINITY, |a, b| a.max(b));
+            let min_y = hr_locs.iter().map(|l| l.y).fold(f32::INFINITY, |a, b| a.min(b));
+            let max_y = hr_locs.iter().map(|l| l.y).fold(f32::NEG_INFINITY, |a, b| a.max(b));
+
+            // Add 15 mile buffer (at 1.0 mi/hex, that's 15 hexes)
+            let buffer = 15.0;
+            let crop_min_x = (min_x - buffer).floor() as i32;
+            let crop_max_x = (max_x + buffer).ceil() as i32;
+            let crop_min_y = (min_y - buffer).floor() as i32;
+            let crop_max_y = (max_y + buffer).ceil() as i32;
+
+            // Create a cropped FixedMapData
+            let width = (crop_max_x - crop_min_x).max(1) as u32;
+            let height = (crop_max_y - crop_min_y).max(1) as u32;
+
+            let mut cropped_tiles = Vec::new();
+            for t in &high_res_data.tiles {
+                if t.x >= crop_min_x && t.x < crop_max_x && t.y >= crop_min_y && t.y < crop_max_y {
+                     // Rebase to 0,0
+                     let mut new_t = t.clone();
+                     new_t.x -= crop_min_x;
+                     new_t.y -= crop_min_y;
+                     cropped_tiles.push(new_t);
+                }
+            }
+
+            let mut cropped_locs = Vec::new();
+            for l in &high_res_data.locations {
+                 if l.x >= crop_min_x as f32 && l.x <= crop_max_x as f32 &&
+                    l.y >= crop_min_y as f32 && l.y <= crop_max_y as f32 {
+                        let mut new_l = l.clone();
+                        new_l.x -= crop_min_x as f32;
+                        new_l.y -= crop_min_y as f32;
+                        cropped_locs.push(new_l);
+                 }
+            }
+
+            let cropped_map = crate::schema::FixedMapData {
+                width,
+                height,
+                tiles: cropped_tiles,
+                locations: cropped_locs,
+                global_offset_x: 0,
+                global_offset_y: 0,
+            };
+
+            // Generate TMJ
+            map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, None).unwrap();
+
+            // Render PNG
+            let tmj_path = cities_dir.join(&filename);
+            let png_path = cities_dir.join(&png_name);
+            
+            let _ = Command::new("tmxrasterizer")
+                .arg(&tmj_path)
+                .arg(&png_path)
+                .status();
+        }
     }
 
     // --- STAGE 3.5: MARKER EXPORT ---
@@ -199,7 +386,7 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
 
     println!("[Rasterizer] Running...");
     
-    // 1. Render Main Map
+    // 1. Render Main Map (Filtered)
     let status = Command::new("tmxrasterizer")
         .arg(&map_file)
         .arg(&output_png)
@@ -209,6 +396,17 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         Ok(s) if s.success() => println!("[Rasterizer] Success: {:?}", output_png),
         Ok(s) => eprintln!("[Rasterizer] Failed with exit code: {:?}", s.code()),
         Err(e) => eprintln!("[Rasterizer] Failed to execute tmxrasterizer: {}", e),
+    }
+
+    // 2. Render All Markers Map
+    let output_all_png = output_dir.join("rendered_map_all.png");
+    let map_all_file = output_dir.join("map_all.tmj");
+    if map_all_file.exists() {
+        println!("[Rasterizer] Rendering map with all markers...");
+        let _ = Command::new("tmxrasterizer")
+            .arg(&map_all_file)
+            .arg(&output_all_png)
+            .status();
     }
 
     // 2. Render All Raw Debug Maps

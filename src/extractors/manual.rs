@@ -8,11 +8,12 @@ use serde::{Deserialize, Serialize};
 /// Manual extractor that reads JSON files from inputs/ directory
 pub struct ManualExtractor {
     input_dir: String,
+    miles_per_hex: f32,
 }
 
 impl ManualExtractor {
-    pub fn new(input_dir: String) -> Self {
-        Self { input_dir }
+    pub fn new(input_dir: String, miles_per_hex: f32) -> Self {
+        Self { input_dir, miles_per_hex }
     }
 }
 
@@ -221,10 +222,15 @@ impl ManualExtractor {
                     return vec![];
                 };
 
-                let hex_step_deg_lat = 6.0 / 69.0;
-                let hex_step_deg_lon = 6.0 / 56.5; // Shared constant at 35N
+                let hex_step_deg_lat = self.miles_per_hex / 69.0;
+                let hex_step_deg_lon = self.miles_per_hex / 56.5; 
 
-                self.generate_circle_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, *radius_hexes, terrain_type)
+                // Scale radius based on resolution (Input radius is in "Standard Hexes" i.e. 6 miles)
+                // If miles_per_hex is 1.0, we need 6x the radius to cover the same distance.
+                let resolution_scale = 6.0 / self.miles_per_hex;
+                let effective_radius = (*radius_hexes as f32 * resolution_scale).round() as u32;
+
+                self.generate_circle_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, effective_radius, terrain_type)
             }
             TerrainBuilder::Grid { top_left_lat, top_left_lon, top_left, hex_size_degrees, tiles } => {
                 let (lat, lon) = if let (Some(la), Some(lo)) = (top_left_lat, top_left_lon) {
@@ -242,8 +248,8 @@ impl ManualExtractor {
                     return vec![];
                 };
 
-                let hex_step_deg_lat = 6.0 / 69.0;
-                let hex_step_deg_lon = 6.0 / 56.5;
+                let hex_step_deg_lat = self.miles_per_hex / 69.0;
+                let hex_step_deg_lon = self.miles_per_hex / 56.5;
 
                 self.generate_grid_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, tiles)
             }
