@@ -1,0 +1,15 @@
+{
+    "markers": [
+        {
+            "name": "Vault-Tec Main Headquarters",
+            "type": "Other",
+            "location": "100 Main St, Los Angeles, CA 90012, United States"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "100 Main St, Los Angeles, CA 90012, United States",
+        "radius_hexes": 2,
+        "terrain_type": "City"
+    }
+}

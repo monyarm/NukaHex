@@ -10,13 +10,40 @@ use crate::extractors::Extractor;
 use crate::fixer;
 use crate::map_gen; // Reusing map_gen as Builder for now, will refactor later
 
-pub fn compute_source_hash(file_path: &str) -> String {
-    let mut file = fs::File::open(file_path).expect("Failed to open source file for hashing");
+pub fn compute_source_hash(path: &str) -> String {
+    let path = Path::new(path);
+    if !path.exists() { return "dummy_hash".to_string(); }
+
     let mut hasher = Sha256::new();
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).expect("Failed to read source file");
-    hasher.update(&buffer);
+    
+    if path.is_dir() {
+        hash_dir_recursive(path, &mut hasher);
+    } else {
+        let mut file = fs::File::open(path).expect("Failed to open source file for hashing");
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).expect("Failed to read source file");
+        hasher.update(&buffer);
+    }
     hex::encode(hasher.finalize())
+}
+
+fn hash_dir_recursive(dir: &Path, hasher: &mut Sha256) {
+    let mut entries = fs::read_dir(dir).unwrap()
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, _>>().unwrap();
+    entries.sort(); // Consistent order
+
+    for path in entries {
+        if path.is_dir() {
+            hash_dir_recursive(&path, hasher);
+        } else {
+            let mut file = fs::File::open(&path).unwrap();
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).unwrap();
+            hasher.update(path.to_string_lossy().as_bytes());
+            hasher.update(&buffer);
+        }
+    }
 }
 
 pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
@@ -27,15 +54,20 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
     let mut extractor_hashes = Vec::new();
 
     // --- STAGE 1: EXTRACTORS ---
-    for extractor in extractors {
+    for extractor in &extractors {
         let id = extractor.get_id();
         let source_file = format!("src/extractors/{}.rs", id); // Convention: ID matches filename
         
-        let current_hash = if Path::new(&source_file).exists() {
-            compute_source_hash(&source_file)
-        } else {
-            "dummy_hash".to_string() 
-        };
+        let mut hasher = Sha256::new();
+        // 1. Hash the extractor code
+        hasher.update(compute_source_hash(&source_file).as_bytes());
+        
+        // 2. Hash any additional source paths (e.g. manual JSON directory)
+        for path in extractor.get_source_paths() {
+            hasher.update(compute_source_hash(&path).as_bytes());
+        }
+        
+        let current_hash = hex::encode(hasher.finalize());
         
         // Check Cache
         let cache_file = intermediate_dir.join(format!("{}.json", id));
@@ -93,13 +125,28 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         data
     } else {
          println!("[Fixer] Running...");
-         // Check if we have fallout1 data and generate raw debug map
-         if let Some(fallout1_data) = raw_maps.first() { 
-             // Assuming first map is fallout1 for now, or check metadata if available
-             // Generate debug raw view
-             let gid_map = map_gen::generate_tsj(output_dir).unwrap(); 
-             if let Err(e) = map_gen::generate_raw_tmj(output_dir, fallout1_data, &gid_map) {
-                 println!("Warning: Failed to generate raw debug map: {}", e);
+         // Generate debug raw view for EACH map
+         let gid_map = map_gen::generate_tsj(output_dir).unwrap(); 
+         
+         for (i, raw_data) in raw_maps.iter().enumerate() {
+             let id = if i < extractors.len() { extractors[i].get_id() } else { "unknown" };
+             let debug_filename = format!("raw_extracted_{}.tmj", id);
+             let debug_path = output_dir.join(&debug_filename);
+             
+             // We need to modify generate_raw_tmj to accept a custom filename or rename it after
+             // Currently generate_raw_tmj hardcodes "raw_extracted.tmj"
+             // Let's modify map_gen::generate_raw_tmj signature to take a filename? 
+             // Or simpler: change run_pipeline to copy the file.
+             
+             if let Err(e) = map_gen::generate_raw_tmj(output_dir, raw_data, &gid_map) {
+                 println!("Warning: Failed to generate raw debug map for {}: {}", id, e);
+             } else {
+                 // Rename the default output
+                 let default_out = output_dir.join("raw_extracted.tmj");
+                 if default_out.exists() {
+                     fs::rename(&default_out, &debug_path).unwrap();
+                     println!("Generated debug map: {}", debug_filename);
+                 }
              }
          }
 
@@ -140,37 +187,46 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         fs::write(&builder_hash_file, &builder_hash).unwrap();
     }
 
+    // --- STAGE 3.5: MARKER EXPORT ---
+     let marker_file = output_dir.join("markers.json");
+     if let Ok(json) = serde_json::to_string_pretty(&final_fixed_data.locations) {
+         fs::write(&marker_file, json).expect("Failed to write markers.json");
+         println!("[Pipeline] Exported {} markers to markers.json", final_fixed_data.locations.len());
+     }
+
     // --- STAGE 4: RASTERIZER ---
     let output_png = output_dir.join("rendered_map.png");
 
-    // Run if builder ran OR if output file doesn't exist
-    if run_builder || !output_png.exists() {
-        println!("[Rasterizer] Running...");
-        let status = Command::new("tmxrasterizer")
-            .arg(&map_file)
-            .arg(&output_png)
-            .status();
+    println!("[Rasterizer] Running...");
+    
+    // 1. Render Main Map
+    let status = Command::new("tmxrasterizer")
+        .arg(&map_file)
+        .arg(&output_png)
+        .status();
 
-        match status {
-            Ok(s) if s.success() => println!("[Rasterizer] Success: {:?}", output_png),
-            Ok(s) => eprintln!("[Rasterizer] Failed with exit code: {:?}", s.code()),
-            Err(e) => eprintln!("[Rasterizer] Failed to execute tmxrasterizer: {}", e),
-        }
-
-        // Also rasterize raw debug map if it exists
-        let raw_map_file = output_dir.join("raw_extracted.tmj");
-        let raw_png = output_dir.join("raw_extracted.png");
-        if raw_map_file.exists() {
-             let status = Command::new("tmxrasterizer")
-                .arg(&raw_map_file)
-                .arg(&raw_png)
-                .status();
-             match status {
-                Ok(s) if s.success() => println!("[Rasterizer] Success: {:?}", raw_png),
-                _ => eprintln!("[Rasterizer] Failed to rasterize raw map (tmxrasterizer might be missing or failed)"),
-             }
-        }
-    } else {
-        println!("[Rasterizer] Up to date (Skipping).");
+    match status {
+        Ok(s) if s.success() => println!("[Rasterizer] Success: {:?}", output_png),
+        Ok(s) => eprintln!("[Rasterizer] Failed with exit code: {:?}", s.code()),
+        Err(e) => eprintln!("[Rasterizer] Failed to execute tmxrasterizer: {}", e),
     }
+
+    // 2. Render All Raw Debug Maps
+    // Looking for raw_extracted_*.tmj
+    if let Ok(entries) = fs::read_dir(output_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("raw_extracted_") && name.ends_with(".tmj") {
+                    let png_path = path.with_extension("png");
+                     println!("[Rasterizer] Rendering debug map: {}", name);
+                     let _ = Command::new("tmxrasterizer")
+                        .arg(&path)
+                        .arg(&png_path)
+                        .status();
+                }
+            }
+        }
+    }
+
 }

@@ -1,0 +1,16 @@
+{
+    "comment": "Rough estimate",
+    "markers": [
+        {
+            "name": "Vault 4",
+            "type": "Vault",
+            "location": "33.93495283544278, -118.3130328452192"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "33.93495283544278, -118.3130328452192",
+        "radius_hexes": 2,
+        "terrain_type": "Sand"
+    }
+}

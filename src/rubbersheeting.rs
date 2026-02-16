@@ -57,70 +57,67 @@ impl RubberSheet {
     
     fn calculate_affine(control_points: &[ControlPoint], inverse: bool) -> ((f32,f32,f32), (f32,f32,f32), Vec<(f32,f32)>) {
         let n = control_points.len() as f32;
-        let mut sum_u = 0.0;
-        let mut sum_v = 0.0;
-        let mut sum_u2 = 0.0;
-        let mut sum_v2 = 0.0;
-        let mut sum_uv = 0.0;
-        
-        let mut sum_out1 = 0.0;
-        let mut sum_out2 = 0.0;
-        let mut sum_u_out1 = 0.0;
-        let mut sum_v_out1 = 0.0;
-        let mut sum_u_out2 = 0.0;
-        let mut sum_v_out2 = 0.0;
-        
+        if n < 3.0 { return ((0.0,0.0,0.0), (0.0,0.0,0.0), Vec::new()); }
+
+        // --- Numerically Stable Affine: Center the data ---
+        let mut mean_u = 0.0;
+        let mut mean_v = 0.0;
+        let mut mean_out1 = 0.0;
+        let mut mean_out2 = 0.0;
+
         for cp in control_points {
             let (u, v, out1, out2) = if inverse {
                 (cp.real_lat, cp.real_lon, cp.game_x, cp.game_y)
             } else {
                 (cp.game_x, cp.game_y, cp.real_lat, cp.real_lon)
             };
-            
-            sum_u += u;
-            sum_v += v;
-            sum_u2 += u * u;
-            sum_v2 += v * v;
-            sum_uv += u * v;
-            
-            sum_out1 += out1;
-            sum_out2 += out2;
-            sum_u_out1 += u * out1;
-            sum_v_out1 += v * out1;
-            sum_u_out2 += u * out2;
-            sum_v_out2 += v * out2;
+            mean_u += u;
+            mean_v += v;
+            mean_out1 += out1;
+            mean_out2 += out2;
         }
-        
-        let det = sum_u2 * (sum_v2 * n - sum_v * sum_v) -
-                  sum_uv * (sum_uv * n - sum_v * sum_u) +
-                  sum_u * (sum_uv * sum_v - sum_v2 * sum_u);
-                  
-        if det.abs() < 1e-6 {
+        mean_u /= n;
+        mean_v /= n;
+        mean_out1 /= n;
+        mean_out2 /= n;
+
+        let mut s_uu = 0.0;
+        let mut s_vv = 0.0;
+        let mut s_uv = 0.0;
+        let mut s_u_o1 = 0.0;
+        let mut s_v_o1 = 0.0;
+        let mut s_u_o2 = 0.0;
+        let mut s_v_o2 = 0.0;
+
+        for cp in control_points {
+            let (u, v, out1, out2) = if inverse {
+                (cp.real_lat - mean_u, cp.real_lon - mean_v, cp.game_x - mean_out1, cp.game_y - mean_out2)
+            } else {
+                (cp.game_x - mean_u, cp.game_y - mean_v, cp.real_lat - mean_out1, cp.real_lon - mean_out2)
+            };
+            s_uu += u * u;
+            s_vv += v * v;
+            s_uv += u * v;
+            s_u_o1 += u * out1;
+            s_v_o1 += v * out1;
+            s_u_o2 += u * out2;
+            s_v_o2 += v * out2;
+        }
+
+        let det = s_uu * s_vv - s_uv * s_uv;
+        if det.abs() < 1e-9 {
+             println!("[Rubbersheeting] Warning: Near-singular matrix in affine fit");
              return ((0.0,0.0,0.0), (0.0,0.0,0.0), Vec::new());
         }
 
-        let inv_det = 1.0 / det;
-        
-        let m00 = sum_v2 * n - sum_v * sum_v;
-        let m01 = sum_u * sum_v - sum_uv * n;
-        let m02 = sum_uv * sum_v - sum_u * sum_v2;
-        
-        let m10 = m01;
-        let m11 = sum_u2 * n - sum_u * sum_u;
-        let m12 = sum_u * sum_uv - sum_u2 * sum_v;
-        
-        let m20 = m02;
-        let m21 = m12;
-        let m22 = sum_u2 * sum_v2 - sum_uv * sum_uv;
-        
-        let a1 = (m00 * sum_u_out1 + m01 * sum_v_out1 + m02 * sum_out1) * inv_det;
-        let b1 = (m10 * sum_u_out1 + m11 * sum_v_out1 + m12 * sum_out1) * inv_det;
-        let c1 = (m20 * sum_u_out1 + m21 * sum_v_out1 + m22 * sum_out1) * inv_det;
-        
-        let a2 = (m00 * sum_u_out2 + m01 * sum_v_out2 + m02 * sum_out2) * inv_det;
-        let b2 = (m10 * sum_u_out2 + m11 * sum_v_out2 + m12 * sum_out2) * inv_det;
-        let c2 = (m20 * sum_u_out2 + m21 * sum_v_out2 + m22 * sum_out2) * inv_det;
-        
+        let a = (s_vv * s_u_o1 - s_uv * s_v_o1) / det;
+        let b = (s_uu * s_v_o1 - s_uv * s_u_o1) / det;
+        let c = mean_out1 - a * mean_u - b * mean_v;
+
+        let d = (s_vv * s_u_o2 - s_uv * s_v_o2) / det;
+        let e = (s_uu * s_v_o2 - s_uv * s_u_o2) / det;
+        let f = mean_out2 - d * mean_u - e * mean_v;
+
         let mut residuals = Vec::new();
         for cp in control_points {
              let (u, v, actual1, actual2) = if inverse {
@@ -129,14 +126,14 @@ impl RubberSheet {
                 (cp.game_x, cp.game_y, cp.real_lat, cp.real_lon)
             };
             
-            let pred1 = a1 * u + b1 * v + c1;
-            let pred2 = a2 * u + b2 * v + c2;
+            let pred1 = a * u + b * v + c;
+            let pred2 = d * u + e * v + f;
             residuals.push((actual1 - pred1, actual2 - pred2));
         }
         
-        println!("[Rubbersheeting] Affine Loop (Inverse={}): Out1 = {:.2}*U + {:.2}*V + {:.2}", inverse, a1, b1, c1);
+        println!("[Rubbersheeting] Affine Fit (Inverse={}): Out1 = {:.4}*U + {:.4}*V + {:.2}", inverse, a, b, c);
         
-        ((a1, b1, c1), (a2, b2, c2), residuals)
+        ((a, b, c), (d, e, f), residuals)
     }
     
     // Transform Game -> Real (Forward)

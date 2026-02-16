@@ -50,8 +50,18 @@ pub struct RawMapData {
     pub tiles: Vec<RawTile>,
     pub width: u32,
     pub height: u32,
+    #[serde(default = "default_coordinate_scale")]
+    pub coordinate_scale: f32, // How many game units per tile (Interplay=50.0, Manual=1.0)
+    #[serde(default)]
+    pub reference_lat: Option<f32>, // Real-world lat for (0,0) index
+    #[serde(default)]
+    pub reference_lon: Option<f32>, // Real-world lon for (0,0) index
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terrain_data: Option<String>, // WORLDMAP.TXT content if available
+}
+
+fn default_coordinate_scale() -> f32 {
+    50.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,13 +70,21 @@ pub struct RawLocation {
     pub x: f32, // Raw game coordinates
     pub y: f32,
     pub icon_type: IconType,
+    #[serde(default)]
+    pub real_lat: Option<f32>,
+    #[serde(default)]
+    pub real_lon: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RawTile {
-    pub x: u32,
-    pub y: u32,
+    pub x: i32,
+    pub y: i32,
     pub tile_type: String, // "Grass", "Water", "Sand"
+    #[serde(default)]
+    pub real_lat: Option<f32>,
+    #[serde(default)]
+    pub real_lon: Option<f32>,
 }
 
 // FixedMapData might be structurally identical but semantically "correct" 
@@ -92,7 +110,7 @@ pub struct FixedLocation {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FixedTile {
-    pub x: u32,
-    pub y: u32,
+    pub x: i32,
+    pub y: i32,
     pub tile_type: String,
 }

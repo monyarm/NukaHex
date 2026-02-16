@@ -1,0 +1,16 @@
+{
+    "comment": "Based on KPCC, so I placed it there",
+    "markers": [
+        {
+            "name": "KPSS Radio Station",
+            "type": "Radio",
+            "location": "474 S Raymond Ave, Pasadena, CA 91105, United States"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "474 S Raymond Ave, Pasadena, CA 91105, United States",
+        "radius_hexes": 2,
+        "terrain_type": "Sand"
+    }
+}

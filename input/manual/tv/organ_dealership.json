@@ -1,0 +1,16 @@
+{
+    "comment": "Supermarket near Westin Bonaventure Hotel",
+    "markers": [
+        {
+            "name": "Organ Dealership",
+            "type": "Other",
+            "location": "34.047736311780284, -118.26282179073326"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "34.047736311780284, -118.26282179073326",
+        "radius_hexes": 1,
+        "terrain_type": "City"
+    }
+}

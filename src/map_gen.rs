@@ -105,7 +105,7 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
     let unknown_gid = *gid_map.get("terrain_unknown").unwrap_or(&water_gid);
 
     for tile in &map_data.tiles {
-        let index = (tile.y * width + tile.x) as usize;
+        let index = (tile.y as u32 * width + tile.x as u32) as usize;
         if index < data.len() {
             let gid = match tile.tile_type.as_str() {
                 "Grass" => grass_gid,
@@ -149,10 +149,32 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
             .cloned();
 
         
+        // Apply visual offset for Fake Vaults (purely cosmetic, doesn't affect rubbersheeting)
+        let mut adjusted_x = loc.x;
+        let mut adjusted_y = loc.y;
+        
+        if loc.name == "Fake Vault 13a" {
+            // Do nothing
+        } else if loc.name == "Fake Vault 13b" {
+            adjusted_x -= 0.3;
+            adjusted_y += 0.3;
+        }
+        
         // Pixel coordinates (Approx for Stagger Y, H=76, S=38)
-        // Vertical Step = 57. Horizontal Step = 66 (odd row offset 33).
-        let icon_x = loc.x * 66.0f32;
-        let icon_y = loc.y * 57.0f32; 
+        // Vertical Step = 19 * 3 = 57. Horizontal Step = 66 (odd row center offset 33).
+        // For smooth placement, we interpolate the 33px stagger based on Y.
+        // Tiled's stagger is usually discrete, but for high-precision GPS markers,
+        // we use the fractional Y to smoothly offset X.
+        let stagger_offset = if (adjusted_y.floor() as i32) % 2 == 0 {
+            // Even row -> moving towards odd row
+            (adjusted_y - adjusted_y.floor()) * 33.0
+        } else {
+            // Odd row -> moving towards even row
+            33.0 - (adjusted_y - adjusted_y.floor()) * 33.0
+        };
+
+        let icon_x = adjusted_x * 66.0 + stagger_offset;
+        let icon_y = adjusted_y * 57.0;
 
         if let Some(gid) = icon_gid {
             // Center the icon on the hex
@@ -191,13 +213,13 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
             id: next_obj_id,
             name: format!("{}_label", loc.name),
             obj_type: "Text".to_string(),
-            width: 200.0, // Wider text box to fit long names
+            width: 500.0, // Wider text box to fit long names
             height: 20.0,
             rotation: 0.0,
             gid: None, 
             visible: true,
-            x: icon_x - 67.0, // Center relative to hex (66/2 - 200/2 = -67)
-            y: icon_y - 15.0, // Move closer to icon (was -25.0)
+            x: icon_x - 217.0, // Center relative to hex (66/2 - 500/2 = -217)
+            y: icon_y - 5.0, // Move closer to icon (was -25.0)
             point: Some(false),
             text: Some(Text {
                 text: loc.name.clone(),
@@ -262,10 +284,13 @@ pub fn generate_tmj(output_dir: &Path, map_data: &FixedMapData, gid_map: &HashMa
 use crate::schema::RawMapData;
 pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
     // Determine bounds
+    let min_x = raw_data.tiles.iter().map(|t| t.x).min().unwrap_or(0);
+    let min_y = raw_data.tiles.iter().map(|t| t.y).min().unwrap_or(0);
     let max_x = raw_data.tiles.iter().map(|t| t.x).max().unwrap_or(0);
     let max_y = raw_data.tiles.iter().map(|t| t.y).max().unwrap_or(0);
-    let width = max_x + 1;
-    let height = max_y + 1;
+    
+    let width = (max_x - min_x + 1) as u32;
+    let height = (max_y - min_y + 1) as u32;
     
     let water_gid = *gid_map.get("terrain_water").unwrap_or(&1);
     let grass_gid = *gid_map.get("terrain_grass").unwrap_or(&1);
@@ -277,7 +302,7 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
     let mut data = vec![sand_gid; (width * height) as usize]; // Default to sand for extracted data? Or water.
 
     for tile in &raw_data.tiles {
-        let index = (tile.y * width + tile.x) as usize;
+        let index = ((tile.y - min_y) as u32 * width + (tile.x - min_x) as u32) as usize;
         if index < data.len() {
             let gid = match tile.tile_type.as_str() {
                 "Grass" => grass_gid,

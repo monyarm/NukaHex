@@ -1,0 +1,15 @@
+{
+    "markers": [
+        {
+            "name": "Pacific Wheel",
+            "type": "Other",
+            "location": "Pacific Wheel"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "Pacific Wheel",
+        "radius_hexes": 2,
+        "terrain_type": "Sand"
+    }
+}

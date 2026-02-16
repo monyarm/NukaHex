@@ -1,0 +1,15 @@
+{
+    "markers": [
+        {
+            "name": "Area 51",
+            "type": "Other",
+            "location": "Area 51"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "Area 51",
+        "radius_hexes": 5,
+        "terrain_type": "Sand"
+    }
+}

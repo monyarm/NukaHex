@@ -1,0 +1,16 @@
+{
+    "comment": "Near Pacific Wheel and Westfield Mall",
+    "markers": [
+        {
+            "name": "Vault 31/32/33",
+            "type": "Vault",
+            "location": "33.972898494487204, -118.38006515393906"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "33.972898494487204, -118.38006515393906",
+        "radius_hexes": 2,
+        "terrain_type": "Sand"
+    }
+}

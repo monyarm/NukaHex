@@ -7,12 +7,12 @@ mod fixer;
 mod pipeline;
 mod rubbersheeting;
 mod dat_extractor;
+mod geocoding;
 
 use std::path::Path;
 use std::fs;
 use crate::extractors::Extractor;
-use crate::extractors::fallout1::Fallout1Extractor;
-use crate::extractors::fallout2::Fallout2Extractor;
+use crate::extractors::interplay::{FalloutInterplayExtractor, GameVariant};
 
 fn main() -> std::io::Result<()> {
     let tiles_dir = Path::new("output/tiles");
@@ -29,9 +29,11 @@ fn main() -> std::io::Result<()> {
     tile_gen::generate_tiles(tiles_dir)?;
 
     println!("--- Phase 2: Pipeline Execution ---");
+    // Run both Fallout 1 and Fallout 2 extractors
     let extractors: Vec<Box<dyn Extractor>> = vec![
-        Box::new(Fallout1Extractor),
-        // Box::new(Fallout2Extractor), // Commented out - focusing on Fallout 1 first
+        Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
+        Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
+        Box::new(extractors::manual::ManualExtractor::new("input/manual".to_string())),
     ];
 
     pipeline::run_pipeline(extractors, maps_dir);

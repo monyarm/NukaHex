@@ -1,0 +1,15 @@
+{
+    "markers": [
+        {
+            "name": "Govermint HQ",
+            "type": "Other",
+            "location": "11669 Sherman Way, North Hollywood, CA 91605, United States"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "11669 Sherman Way, North Hollywood, CA 91605, United States",
+        "radius_hexes": 2,
+        "terrain_type": "Sand"
+    }
+}

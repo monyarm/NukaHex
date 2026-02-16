@@ -1,0 +1,16 @@
+{
+    "comment": "Reddit narrowed down to Filmore Street, Los Angeles, CA, USA",
+    "markers": [
+        {
+            "name": "Filly",
+            "type": "City",
+            "location": "Filmore Street, Los Angeles, CA, USA"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "Filmore Street, Los Angeles, CA, USA",
+        "radius_hexes": 2,
+        "terrain_type": "City"
+    }
+}
