@@ -10,7 +10,7 @@
     "terrain": {
         "type": "circle",
         "center": "33.93495283544278, -118.3130328452192",
-        "radius_hexes": 2,
+        "radius_hexes": 8,
         "terrain_type": "Sand"
     }
 }

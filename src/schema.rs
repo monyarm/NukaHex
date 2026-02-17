@@ -8,6 +8,8 @@ pub enum IconType {
     Casino,
     Hospital,
     Radio,
+    Monument,
+    Settlement,
     Other,
     Misc,
 }
@@ -48,6 +50,8 @@ impl IconType {
             IconType::Casino => "Casino",
             IconType::Hospital => "Hospital",
             IconType::Radio => "Radio", 
+            IconType::Monument => "Monument",
+            IconType::Settlement => "Settlement",
             IconType::Other => "Other",
             IconType::Misc => "Misc",
         }
@@ -58,6 +62,8 @@ impl IconType {
 pub struct RawMapData {
     pub locations: Vec<RawLocation>,
     pub tiles: Vec<RawTile>,
+
+
     pub width: u32,
     pub height: u32,
     #[serde(default = "default_coordinate_scale")]
@@ -84,6 +90,8 @@ pub struct RawLocation {
     pub real_lat: Option<f32>,
     #[serde(default)]
     pub real_lon: Option<f32>,
+    #[serde(default)]
+    pub terrain_override: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -95,7 +103,11 @@ pub struct RawTile {
     pub real_lat: Option<f32>,
     #[serde(default)]
     pub real_lon: Option<f32>,
+    #[serde(default = "default_weight")]
+    pub weight: f32,
 }
+
+fn default_weight() -> f32 { 1.0 }
 
 // FixedMapData might be structurally identical but semantically "correct" 
 // (e.g. coordinates are now finalized map grid units)

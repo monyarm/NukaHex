@@ -2,8 +2,34 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use std::fs;
+use std::path::Path;
+
+const CACHE_FILE: &str = ".cache/geocode_cache.json";
+
 lazy_static::lazy_static! {
-    static ref GEOCODE_CACHE: Mutex<HashMap<String, (f32, f32)>> = Mutex::new(HashMap::new());
+    static ref GEOCODE_CACHE: Mutex<HashMap<String, (f32, f32)>> = Mutex::new(load_cache());
+}
+
+fn load_cache() -> HashMap<String, (f32, f32)> {
+    if Path::new(CACHE_FILE).exists() {
+        if let Ok(content) = fs::read_to_string(CACHE_FILE) {
+            if let Ok(cache) = serde_json::from_str(&content) {
+                println!("Loaded geocode cache from {}", CACHE_FILE);
+                return cache;
+            }
+        }
+    }
+    HashMap::new()
+}
+
+fn save_cache(cache: &HashMap<String, (f32, f32)>) {
+    if let Some(parent) = Path::new(CACHE_FILE).parent() {
+        fs::create_dir_all(parent).unwrap_or_default();
+    }
+    if let Ok(json) = serde_json::to_string_pretty(cache) {
+        let _ = fs::write(CACHE_FILE, json);
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +85,7 @@ pub fn geocode(query: &str) -> Result<(f32, f32), String> {
     {
         let mut cache = GEOCODE_CACHE.lock().unwrap();
         cache.insert(query.to_string(), (lat, lon));
+        save_cache(&cache); // Persist immediately
     }
     
     Ok((lat, lon))

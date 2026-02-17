@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use sha2::{Sha256, Digest};
 use std::io::Read;
-use serde_json::Value;
+
 use std::process::Command;
 
 use crate::schema::{RawMapData, FixedMapData};
@@ -130,6 +130,7 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
          
          for (i, raw_data) in raw_maps.iter().enumerate() {
              let id = if i < extractors.len() { extractors[i].get_id() } else { "unknown" };
+             if id == "manual" { continue; }
              let debug_filename = format!("raw_extracted_{}.tmj", id);
              let debug_path = output_dir.join(&debug_filename);
              
@@ -184,12 +185,12 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         let gid_map = map_gen::generate_tsj(output_dir).unwrap();
         
         // 1. Generate map with ALL markers
-        map_gen::generate_tmj(output_dir, "map_all.tmj", &final_fixed_data, &gid_map, None).unwrap();
+        map_gen::generate_tmj(output_dir, "map_all.tmj", &final_fixed_data, &gid_map, None, "generic.tsj").unwrap();
 
         // 2. Generate map with FILTERED markers (Cities, Vaults, Monuments)
         // Note: Filters are case-insensitive
         let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Ruins", "Landmark"]; 
-        map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types)).unwrap();
+        map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
         
         fs::write(&builder_hash_file, &builder_hash).unwrap();
     }
@@ -292,12 +293,59 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
                 let score_b = match b.icon_type.to_string() { "Vault" => 3, "City" => 2, _ => 1 };
                 if score_a != score_b { score_b.cmp(&score_a) } else { a.name.len().cmp(&b.name.len()) }
             });
-            let main_name = &sorted_locs[0].name;
-            let safe_name = main_name.replace(" ", "_").replace("/", "-");
+            // Smart Naming Strategy
+            let mut vaults = Vec::new();
+            let mut others = Vec::new();
+
+            for loc in cluster {
+                let name = &loc.name;
+                if name.starts_with("Vault ") {
+                    // Extract numbers "Vault 13" -> "13", "Vault 31/32/33" -> "31", "32", "33"
+                    let parts: Vec<&str> = name.trim_start_matches("Vault ").split(|c| c == '/' || c == ',' || c == '&' || c == ' ').collect();
+                    for p in parts {
+                        if !p.is_empty() { vaults.push(p.to_string()); }
+                    }
+                } else {
+                    let abbr = match name.as_str() {
+                        "Shady Sands" => "NCR",
+                        "The Hub" => "Hub",
+                        "The Boneyard" => "Boneyard", // or LA
+                        "New Reno" => "Reno",
+                        "San Francisco" => "SanFran",
+                        "Vault City" => "VC", // Special case
+                        "Mariposa Military Base" => "Mariposa",
+                        s => s,
+                    };
+                    others.push(abbr.replace(" ", ""));
+                }
+            }
+            
+            vaults.sort();
+            vaults.dedup();
+            others.sort();
+            others.dedup();
+
+            let mut name_parts = Vec::new();
+            if !vaults.is_empty() {
+                name_parts.push(format!("V_{}", vaults.join("_")));
+            }
+            for o in others {
+                name_parts.push(o);
+            }
+            
+            let composite_name = name_parts.join("_");
+            // Sanitize and truncate
+            let safe_name = composite_name.replace("/", "-").replace(" ", "_");
+            let safe_name = if safe_name.len() > 64 {
+                safe_name[..64].to_string()
+            } else {
+                safe_name
+            };
+
             let filename = format!("city_{}.tmj", safe_name);
             let png_name = format!("{}.png", safe_name);
             
-            println!("Generating city map for cluster '{}' ({} locations)...", main_name, cluster.len());
+            println!("Generating city map for cluster '{}' ({} locations)...", safe_name, cluster.len());
             
             // We need to CROP the high_res_data to the cluster bounds
             // 1. Calculate cluster bounds in Lat/Lon
@@ -361,7 +409,7 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
             };
 
             // Generate TMJ
-            map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, None).unwrap();
+            map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, None, "../generic.tsj").unwrap();
 
             // Render PNG
             let tmj_path = cities_dir.join(&filename);

@@ -10,7 +10,7 @@
     "terrain": {
         "type": "circle",
         "center": "34.047736311780284, -118.26282179073326",
-        "radius_hexes": 1,
+        "radius_hexes": 5,
         "terrain_type": "City"
     }
 }

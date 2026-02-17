@@ -1,7 +1,7 @@
 use crate::tiled_structs::*;
 use crate::schema::FixedMapData;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::collections::HashMap;
 use serde_json;
 
@@ -49,7 +49,7 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
                              tiles.push(TileDef { id: next_id, image: rel_path, imageheight: 76, imagewidth: 66 });
                              let stem = path.file_stem().unwrap().to_str().unwrap().to_string(); 
                              gid_map.insert(stem, next_id + 1); // Icons keep original names
-                             next_id += 1;
+                             // next_id += 1;
                          }
                     }
                 }
@@ -61,8 +61,7 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
          if let Some(path) = resolve_asset_path("marker.png") {
              tiles.push(TileDef { id: next_id, image: path, imageheight: 76, imagewidth: 66 });
              gid_map.insert("marker".to_string(), next_id + 1);
-             next_id += 1;
-         }
+        }
     }
     
     // ... (Tileset struct creation same as before) ...
@@ -90,12 +89,12 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
     Ok(gid_map)
 }
 
-pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>) -> std::io::Result<()> {
+pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>, tileset_source: &str) -> std::io::Result<()> {
     let width = map_data.width;
     let height = map_data.height;
     
     let water_gid = *gid_map.get("terrain_water").unwrap_or(&1);
-    let mut data = vec![water_gid; (width * height) as usize]; 
+    let mut data = vec![0; (width * height) as usize]; 
 
     let grass_gid = *gid_map.get("terrain_grass").unwrap_or(&1);
     let sand_gid  = *gid_map.get("terrain_sand").unwrap_or(&1);
@@ -110,12 +109,15 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
             let gid = match tile.tile_type.as_str() {
                 "Grass" => grass_gid,
                 "Water" => water_gid,
-                "Sand" => sand_gid,
+                "Sand" | "SandyDesert" | "Desert"  => sand_gid,
                 "Rock" => rock_gid,
                 "Mountain" => mountain_gid,
-                "City" => city_gid,
+                "City" | "Urban" | "Rubble" => city_gid,
                 "unknown" => unknown_gid,
-                _ => water_gid,
+                _ => {
+                    // println!("Warning: Unknown tile type '{}'", tile.tile_type);
+                    unknown_gid
+                },
             };
             data[index] = gid;
         }
@@ -123,7 +125,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
     
     // ... (rest of generate_tmj same as before up to location loop) ...
     let tilesets = vec![
-        TilesetRef { firstgid: 1, source: "generic.tsj".to_string() }
+        TilesetRef { firstgid: 1, source: tileset_source.to_string() }
     ];
 
     let tile_layer = Layer::TileLayer {
@@ -275,7 +277,6 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
     };
 
     let json = serde_json::to_string_pretty(&map)?;
-    let json = serde_json::to_string_pretty(&map)?;
     fs::write(output_dir.join(filename), json)?;
     println!("Generated {} ({}x{})", filename, width, height);
 
@@ -284,14 +285,9 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
 
 use crate::schema::RawMapData;
 pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
-    // Determine bounds
-    let min_x = raw_data.tiles.iter().map(|t| t.x).min().unwrap_or(0);
-    let min_y = raw_data.tiles.iter().map(|t| t.y).min().unwrap_or(0);
-    let max_x = raw_data.tiles.iter().map(|t| t.x).max().unwrap_or(0);
-    let max_y = raw_data.tiles.iter().map(|t| t.y).max().unwrap_or(0);
-    
-    let width = (max_x - min_x + 1) as u32;
-    let height = (max_y - min_y + 1) as u32;
+    // Standard 1x Resolution
+    let width = raw_data.width;
+    let height = raw_data.height;
     
     let water_gid = *gid_map.get("terrain_water").unwrap_or(&1);
     let grass_gid = *gid_map.get("terrain_grass").unwrap_or(&1);
@@ -299,12 +295,14 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
     let rock_gid  = *gid_map.get("terrain_rock").unwrap_or(&grass_gid);
     let mountain_gid = *gid_map.get("terrain_mountain").unwrap_or(&rock_gid);
     let city_gid = *gid_map.get("terrain_city").unwrap_or(&rock_gid);
+    let unknown_gid = *gid_map.get("terrain_unknown").unwrap_or(&water_gid);
 
-    let mut data = vec![sand_gid; (width * height) as usize]; // Default to sand for extracted data? Or water.
+    // Initialize with Sand (or Unknown/Void if we prefer)
+    let mut data = vec![sand_gid; (width * height) as usize]; 
 
-    for tile in &raw_data.tiles {
-        let index = ((tile.y - min_y) as u32 * width + (tile.x - min_x) as u32) as usize;
-        if index < data.len() {
+    // 1. Render Base Tiles (if present)
+    if !raw_data.tiles.is_empty() {
+        for tile in &raw_data.tiles {
             let gid = match tile.tile_type.as_str() {
                 "Grass" => grass_gid,
                 "Water" => water_gid,
@@ -312,11 +310,20 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
                 "Rock" => rock_gid,
                 "Mountain" => mountain_gid,
                 "City" => city_gid,
-                _ => water_gid,
+                _ => unknown_gid,
             };
-            data[index] = gid;
+            
+            // Render 1x1 Tile
+            if tile.x >= 0 && tile.x < width as i32 && tile.y >= 0 && tile.y < height as i32 {
+                 let idx = (tile.y as u32 * width + tile.x as u32) as usize;
+                 data[idx] = gid;
+            }
         }
     }
+
+    // 2. Render Detail Tiles (REMOVED)
+    // Legacy support removed.
+
 
     let tilesets = vec![
         TilesetRef { firstgid: 1, source: "generic.tsj".to_string() }
@@ -334,47 +341,65 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
         y: 0,
     };
     
-    // Also render locations as objects? simple dots
+    // 3. Render Locations (if present)
     let mut objects = Vec::new();
     let mut next_obj_id = 1;
     let marker_gid = *gid_map.get("marker").unwrap_or(&1);
     
-    for loc in &raw_data.locations {
-         objects.push(Object {
-            id: next_obj_id,
-           name: loc.name.clone(),
-            obj_type: "Location".to_string(),
-            width: 66.0, 
-            height: 76.0,
-            rotation: 0.0,
-            gid: Some(marker_gid), 
-            visible: true,
-            x: loc.x * 10.0, // Scale down locations? Raw locs are 0-1400. Grid is 0-28. 
-            // Warning: Raw locations use PIXEL coords, Raw tiles use GRID coords. 
-            // They won't align without the 50x scale. 
-            // Let's just plot them raw.
-            y: loc.y * 10.0, 
-            point: Some(false),
-            text: Some(Text {
-                text: loc.name.clone(),
-                color: "#FFFFFF".to_string(), 
-                bold: Some(true),
-                halign: "center".to_string(),
-                valign: "bottom".to_string(),
-                pixelsize: 12.0,
-            }),
-        });
-        next_obj_id += 1;
+    // Scale factor based on resolution
+    let loc_scale = 1.0;
+    
+    /*
+    if !raw_data.locations.is_empty() {
+        for loc in &raw_data.locations {
+            let grid_x = (loc.x / 50.0) * loc_scale;
+            let grid_y = (loc.y / 50.0) * loc_scale;
+            
+            objects.push(Object {
+                id: next_obj_id,
+                name: loc.name.clone(),
+                obj_type: "Location".to_string(),
+                width: 40.0, 
+                height: 40.0,
+                rotation: 0.0,
+                gid: Some(marker_gid), 
+                visible: true,
+                x: grid_x * 66.0, 
+                y: grid_y * 76.0, 
+                point: Some(false),
+                text: Some(Text {
+                    text: loc.name.clone(),
+                    color: "#FFFFFF".to_string(), 
+                    bold: Some(true),
+                    halign: "center".to_string(),
+                    valign: "bottom".to_string(),
+                    pixelsize: 12.0,
+                }),
+            });
+            next_obj_id += 1;
+        }
     }
+    */
+
+    // Object layer
+    let object_layer = Layer::ObjectGroup {
+        id: 2,
+        name: "Locations".to_string(),
+        objects,
+        opacity: 1.0,
+        visible: true,
+        x: 0,
+        y: 0,
+    };
 
     let map = TiledMap {
         compressionlevel: -1,
         height,
         width,
         infinite: false,
-        layers: vec![tile_layer], // Just tiles for now to verify data
-        nextlayerid: 2,
-        nextobjectid: 1,
+        layers: vec![tile_layer, object_layer],
+        nextlayerid: 3,
+        nextobjectid: next_obj_id,
         orientation: "hexagonal".to_string(),
         renderorder: "right-down".to_string(),
         tiledversion: "1.10.2".to_string(),

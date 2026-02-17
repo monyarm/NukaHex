@@ -9,7 +9,7 @@
     "terrain": {
         "type": "circle",
         "center": "Area 51",
-        "radius_hexes": 5,
+        "radius_hexes": 50,
         "terrain_type": "Sand"
     }
 }

@@ -9,7 +9,7 @@
     "terrain": {
         "type": "circle",
         "center": "Pacific Wheel",
-        "radius_hexes": 2,
+        "radius_hexes": 8,
         "terrain_type": "Sand"
     }
 }

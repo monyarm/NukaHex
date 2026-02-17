@@ -122,15 +122,40 @@ impl ManualExtractor {
         println!("Extracted {} manual markers and {} terrain tiles", 
                  all_locations.len(), all_tiles.len());
 
-        // Calculate bounds
+        // Calculate bounds and shift to 0,0
+        let min_x = all_tiles.iter().map(|t| t.x).min().unwrap_or(0);
+        let min_y = all_tiles.iter().map(|t| t.y).min().unwrap_or(0);
         let max_x = all_tiles.iter().map(|t| t.x).max().unwrap_or(0);
         let max_y = all_tiles.iter().map(|t| t.y).max().unwrap_or(0);
+        
+        // Shift tiles
+        for tile in &mut all_tiles {
+            tile.x -= min_x;
+            tile.y -= min_y;
+        }
+        
+        // Shift locations (approximate for grid)
+        // Locations use f32 x/y (lon/lat or geocoded).
+        // Wait, RawLocation.x/y are LON/LAT in manual extractor!
+        // "x: lon, y: lat".
+        // They are NOT grid coordinates yet for Manual.
+        // The Fixer converts them.
+        
+        // But RawTile.x/y ARE grid coordinates relative to center?
+        // manual.rs sets RawTile.x/y from dx/dy.
+        
+        // So shifting RawTile.x/y is correct for the TILE grid.
+        // But RawLocation.x/y are distinct.
+        // And manual extractor output is "debug map" uses RawTile.
+        
+        let width = (max_x - min_x + 1) as u32;
+        let height = (max_y - min_y + 1) as u32;
 
         Ok(RawMapData {
             tiles: all_tiles,
             locations: all_locations,
-            width: (max_x + 1) as u32,
-            height: (max_y + 1) as u32,
+            width,
+            height,
             coordinate_scale: 1.0,
             reference_lat: None,
             reference_lon: None,
@@ -185,6 +210,7 @@ impl ManualExtractor {
                                 icon_type,
                                 real_lat: Some(lat),
                                 real_lon: Some(lon),
+                                terrain_override: None,
                             });
                         }
 
@@ -203,7 +229,7 @@ impl ManualExtractor {
         Ok(())
     }
 
-    fn generate_terrain(&self, builder: &TerrainBuilder, all_locations: &mut Vec<RawLocation>) -> Vec<RawTile> {
+    fn generate_terrain(&self, builder: &TerrainBuilder, _all_locations: &mut Vec<RawLocation>) -> Vec<RawTile> {
         match builder {
             TerrainBuilder::Circle { center_lat, center_lon, center, radius_hexes, terrain_type } => {
                 // Resolve center point
@@ -225,14 +251,14 @@ impl ManualExtractor {
                 let hex_step_deg_lat = self.miles_per_hex / 69.0;
                 let hex_step_deg_lon = self.miles_per_hex / 56.5; 
 
-                // Scale radius based on resolution (Input radius is in "Standard Hexes" i.e. 6 miles)
-                // If miles_per_hex is 1.0, we need 6x the radius to cover the same distance.
-                let resolution_scale = 6.0 / self.miles_per_hex;
+                // Scale radius based on resolution (Input radius is in "1-Mile Hexes")
+                // If miles_per_hex is 1.0, scale is 1.0. If miles_per_hex is 6.0, scale is 0.166.
+                let resolution_scale = 1.0 / self.miles_per_hex;
                 let effective_radius = (*radius_hexes as f32 * resolution_scale).round() as u32;
 
                 self.generate_circle_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, effective_radius, terrain_type)
             }
-            TerrainBuilder::Grid { top_left_lat, top_left_lon, top_left, hex_size_degrees, tiles } => {
+            TerrainBuilder::Grid { top_left_lat, top_left_lon, top_left, hex_size_degrees: _, tiles } => {
                 let (lat, lon) = if let (Some(la), Some(lo)) = (top_left_lat, top_left_lon) {
                     (*la, *lo)
                 } else if let Some(q) = top_left {
@@ -270,6 +296,7 @@ impl ManualExtractor {
                         tile_type: terrain_type.to_string(),
                         real_lat: Some(center_lat + dy as f32 * step_lat),
                         real_lon: Some(center_lon + dx as f32 * step_lon),
+                        weight: 1.0,
                     });
                 }
             }
@@ -288,6 +315,7 @@ impl ManualExtractor {
                         tile_type: terrain_type.clone(),
                         real_lat: Some(start_lat - row_idx as f32 * step_lat), // Lat decreases southwards
                         real_lon: Some(start_lon + col_idx as f32 * step_lon),
+                        weight: 1.0,
                     });
                 }
             }

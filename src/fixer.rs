@@ -1,7 +1,7 @@
 use crate::schema::{RawMapData, FixedMapData, FixedTile, FixedLocation};
 use crate::rubbersheeting::{RubberSheet, ControlPoint};
 use crate::geocoding;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // User-provided real-world coordinates
 // Each entry can be either:
@@ -108,13 +108,13 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
 
 
 // --- INVERSE WARPING PIPELINE ---
-struct MapGroup {
-    pub locations: Vec<RawMapData>, // Just the data parts? No, full map.
-    pub combined_locations: Vec<FixedLocation>,
-    pub combined_tiles: Vec<(i32, i32, String)>,
-    pub control_points: Vec<ControlPoint>,
-    pub id: usize,
-}
+// struct MapGroup {
+//     pub locations: Vec<RawMapData>, // Just the data parts? No, full map.
+//     pub combined_locations: Vec<FixedLocation>,
+//     pub combined_tiles: Vec<(i32, i32, String)>,
+//     pub control_points: Vec<ControlPoint>,
+//     pub id: usize,
+// }
 
 fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f32) -> FixedMapData {
     if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0 }; }
@@ -124,19 +124,36 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let universe_origin_lon = -130.0;
 
     // 0. Build a Geographic Tile Map for all tiles that ALREADY have lat/lon (Manual data)
+    // 0. Build a Manual Points Bin for sub-grid interpolation
+    // We use a fixed ~6-mile grid for binning to ensure consistent lookup regardless of rendering resolution
     let lat_step = miles_per_hex / MILES_PER_DEGREE_LAT;
     let lon_step = miles_per_hex / MILES_PER_DEGREE_LON_AT_35N;
-    let mut geo_tile_map: HashMap<(i32, i32), String> = HashMap::new();
-
+    
+    let bin_lat_step = 1.0 / MILES_PER_DEGREE_LAT;
+    let bin_lon_step = 1.0 / MILES_PER_DEGREE_LON_AT_35N;
+    
+    struct ManualPoint {
+        lat: f32,
+        lon: f32,
+        tile_type: String,
+        weight: f32,
+    }
+    
+    let mut manual_points_bins: HashMap<(i32, i32), Vec<ManualPoint>> = HashMap::new();
     let mut manual_projected_lats = Vec::new();
     let mut manual_projected_lons = Vec::new();
 
     for map in &raw_maps {
         for tile in &map.tiles {
             if let (Some(lat), Some(lon)) = (tile.real_lat, tile.real_lon) {
-                let lat_idx = ((lat - universe_origin_lat) / lat_step).round() as i32;
-                let lon_idx = ((lon - universe_origin_lon) / lon_step).round() as i32;
-                geo_tile_map.insert((lat_idx, lon_idx), tile.tile_type.clone());
+                let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
+                let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+                
+                manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
+                    lat, lon, tile_type: tile.tile_type.clone(),
+                    weight: 2.0, // High manual weight to override game data
+                });
+                
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
             }
@@ -168,8 +185,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
     // Build independent RubberSheets and tile maps for Interplay games (coordinate_scale > 1.0)
     let mut game_sheets: Vec<Option<(RubberSheet, f32)>> = Vec::new();
-    let mut game_tile_maps: Vec<HashMap<(i32, i32), String>> = Vec::new();
-    let mut all_real_world_locs: Vec<(String, f32, f32, crate::schema::IconType)> = Vec::new();
+    let mut game_tile_maps: Vec<HashMap<(i32, i32), (String, f32)>> = Vec::new();
+    let mut all_real_world_locs: Vec<(String, f32, f32, crate::schema::IconType, Option<String>)> = Vec::new();
     let mut seen_locations: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (game_idx, map) in raw_maps.iter().enumerate() {
@@ -199,8 +216,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             }
         }
 
-        println!("Game #{} has {} hardcoded control points", game_idx, control_points.len());
-
+        println!("Game #{} has {} hardcoded control points: {:?}", game_idx, control_points.len(), control_points.iter().map(|c| &c.name).collect::<Vec<_>>());
+        
         let sheet_opt = if control_points.len() >= 3 {
             let sheet = RubberSheet::new(control_points);
             
@@ -211,7 +228,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 seen_locations.insert(name_lower);
                 
                 let (lat, lon) = sheet.transform(loc.x, loc.y);
-                all_real_world_locs.push((loc.name.clone(), lat, lon, loc.icon_type));
+                all_real_world_locs.push((loc.name.clone(), lat, lon, loc.icon_type, loc.terrain_override.clone()));
             }
             Some((sheet, map.coordinate_scale))
         } else {
@@ -222,17 +239,33 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
         let mut tile_map = HashMap::new();
         for tile in &map.tiles {
-            tile_map.insert((tile.x, tile.y), tile.tile_type.clone());
+            tile_map.insert((tile.x, tile.y), (tile.tile_type.clone(), tile.weight));
         }
         game_tile_maps.push(tile_map);
+        let _sheet_ref = &game_sheets[game_idx];
     }
 
     // 2. Add Manual Markers (GPS accurate)
     for map in &raw_maps {
         for loc in &map.locations {
             if let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) {
-                all_real_world_locs.push((loc.name.clone(), lat, lon, loc.icon_type));
+                all_real_world_locs.push((loc.name.clone(), lat, lon, loc.icon_type, loc.terrain_override.clone()));
             }
+        }
+    }
+
+    // Add terrain overrides as high-weight manual points
+    for (_, lat, lon, _, terrain_opt) in &all_real_world_locs {
+        if let Some(terrain) = terrain_opt {
+            let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
+            let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+            
+                manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
+                    lat: *lat, 
+                    lon: *lon, 
+                    tile_type: terrain.clone(),
+                    weight: 3.0, // High weight for specific location terrain overrides
+                });
         }
     }
 
@@ -275,8 +308,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     projected_lons.extend(manual_projected_lons);
     
     // Also include marker locations to ensure they're visible
-    projected_lats.extend(all_real_world_locs.iter().map(|(_, lat, _, _)| *lat));
-    projected_lons.extend(all_real_world_locs.iter().map(|(_, _, lon, _)| *lon));
+    projected_lats.extend(all_real_world_locs.iter().map(|(_, lat, ..)| *lat));
+    projected_lons.extend(all_real_world_locs.iter().map(|(_, _, lon, ..)| *lon));
 
     if !projected_lats.is_empty() {
         let temp_min_lat = projected_lats.iter().fold(f32::INFINITY, |a, &b| a.min(b));
@@ -316,10 +349,14 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     println!("Stable Grid ({:.1} mi/hex): {}x{} hexes anchored at lat={}, lon={}", 
              miles_per_hex, grid_width, grid_height, get_lat(max_lat_idx), get_lon(min_lon_idx));
 
-    // 4. Inverse Sampling Loop (Composite)
+    // 4. Inverse Sampling Loop (IDW Interpolation)
     let mut fixed_tiles = Vec::new();
     let mut filled_count = 0;
     
+    // Constants for 6-mile grid (Game Data)
+    let _game_step_lat = 6.0 / MILES_PER_DEGREE_LAT;
+    let _game_step_lon = 6.0 / MILES_PER_DEGREE_LON_AT_35N;
+
     for y in 0..grid_height {
         // High Y index = South (further from origin 50N)
         let current_lat_idx = max_lat_idx - y as i32;
@@ -329,43 +366,240 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             let current_lon_idx = min_lon_idx + x as i32;
             let lon = get_lon(current_lon_idx);
             
-            let mut resolved_type = None;
+            let mut type_votes: HashMap<String, f32> = HashMap::new();
 
-            // A) Priority 1: Manual Geographic Tile Map (exact GPS mapping)
-            if let Some(tile_type) = geo_tile_map.get(&(current_lat_idx, current_lon_idx)) {
-                resolved_type = Some(tile_type.clone());
+            // A) Manual Data (Sub-Grid Interpolation)
+            // Find which 6-mile bin this target coordinates falls into
+            let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
+            let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+
+            // Check 17x17 bins around the target (radius ~8 miles) to allow soft falloff
+            for by in (bin_y - 8)..=(bin_y + 8) {
+                for bx in (bin_x - 8)..=(bin_x + 8) {
+                    if let Some(points) = manual_points_bins.get(&(by, bx)) {
+                        for p in points {
+                            // Calculate distance in "6-mile hex units" for consistency with game data weighting
+                            let d_lat = (p.lat - lat) / bin_lat_step; // d_lat in BIN units (1 mile)
+                            let d_lon = (p.lon - lon) / bin_lon_step;
+                            // Convert to "6-mile units" approx: 1 bin = 1/6 unit.
+                            // But wait, the Game Logic uses "Game Grid Units" (6 miles).
+                            // Let's just Normalize Distance weights.
+                            // If we treat d_lat as "Miles", and Game d_lat as "6-Miles", we have a mismatch.
+                            
+                            // Let's convert Manual Distance (Miles) to Game Distance (6-Miles)
+                            // d_lat (miles) / 6.0 = d_lat (game units)
+                            let d_lat_game = d_lat / 6.0;
+                            let d_lon_game = d_lon / 6.0;
+                            
+                            let dist_sq = d_lat_game*d_lat_game + d_lon_game*d_lon_game;
+                            
+                            // Weight: point weight * inversely proportional to distance squared
+                            // Use same falloff as game data
+                            let weight = (1.0 / (dist_sq + 0.01)) * p.weight;
+                            *type_votes.entry(p.tile_type.clone()).or_insert(0.0) += weight;
+                        }
+                    }
+                }
             }
 
-            // B) Priority 2: Game Sheets (Interplay rubbersheeting)
-            if resolved_type.is_none() {
-                for (game_idx, sheet_opt) in game_sheets.iter().enumerate() {
-                    if let Some((sheet, terrain_scale)) = sheet_opt {
-                        if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
-                            // Boundary Check: Ensure we don't extrapolate far outside the 28x30 tile grid
-                            // which could lead to artifacts bleeding between maps.
-                            if gx < -20.0 || gx > (28.0 * terrain_scale + 20.0) || 
-                               gy < -20.0 || gy > (30.0 * terrain_scale + 20.0) {
-                                continue;
-                            }
+            // B) Game Data (IDW Interpolation on Integer Grid)
+            for (game_idx, sheet_opt) in game_sheets.iter().enumerate() {
+                if let Some((sheet, terrain_scale)) = sheet_opt {
+                    if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
+                        // Boundary Check
+                        if gx < -20.0 || gx > (28.0 * terrain_scale + 20.0) || 
+                           gy < -20.0 || gy > (30.0 * terrain_scale + 20.0) {
+                            continue;
+                        }
 
-                            let rx = (gx / (*terrain_scale)).round() as i32;
-                            let ry = (gy / (*terrain_scale)).round() as i32;
-                            
-                            if let Some(tile_type) = game_tile_maps[game_idx].get(&(rx, ry)) {
-                                resolved_type = Some(tile_type.clone());
-                                break; // First hit wins
+                        // Scale to game integer grid
+                        let rx = gx / (*terrain_scale);
+                        let ry = gy / (*terrain_scale);
+                        
+                        // Sample 3x3 integer grid points around (rx, ry)
+                        let base_rx = rx.round() as i32;
+                        let base_ry = ry.round() as i32;
+
+                        for irx in (base_rx - 1)..=(base_rx + 1) {
+                            for iry in (base_ry - 1)..=(base_ry + 1) {
+                                // Strict bounds check to prevent bleeding edge tiles into the void (Ocean)
+                                if irx < 0 || iry < 0 || irx >= raw_maps[game_idx].width as i32 || iry >= raw_maps[game_idx].height as i32 {
+                                    continue;
+                                }
+
+                            if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&(irx, iry)) {
+                                    let dx = rx - irx as f32;
+                                    let dy = ry - iry as f32;
+                                    let dist_sq = dx*dx + dy*dy;
+                                    
+                                    // Weight: Uses the tile's own weight (e.g. 2.0 for MSK)
+                                    // Only consider if reasonably close
+                                    if dist_sq < 4.0 {
+                                        let weight = (1.0 / (dist_sq + 0.01)) * (*base_weight);
+                                *type_votes.entry(tile_type.clone()).or_insert(0.0) += weight;
                             }
                         }
                     }
                 }
             }
+                }
+            }
             
-            if let Some(t) = resolved_type {
+            // Resolve Winner-Take-All
+            let best_type = type_votes.iter()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(t, _)| t.clone());
+            
+            if let Some(t) = best_type {
                 fixed_tiles.push(FixedTile { x: x as i32, y: y as i32, tile_type: t });
                 filled_count += 1;
             } else {
                  fixed_tiles.push(FixedTile { x: x as i32, y: y as i32, tile_type: "unknown".to_string() });
             }
+        }
+    }
+
+
+    {
+        // 1. Build Spatial Map for fast lookups
+        let mut map_grid: HashMap<(i32, i32), (usize, String)> = HashMap::new();
+        for (i, t) in fixed_tiles.iter().enumerate() {
+            map_grid.insert((t.x, t.y), (i, t.tile_type.clone()));
+        }
+
+        let mut to_update: Vec<(usize, String)> = Vec::new();
+
+        // Pass 1: Remove small Water groups (< 5)
+        let mut visited_water: HashSet<(i32, i32)> = HashSet::new();
+        // Identify all water tiles
+        let water_keys: Vec<(i32, i32)> = map_grid.iter()
+            .filter(|(_, (_, t))| t == "Water" || t == "ocean")
+            .map(|(&k, _)| k)
+            .collect();
+
+        for start in water_keys {
+            if visited_water.contains(&start) { continue; }
+            
+            // BFS
+            let mut group_idxs = Vec::new();
+            let mut boundary_votes: HashMap<String, i32> = HashMap::new();
+            let mut queue = vec![start];
+            visited_water.insert(start);
+            
+            if let Some((idx, _)) = map_grid.get(&start) { group_idxs.push(*idx); }
+
+            let mut head = 0;
+            while head < queue.len() {
+                let (cx, cy) = queue[head];
+                head += 1;
+
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 { continue; }
+                        let nx = cx + dx;
+                        let ny = cy + dy;
+
+                        if let Some((n_idx, n_type)) = map_grid.get(&(nx, ny)) {
+                            if n_type == "Water" || n_type == "ocean" {
+                                if !visited_water.contains(&(nx, ny)) {
+                                    visited_water.insert((nx, ny));
+                                    queue.push((nx, ny));
+                                    group_idxs.push(*n_idx);
+                                }
+                            } else {
+                                // Land neighbor -> Vote
+                                *boundary_votes.entry(n_type.clone()).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if group_idxs.len() < 5 {
+                // Determine replacement
+                let best_land = boundary_votes.iter()
+                    .max_by_key(|&(_, c)| c)
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or("Sand".to_string());
+                
+                for idx in group_idxs {
+                    to_update.push((idx, best_land.clone()));
+                }
+            }
+        }
+
+        // Apply Pass 1 updates immediately so Pass 2 sees them?
+        // Yes, otherwise a single land speck might be surrounded by small water specks we just removed.
+        for (idx, new_type) in &to_update {
+            fixed_tiles[*idx].tile_type = new_type.clone();
+            // Update map_grid too for Pass 2
+            let t = &fixed_tiles[*idx];
+            map_grid.insert((t.x, t.y), (*idx, new_type.clone()));
+        }
+        to_update.clear();
+
+        // Pass 2: Remove small Land specks (< 2)
+        let mut visited_land: HashSet<(i32, i32)> = HashSet::new();
+        // Identify all LAND tiles (not Water/Ocean)
+        let land_keys: Vec<(i32, i32)> = map_grid.iter()
+            .filter(|(_, (_, t))| t != "Water" && t != "ocean")
+            .map(|(&k, _)| k)
+            .collect();
+            
+        for start in land_keys {
+            if visited_land.contains(&start) { continue; }
+
+            // BFS
+            let mut group_idxs = Vec::new();
+            let mut boundary_votes: HashMap<String, i32> = HashMap::new(); // Likely mostly water
+            let mut queue = vec![start];
+            visited_land.insert(start);
+            
+            if let Some((idx, _)) = map_grid.get(&start) { group_idxs.push(*idx); }
+
+            let mut head = 0;
+            while head < queue.len() {
+                let (cx, cy) = queue[head];
+                head += 1;
+
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 { continue; }
+                        let nx = cx + dx;
+                        let ny = cy + dy;
+
+                        if let Some((n_idx, n_type)) = map_grid.get(&(nx, ny)) {
+                            if n_type != "Water" && n_type != "ocean" {
+                                if !visited_land.contains(&(nx, ny)) {
+                                    visited_land.insert((nx, ny));
+                                    queue.push((nx, ny));
+                                    group_idxs.push(*n_idx);
+                                }
+                            } else {
+                                // Water neighbor -> Vote
+                                *boundary_votes.entry(n_type.clone()).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if group_idxs.len() < 2 {
+                // Too small -> Flip to Water
+                let best_water = boundary_votes.iter()
+                    .max_by_key(|&(_, c)| c)
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or("Water".to_string()); // Default Water
+
+                for idx in group_idxs {
+                    to_update.push((idx, best_water.clone()));
+                }
+            }
+        }
+
+        // Apply Pass 2
+        for (idx, new_type) in to_update {
+            fixed_tiles[idx].tile_type = new_type;
         }
     }
     
@@ -374,7 +608,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // 5. Place Locations FIRST (on untrimmed grid)
     let mut all_locations_placed: Vec<FixedLocation> = Vec::new();
     
-    for (name, lat, lon, icon_type) in all_real_world_locs.iter() {
+    for (name, lat, lon, icon_type, _) in all_real_world_locs.iter() {
         let f_lat_idx = (lat - universe_origin_lat) / lat_step;
         let f_lon_idx = (lon - universe_origin_lon) / lon_step;
         let grid_x = f_lon_idx - (min_lon_idx as f32);
@@ -471,6 +705,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     }
 }
 
+#[allow(dead_code)]
 fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
     // Step 1: Collect all locations from extractor (with game coordinates)
     let mut all_locations = Vec::new();
