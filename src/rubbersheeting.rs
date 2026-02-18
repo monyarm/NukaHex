@@ -1,6 +1,7 @@
 // Smooth Rubbersheeting using Affine Transformation + Inverse Distance Weighting (IDW) of Residuals
 // This approach provides a global trend (Affine) for extrapolation and a local warp (IDW) for correcting specific locations.
 // Eliminates triangulation artifacts (creases, straight lines) and provides "averaged" movement as requested.
+use log::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct ControlPoint {
@@ -106,7 +107,7 @@ impl RubberSheet {
 
         let det = s_uu * s_vv - s_uv * s_uv;
         if det.abs() < 1e-9 {
-             println!("[Rubbersheeting] Warning: Near-singular matrix in affine fit");
+             warn!("[Rubbersheeting] Warning: Near-singular matrix in affine fit");
              return ((0.0,0.0,0.0), (0.0,0.0,0.0), Vec::new());
         }
 
@@ -118,20 +119,22 @@ impl RubberSheet {
         let e = (s_uu * s_v_o2 - s_uv * s_u_o2) / det;
         let f = mean_out2 - d * mean_u - e * mean_v;
 
+        // Calculate residuals
         let mut residuals = Vec::new();
         for cp in control_points {
-             let (u, v, actual1, actual2) = if inverse {
+            let (u, v, out1, out2) = if inverse {
                 (cp.real_lat, cp.real_lon, cp.game_x, cp.game_y)
             } else {
                 (cp.game_x, cp.game_y, cp.real_lat, cp.real_lon)
             };
             
-            let pred1 = a * u + b * v + c;
-            let pred2 = d * u + e * v + f;
-            residuals.push((actual1 - pred1, actual2 - pred2));
+            let calc_out1 = a * u + b * v + c;
+            let calc_out2 = d * u + e * v + f;
+            
+            residuals.push((out1 - calc_out1, out2 - calc_out2));
         }
-        
-        println!("[Rubbersheeting] Affine Fit (Inverse={}): Out1 = {:.4}*U + {:.4}*V + {:.2}", inverse, a, b, c);
+
+        info!("[Rubbersheeting] Affine Fit (Inverse={}): Out1 = {:.4}*U + {:.4}*V + {:.2}", inverse, a, b, c);
         
         ((a, b, c), (d, e, f), residuals)
     }

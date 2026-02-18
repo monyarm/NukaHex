@@ -1,0 +1,72 @@
+{
+    "coordinate_system": "Relative",
+    "markers": [
+        {
+            "name": "Arroyo",
+            "type": "City",
+            "x": 0,
+            "y": 0
+        },
+        {
+            "name": "Crossroads Camp",
+            "type": "Other",
+            "x": 0,
+            "y": 1
+        },
+        {
+            "name": "Shady Sands",
+            "type": "City",
+            "x": 3,
+            "y": 5
+        },
+        {
+            "name": "Poseidon Energy Oil Rig",
+            "type": "Monument",
+            "x": 0,
+            "y": 4
+        }
+    ],
+    "rows": [
+        [
+            "s",
+            "u",
+            "u",
+            "u",
+            "u"
+        ],
+        [
+            "s",
+            "u",
+            "u",
+            "u",
+            "u"
+        ],
+        [
+            "u",
+            "u",
+            "u",
+            "u",
+            "u"
+        ],
+        [
+            "u",
+            "u",
+            "u",
+            "u",
+            "u"
+        ],
+        [
+            "s",
+            "u",
+            "u",
+            "u",
+            "u"
+        ],
+        [
+            "u",
+            "u",
+            "u",
+            "s"
+        ]
+    ]
+}

@@ -1,4 +1,5 @@
 use image::{Rgba, RgbaImage};
+use log::info;
 use imageproc::drawing::draw_polygon_mut;
 use imageproc::point::Point;
 use std::path::Path;
@@ -22,7 +23,7 @@ pub fn generate_tiles(output_dir: &Path) -> std::io::Result<()> {
     for (filename, fill, border) in tiles {
         let path = output_dir.join(filename);
         if path.exists() {
-            println!("Skipping existing tile: {}", filename);
+            info!("Skipping existing tile: {}", filename);
             continue;
         }
 
@@ -61,7 +62,7 @@ pub fn generate_tiles(output_dir: &Path) -> std::io::Result<()> {
         draw_polygon_mut(&mut img, &inner_points, fill);
 
         img.save(&path).expect("Failed to save hex tile");
-        println!("Generated hex tile: {} ({}x{})", filename, w, h);
+        info!("Generated hex tile: {} ({}x{})", filename, w, h);
     }
 
     // Marker (Red Circle)

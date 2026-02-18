@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 use serde_json;
+use log::{info, warn};
 
 fn resolve_asset_path(filename: &str) -> Option<String> {
     if Path::new("input").join(filename).exists() {
@@ -85,38 +86,53 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
 
     let json = serde_json::to_string_pretty(&tileset)?;
     fs::write(output_dir.join("generic.tsj"), json)?;
-    println!("Generated tileset generic.tsj");
+    info!("Generated tileset generic.tsj");
     Ok(gid_map)
+}
+
+struct TerrainGids {
+    grass: u32,
+    water: u32,
+    sand: u32,
+    rock: u32,
+    mountain: u32,
+    city: u32,
+    unknown: u32,
+}
+
+fn get_terrain_gids(gid_map: &HashMap<String, u32>) -> TerrainGids {
+    let water = *gid_map.get("terrain_water").unwrap_or(&1);
+    let grass = *gid_map.get("terrain_grass").unwrap_or(&1);
+    let sand  = *gid_map.get("terrain_sand").unwrap_or(&1);
+    let rock  = *gid_map.get("terrain_rock").unwrap_or(&grass);
+    let mountain = *gid_map.get("terrain_mountain").unwrap_or(&rock);
+    let city = *gid_map.get("terrain_city").unwrap_or(&rock);
+    let unknown = *gid_map.get("terrain_unknown").unwrap_or(&water);
+    
+    TerrainGids { grass, water, sand, rock, mountain, city, unknown }
 }
 
 pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>, tileset_source: &str) -> std::io::Result<()> {
     let width = map_data.width;
     let height = map_data.height;
     
-    let water_gid = *gid_map.get("terrain_water").unwrap_or(&1);
+    let gids = get_terrain_gids(gid_map);
     let mut data = vec![0; (width * height) as usize]; 
-
-    let grass_gid = *gid_map.get("terrain_grass").unwrap_or(&1);
-    let sand_gid  = *gid_map.get("terrain_sand").unwrap_or(&1);
-    let rock_gid  = *gid_map.get("terrain_rock").unwrap_or(&grass_gid);
-    let mountain_gid = *gid_map.get("terrain_mountain").unwrap_or(&rock_gid);
-    let city_gid = *gid_map.get("terrain_city").unwrap_or(&rock_gid);
-    let unknown_gid = *gid_map.get("terrain_unknown").unwrap_or(&water_gid);
 
     for tile in &map_data.tiles {
         let index = (tile.y as u32 * width + tile.x as u32) as usize;
         if index < data.len() {
             let gid = match tile.tile_type.as_str() {
-                "Grass" => grass_gid,
-                "Water" => water_gid,
-                "Sand" | "SandyDesert" | "Desert"  => sand_gid,
-                "Rock" => rock_gid,
-                "Mountain" => mountain_gid,
-                "City" | "Urban" | "Rubble" => city_gid,
-                "unknown" => unknown_gid,
+                "Grass" => gids.grass,
+                "Water" => gids.water,
+                "Sand" | "SandyDesert" | "Desert"  => gids.sand,
+                "Rock" => gids.rock,
+                "Mountain" => gids.mountain,
+                "City" | "Urban" | "Rubble" => gids.city,
+                "unknown" => gids.unknown,
                 _ => {
-                    // println!("Warning: Unknown tile type '{}'", tile.tile_type);
-                    unknown_gid
+                    // warn!("Warning: Unknown tile type '{}'", tile.tile_type);
+                    gids.unknown
                 },
             };
             data[index] = gid;
@@ -161,6 +177,11 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         // Apply visual offset for Fake Vaults (purely cosmetic, doesn't affect rubbersheeting)
         let mut adjusted_x = loc.x;
         let mut adjusted_y = loc.y;
+
+        if loc.name == "Fake Vault 13a" {
+            adjusted_x += 0.5;
+            adjusted_y += 0.5;
+        }
         
         // Pixel coordinates (Approx for Stagger Y, H=76, S=38)
         // Vertical Step = 19 * 3 = 57. Horizontal Step = 66 (odd row center offset 33).
@@ -278,39 +299,33 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
 
     let json = serde_json::to_string_pretty(&map)?;
     fs::write(output_dir.join(filename), json)?;
-    println!("Generated {} ({}x{})", filename, width, height);
+    info!("Generated {} ({}x{})", filename, width, height);
 
     Ok(())
 }
 
 use crate::schema::RawMapData;
-pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
+pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
     // Standard 1x Resolution
     let width = raw_data.width;
     let height = raw_data.height;
     
-    let water_gid = *gid_map.get("terrain_water").unwrap_or(&1);
-    let grass_gid = *gid_map.get("terrain_grass").unwrap_or(&1);
-    let sand_gid  = *gid_map.get("terrain_sand").unwrap_or(&1);
-    let rock_gid  = *gid_map.get("terrain_rock").unwrap_or(&grass_gid);
-    let mountain_gid = *gid_map.get("terrain_mountain").unwrap_or(&rock_gid);
-    let city_gid = *gid_map.get("terrain_city").unwrap_or(&rock_gid);
-    let unknown_gid = *gid_map.get("terrain_unknown").unwrap_or(&water_gid);
+    let gids = get_terrain_gids(gid_map);
 
     // Initialize with Sand (or Unknown/Void if we prefer)
-    let mut data = vec![sand_gid; (width * height) as usize]; 
+    let mut data = vec![gids.sand; (width * height) as usize]; 
 
     // 1. Render Base Tiles (if present)
     if !raw_data.tiles.is_empty() {
         for tile in &raw_data.tiles {
             let gid = match tile.tile_type.as_str() {
-                "Grass" => grass_gid,
-                "Water" => water_gid,
-                "Sand" => sand_gid,
-                "Rock" => rock_gid,
-                "Mountain" => mountain_gid,
-                "City" => city_gid,
-                _ => unknown_gid,
+                "Grass" => gids.grass,
+                "Water" => gids.water,
+                "Sand" => gids.sand,
+                "Rock" => gids.rock,
+                "Mountain" => gids.mountain,
+                "City" => gids.city,
+                _ => gids.unknown,
             };
             
             // Render 1x1 Tile
@@ -320,9 +335,6 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
             }
         }
     }
-
-    // 2. Render Detail Tiles (REMOVED)
-    // Legacy support removed.
 
 
     let tilesets = vec![
@@ -342,46 +354,8 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
     };
     
     // 3. Render Locations (if present)
-    let mut objects = Vec::new();
-    let mut next_obj_id = 1;
-    let marker_gid = *gid_map.get("marker").unwrap_or(&1);
-    
-    // Scale factor based on resolution
-    let loc_scale = 1.0;
-    
-    /*
-    if !raw_data.locations.is_empty() {
-        for loc in &raw_data.locations {
-            let grid_x = (loc.x / 50.0) * loc_scale;
-            let grid_y = (loc.y / 50.0) * loc_scale;
-            
-            objects.push(Object {
-                id: next_obj_id,
-                name: loc.name.clone(),
-                obj_type: "Location".to_string(),
-                width: 40.0, 
-                height: 40.0,
-                rotation: 0.0,
-                gid: Some(marker_gid), 
-                visible: true,
-                x: grid_x * 66.0, 
-                y: grid_y * 76.0, 
-                point: Some(false),
-                text: Some(Text {
-                    text: loc.name.clone(),
-                    color: "#FFFFFF".to_string(), 
-                    bold: Some(true),
-                    halign: "center".to_string(),
-                    valign: "bottom".to_string(),
-                    pixelsize: 12.0,
-                }),
-            });
-            next_obj_id += 1;
-        }
-    }
-    */
-
-    // Object layer
+    let objects = Vec::new();
+    let next_obj_id = 1;
     let object_layer = Layer::ObjectGroup {
         id: 2,
         name: "Locations".to_string(),
@@ -414,8 +388,8 @@ pub fn generate_raw_tmj(output_dir: &Path, raw_data: &RawMapData, gid_map: &Hash
     };
 
     let json = serde_json::to_string_pretty(&map)?;
-    fs::write(output_dir.join("raw_extracted.tmj"), json)?;
-    println!("Generated raw_extracted.tmj ({}x{})", width, height);
+    fs::write(output_dir.join(filename), json)?;
+    info!("Generated {} ({}x{})", filename, width, height);
 
     Ok(())
 }

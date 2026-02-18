@@ -58,14 +58,33 @@ impl IconType {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum CoordinateSystem {
+    Absolute, // Uses real_lat/real_lon as primary, or rubbersheeting
+    Relative, // Uses unknown hex-grid, solves based on anchors
+}
+
+impl Default for CoordinateSystem {
+    fn default() -> Self { CoordinateSystem::Absolute }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RawMapData {
     pub locations: Vec<RawLocation>,
     pub tiles: Vec<RawTile>,
 
-
     pub width: u32,
     pub height: u32,
+
+    #[serde(default)]
+    pub coordinate_system: CoordinateSystem,
+
+    #[serde(default)]
+    pub rows: Option<Vec<Vec<String>>>, // 2D array input for terrain
+    
+    #[serde(default)]
+    pub has_grid: bool, // Flag for debug map generation
+    
     #[serde(default = "default_coordinate_scale")]
     pub coordinate_scale: f32, // How many game units per tile (Interplay=50.0, Manual=1.0)
     #[serde(default)]

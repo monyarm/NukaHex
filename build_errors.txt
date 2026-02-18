@@ -1,0 +1,220 @@
+    Checking fallout_map_generator v0.1.0 (/home/monyarm/Documents/TTRPG/Software/FalloutMap)
+warning: unused import: `warn`
+ --> src/map_gen.rs:7:17
+  |
+7 | ...o, warn};
+  |       ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `error`
+ --> src/fixer.rs:5:23
+  |
+5 | ...n, error};
+  |       ^^^^^
+
+warning: unused imports: `error` and `warn`
+  --> src/main.rs:20:17
+   |
+20 | ...o, warn, error};
+   |       ^^^^  ^^^^^
+
+error[E0267]: `continue` inside of a closure
+   --> src/pipeline.rs:220:37
+    |
+145 | ...rate().for_each(|(_idx, cluster)| {
+    |                    ----------------- enclosing closure
+...
+220 | ... { continue; }
+    |       ^^^^^^^^ cannot `continue` inside of a closure
+
+error[E0599]: the method `par_iter` exists for struct `Vec<...>`, but its trait bounds were not satisfied
+  --> src/pipeline.rs:26:57
+   |
+26 | ...rs.par_iter()....
+   |       ^^^^^^^^
+   |
+   = note: the following trait bounds were not satisfied:
+           `&Vec<Box<dyn Extractor>>: IntoParallelIterator`
+           which is required by `Vec<Box<dyn Extractor>>: rayon::iter::IntoParallelRefIterator<'_>`
+           `&[Box<dyn Extractor>]: IntoParallelIterator`
+           which is required by `[Box<dyn Extractor>]: rayon::iter::IntoParallelRefIterator<'_>`
+   = note: the full name for the type has been written to '/home/monyarm/Documents/TTRPG/Software/FalloutMap/target/debug/deps/fallout_map_generator-6657e2afe76dbee7.long-type-12803135665043033004.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0282]: type annotations needed
+  --> src/pipeline.rs:26:73
+   |
+26 | ...s: Vec<(RawMapData, String)> = extractors.par_iter().map(|extractor| {
+   |                                                              ^^^^^^^^^
+27 | ... = extractor.get_id();
+   |       --------- type must be known at this point
+   |
+help: consider giving this closure parameter an explicit type
+   |
+26 |     let results: Vec<(RawMapData, String)> = extractors.par_iter().map(|extractor: /* Type */| {
+   |                                                                                  ++++++++++++
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:33:13
+   |
+33 | ...or path in...
+   |       ^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+   = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:33:9
+   |
+33 | /         for ...
+34 | |             ...
+35 | |         }
+   | |_________^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+note: required by an implicit `Sized` bound in `std::option::Option`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/core/src/option.rs:600:0
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:52:14
+   |
+52 | ...in &extractor_hashes {
+   |       ^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+note: required by an implicit `Sized` bound in `Vec`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:440:0
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:44:26
+   |
+44 | ...es.push(ha...
+   |       ^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `Vec::<T, A>::push`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:993:4
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:19:32
+   |
+19 | ... = Vec::n...
+   |       ^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+note: required by an implicit `Sized` bound in `Vec`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:440:0
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:19:32
+   |
+19 | ... = Vec::new();
+   |       ^^^^^^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+note: required by a bound in `Vec::<T>::new`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:465:4
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:42:16
+   |
+42 | ...a, hash) i...
+   |       ^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+   = note: all local variables must have a statically known size
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:52:14
+   |
+52 | ...in &extractor_hashes {
+   |       ^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `str`
+   = note: required for `Iter<'_, str>` to implement `Iterator`
+   = note: the full name for the type has been written to '/home/monyarm/Documents/TTRPG/Software/FalloutMap/target/debug/deps/fallout_map_generator-6657e2afe76dbee7.long-type-10925183764353804659.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+  --> src/pipeline.rs:42:5
+   |
+42 | /     for (d...
+43 | |         ra...
+44 | |         ex...
+45 | |     }
+   | |_____^ doesn't have a size known at compile-time
+   |
+   = help: within `(_, str)`, the trait `Sized` is not implemented for `str`
+   = note: required because it appears within the type `(_, str)`
+note: required by an implicit `Sized` bound in `std::option::Option`
+  --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/core/src/option.rs:600:0
+
+error[E0277]: the size for values of type `str` cannot be known at compilation time
+   --> src/pipeline.rs:126:18
+    |
+126 | ...in &extractor_hashes {
+    |       ^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+    |
+    = help: the trait `Sized` is not implemented for `str`
+note: required by an implicit `Sized` bound in `Vec`
+   --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:440:0
+
+error[E0277]: `&Vec<str>` is not an iterator
+   --> src/pipeline.rs:126:18
+    |
+126 | ...in &extractor_hashes {
+    |       ^^^^^^^^^^^^^^^^^ `&Vec<str>` is not an iterator
+    |
+    = help: the trait `IntoIterator` is not implemented for `&Vec<str>`
+help: the following other types implement trait `IntoIterator`
+   --> /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:3798:0
+    |
+    = note: `Vec<T, A>`
+   ::: /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:3837:0
+    |
+    = note: `&Vec<T, A>`
+   ::: /rustc/31cd367b9ca1ce359268e7adf4ea540408c0ad85/library/alloc/src/vec/mod.rs:3847:0
+    |
+    = note: `&mut ...`
+    = note: the full name for the type has been written to '/home/monyarm/Documents/TTRPG/Software/FalloutMap/target/debug/deps/fallout_map_generator-6657e2afe76dbee7.long-type-1248012689273810216.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+
+warning: variable does not need to be mutable
+   --> src/map_gen.rs:178:13
+    |
+178 | ...et mut adjusted_x = ...
+    |       ----^^^^^^^^^^
+    |       |
+    |       help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> src/map_gen.rs:179:13
+    |
+179 | ...et mut adjusted_y = ...
+    |       ----^^^^^^^^^^
+    |       |
+    |       help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/map_gen.rs:352:9
+    |
+352 | ...et mut objects = ...
+    |       ----^^^^^^^
+    |       |
+    |       help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/map_gen.rs:353:9
+    |
+353 | ...et mut next_obj_id = 1;
+    |       ----^^^^^^^^^^^
+    |       |
+    |       help: remove this `mut`
+
+Some errors have detailed explanations: E0267, E0277, E0282, E0599.
+For more information about an error, try `rustc --explain E0267`.
+warning: `fallout_map_generator` (bin "fallout_map_generator") generated 7 warnings
+error: could not compile `fallout_map_generator` (bin "fallout_map_generator") due to 14 previous errors; 7 warnings emitted

@@ -5,6 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::fs;
 use std::collections::HashMap;
+use log::{info, error, warn};
 
 #[derive(Debug, Clone, Copy)]
 pub enum GameVariant {
@@ -50,12 +51,16 @@ impl Extractor for FalloutInterplayExtractor {
         self.variant.id_str()
     }
 
+    fn get_code_path(&self) -> &str {
+        "src/extractors/interplay.rs"
+    }
+
     fn extract(&self) -> RawMapData {
         match self.extract_real_data() {
             Ok(data) => data,
             Err(e) => {
-                eprintln!("Error extracting {} data: {}", self.variant.name(), e);
-                eprintln!("Falling back to mock data");
+                error!("Error extracting {} data: {}", self.variant.name(), e);
+                warn!("Falling back to mock data");
                 self.extract_mock_data()
             }
         }
@@ -64,7 +69,7 @@ impl Extractor for FalloutInterplayExtractor {
 
 impl FalloutInterplayExtractor {
     fn extract_real_data(&self) -> io::Result<RawMapData> {
-        println!("Extracting {} Data...", self.variant.name());
+        info!("Extracting {} Data...", self.variant.name());
         
         let install_dir = if let GameVariant::Fallout2 = self.variant {
             dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
@@ -85,13 +90,16 @@ impl FalloutInterplayExtractor {
         // 4. Parse Worldmap Tiles
         let (tiles, width, height, _tile_masks) = self.parse_worldmap_txt(&worldmap_txt)?;
 
-        println!("Final Extracted: {} base tiles, {} locations", tiles.len(), locations.len());
+        info!("Final Extracted: {} base tiles, {} locations", tiles.len(), locations.len());
 
         Ok(RawMapData {
             locations,
             tiles,
             width: width as u32,
             height: height as u32,
+            coordinate_system: crate::schema::CoordinateSystem::Absolute,
+            rows: None,
+            has_grid: false,
             coordinate_scale: 50.0,
             reference_lat: None,
             reference_lon: None,
@@ -140,7 +148,7 @@ impl FalloutInterplayExtractor {
                 format!("{}/data/{}", base_url, filename.replace('\\', "/"))
             };
             
-            println!("[Downloader] fetching {}...", url);
+            info!("[Downloader] fetching {}...", url);
             let response = ureq::get(&url).call().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Download failed for {}: {}", url, e)))?;
             let s = response.into_string()?;
             if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
@@ -167,7 +175,7 @@ impl FalloutInterplayExtractor {
                 if master_dat.exists() {
                     let inner_path = format!("data/{}", filename.replace('/', "\\"));
                     if let Ok(data) = dat_extractor::extract_dat2(&master_dat, &inner_path) {
-                        println!("[Extractor] Extracted {} from DAT", filename);
+                        info!("[Extractor] Extracted {} from DAT", filename);
                         if let Some(parent) = cache_path.parent() {
                             fs::create_dir_all(parent)?;
                         }
@@ -189,7 +197,7 @@ impl FalloutInterplayExtractor {
                 format!("{}/data/{}", base_url, clean_filename)
             };
             
-            println!("[Downloader] fetching {}...", url);
+            info!("[Downloader] fetching {}...", url);
             let response = ureq::get(&url).call().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Download failed for {}: {}", url, e)))?;
             
             let mut data = Vec::new();
@@ -215,7 +223,7 @@ impl FalloutInterplayExtractor {
             "Cathedral" => "The Cathedral".to_string(),
             "Brotherhood of Steel" => "Lost Hill Bunker".to_string(),
             "NCR" => "Shady Sands".to_string(), // NCR is what Shady Sands is called in Fallout 2
-            "Enclave" => "Enclave Oil Rig".to_string(),
+            "Enclave" => "Poseidon Energy Oil Rig".to_string(),
             "abbey" => "Abbey".to_string(),
             "EPA" => "Environmental Protection Agency San Francisco Facility".to_string(),
             _ => name.to_string(),
@@ -230,7 +238,7 @@ impl FalloutInterplayExtractor {
             "The Glow" | "Mariposa Military Base" | "The Cathedral" => IconType::Monument, // Or Ruins/Landmark? Using Monument for now.
             // Fallout 2
             "Vault City" | "San Francisco" | "New Reno" | "Redding" | "Broken Hills" | "Klamath" | "Modoc" | "Navarro" | "Gecko" | "Arroyo" | "The Den" => IconType::City,
-            "Enclave Oil Rig" => IconType::Monument,
+            "Poseidon Energy Oil Rig" => IconType::Monument,
             // Fallback
             _ => IconType::from_name(name),
         }
@@ -288,7 +296,7 @@ impl FalloutInterplayExtractor {
             self.add_location_if_valid(&mut locations, name, x, y);
         }
         
-        println!("Extracted {} locations from CITY.TXT", locations.len());
+        info!("Extracted {} locations from CITY.TXT", locations.len());
         Ok(locations)
     }
 
@@ -382,7 +390,7 @@ impl FalloutInterplayExtractor {
     
     fn extract_mock_data(&self) -> RawMapData {
         // Simple mock
-        println!("Using mock {} data", self.variant.name());
+        warn!("Using mock {} data", self.variant.name());
         RawMapData {
             tiles: vec![],
             locations: vec![RawLocation { 
@@ -392,6 +400,9 @@ impl FalloutInterplayExtractor {
             }],
             width: 20,
             height: 20,
+            coordinate_system: crate::schema::CoordinateSystem::Absolute,
+            rows: None,
+            has_grid: false,
             coordinate_scale: 50.0,
             reference_lat: None,
             reference_lon: None,

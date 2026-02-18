@@ -4,39 +4,52 @@ use std::io;
 use std::path::Path;
 use std::fs;
 use serde::{Deserialize, Serialize};
+use log::{info, warn, error};
 
-/// Manual extractor that reads JSON files from inputs/ directory
+/// Manual extractor that reads a single JSON file
 pub struct ManualExtractor {
-    input_dir: String,
+    file_path: String,
+    id: String,
     miles_per_hex: f32,
 }
 
 impl ManualExtractor {
-    pub fn new(input_dir: String, miles_per_hex: f32) -> Self {
-        Self { input_dir, miles_per_hex }
+    pub fn new(file_path: String, miles_per_hex: f32) -> Self {
+        let id = Path::new(&file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("manual_unnamed")
+            .to_string();
+        Self { file_path, id, miles_per_hex }
     }
 }
 
 impl Extractor for ManualExtractor {
     fn get_id(&self) -> &str {
-        "manual"
+        &self.id
     }
 
     fn get_source_paths(&self) -> Vec<String> {
-        vec![self.input_dir.clone()]
+        vec![self.file_path.clone()]
+    }
+
+    fn get_code_path(&self) -> &str {
+        "src/extractors/manual.rs"
     }
 
     fn extract(&self) -> RawMapData {
         match self.extract_from_json() {
             Ok(data) => data,
             Err(e) => {
-                eprintln!("Error extracting manual data: {}", e);
-                eprintln!("Returning empty data");
+                error!("Error extracting manual data from {}: {}", self.file_path, e);
                 RawMapData {
                     tiles: vec![],
                     locations: vec![],
                     width: 0,
                     height: 0,
+                    coordinate_system: crate::schema::CoordinateSystem::Absolute,
+                    rows: None,
+                    has_grid: false,
                     coordinate_scale: 1.0,
                     reference_lat: None,
                     reference_lon: None,
@@ -49,22 +62,31 @@ impl Extractor for ManualExtractor {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ManualMapFile {
+    #[serde(default)]
+    coordinate_system: crate::schema::CoordinateSystem,
+    #[serde(default)]
     markers: Vec<ManualMarker>,
     #[serde(default)]
     terrain: Option<TerrainBuilder>,
+    #[serde(default)]
+    rows: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ManualMarker {
     name: String,
     #[serde(rename = "type")]
-    marker_type: String, // "vault", "city", etc.
+    marker_type: String, 
     #[serde(default)]
     lat: Option<f32>,
     #[serde(default)]
     lon: Option<f32>,
     #[serde(default)]
-    location: Option<String>, // Alternative: place name/address for geocoding
+    x: Option<f32>, // Grid X (used if coordinate_system is Relative)
+    #[serde(default)]
+    y: Option<f32>, // Grid Y (used if coordinate_system is Relative)
+    #[serde(default)]
+    location: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -96,66 +118,117 @@ enum TerrainBuilder {
 
 impl ManualExtractor {
     fn extract_from_json(&self) -> io::Result<RawMapData> {
-        println!("Extracting Manual Data from {}...", self.input_dir);
-        
-        let input_path = Path::new(&self.input_dir);
-        if !input_path.exists() {
-            println!("Input directory does not exist: {}", self.input_dir);
-            return Ok(RawMapData {
-                tiles: vec![],
-                locations: vec![],
-                width: 0,
-                height: 0,
-                coordinate_scale: 1.0,
-                reference_lat: None,
-                reference_lon: None,
-                terrain_data: None,
-            });
-        }
+        info!("Reading manual map file: {}", self.file_path);
+        let content = fs::read_to_string(&self.file_path)?;
+        let map_file: ManualMapFile = serde_json::from_str(&content)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
         let mut all_locations = Vec::new();
         let mut all_tiles = Vec::new();
+        let has_grid = map_file.rows.is_some() || map_file.terrain.is_some();
 
-        // Read all .json files recursively
-        self.load_json_files_recursive(input_path, &mut all_locations, &mut all_tiles)?;
+        // 1. Process markers
+        for marker in map_file.markers {
+            let icon_type = IconType::from_name(&marker.marker_type);
+            
+            // For Relative system, prioritize x/y grid coordinates
+            if map_file.coordinate_system == crate::schema::CoordinateSystem::Relative {
+                if let (Some(gx), Some(gy)) = (marker.x, marker.y) {
+                    all_locations.push(RawLocation {
+                        name: marker.name.clone(),
+                        x: gx,
+                        y: gy,
+                        icon_type,
+                        real_lat: None,
+                        real_lon: None,
+                        terrain_override: None,
+                    });
+                    continue;
+                }
+            }
 
-        println!("Extracted {} manual markers and {} terrain tiles", 
-                 all_locations.len(), all_tiles.len());
-
-        // Calculate bounds and shift to 0,0
-        let min_x = all_tiles.iter().map(|t| t.x).min().unwrap_or(0);
-        let min_y = all_tiles.iter().map(|t| t.y).min().unwrap_or(0);
-        let max_x = all_tiles.iter().map(|t| t.x).max().unwrap_or(0);
-        let max_y = all_tiles.iter().map(|t| t.y).max().unwrap_or(0);
-        
-        // Shift tiles
-        for tile in &mut all_tiles {
-            tile.x -= min_x;
-            tile.y -= min_y;
+            // Fallback: Get real-world coordinates and use them as x/y temporarily
+            let (lat, lon) = if let (Some(lat), Some(lon)) = (marker.lat, marker.lon) {
+                (lat, lon)
+            } else if let Some(location) = &marker.location {
+                match crate::geocoding::geocode(location) {
+                    Ok(coords) => coords,
+                    Err(e) => {
+                        warn!("Failed to geocode '{}': {}", location, e);
+                        continue;
+                    }
+                }
+            } else if let (Some(x), Some(y)) = (marker.x, marker.y) {
+                 // Even in Absolute system, if ONLY x/y provided, we'll treat them as lat/lon? 
+                 // No, let's treat them as raw game units.
+                 (y, x) 
+            } else {
+                warn!("Marker '{}' in {} has insufficient data", marker.name, self.file_path);
+                continue;
+            };
+            
+            all_locations.push(RawLocation {
+                name: marker.name,
+                x: lon,
+                y: lat,
+                icon_type,
+                real_lat: Some(lat),
+                real_lon: Some(lon),
+                terrain_override: None,
+            });
         }
-        
-        // Shift locations (approximate for grid)
-        // Locations use f32 x/y (lon/lat or geocoded).
-        // Wait, RawLocation.x/y are LON/LAT in manual extractor!
-        // "x: lon, y: lat".
-        // They are NOT grid coordinates yet for Manual.
-        // The Fixer converts them.
-        
-        // But RawTile.x/y ARE grid coordinates relative to center?
-        // manual.rs sets RawTile.x/y from dx/dy.
-        
-        // So shifting RawTile.x/y is correct for the TILE grid.
-        // But RawLocation.x/y are distinct.
-        // And manual extractor output is "debug map" uses RawTile.
-        
-        let width = (max_x - min_x + 1) as u32;
-        let height = (max_y - min_y + 1) as u32;
+
+        // 2. Process legacy terrain builder
+        if let Some(terrain) = map_file.terrain {
+            all_tiles.extend(self.generate_terrain(&terrain, &mut all_locations));
+        }
+
+        // 3. Process new 2D grid 'rows'
+        if let Some(rows) = map_file.rows {
+            for (row_idx, row) in rows.iter().enumerate() {
+                for (col_idx, tile_type) in row.iter().enumerate() {
+                    let mut final_type = tile_type.clone();
+                    
+                    // Handle Shorthand
+                    if final_type.len() == 1 {
+                        final_type = match final_type.to_lowercase().as_str() {
+                            "g" => "Grass".to_string(),
+                            "s" => "Sand".to_string(),
+                            "w" => "Water".to_string(),
+                            "m" => "Mountain".to_string(),
+                            "r" => "Rock".to_string(),
+                            "c" => "City".to_string(),
+                            "u" | "." | " " => "unknown".to_string(),
+                            _ => final_type,
+                        };
+                    }
+
+                    let tt_lower = final_type.to_lowercase();
+                    if tt_lower != "unknown" && tt_lower != "empty" && !tt_lower.is_empty() {
+                        all_tiles.push(RawTile {
+                            x: col_idx as i32,
+                            y: row_idx as i32,
+                            tile_type: final_type,
+                            real_lat: None,
+                            real_lon: None,
+                            weight: 1.0,
+                        });
+                    }
+                }
+            }
+        }
+
+        let width = all_tiles.iter().map(|t| t.x).max().unwrap_or(0) as u32 + 1;
+        let height = all_tiles.iter().map(|t| t.y).max().unwrap_or(0) as u32 + 1;
 
         Ok(RawMapData {
             tiles: all_tiles,
             locations: all_locations,
             width,
             height,
+            coordinate_system: map_file.coordinate_system,
+            rows: None, // We've flattened it
+            has_grid,
             coordinate_scale: 1.0,
             reference_lat: None,
             reference_lon: None,
@@ -163,96 +236,25 @@ impl ManualExtractor {
         })
     }
 
-    fn load_json_files_recursive(
-        &self,
-        dir: &Path,
-        all_locations: &mut Vec<RawLocation>,
-        all_tiles: &mut Vec<RawTile>,
-    ) -> io::Result<()> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            
-            if path.is_dir() {
-                // Recurse into subdirectories
-                self.load_json_files_recursive(&path, all_locations, all_tiles)?;
-            } else if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                println!("Reading manual map file: {:?}", path);
-                let content = fs::read_to_string(&path)?;
-                
-                match serde_json::from_str::<ManualMapFile>(&content) {
-                    Ok(map_file) => {
-                        // Process markers
-                        for marker in map_file.markers {
-                            let icon_type = IconType::from_name(&marker.marker_type);
-                            
-                            // Get coordinates either from lat/lon or by geocoding location
-                            let (lat, lon) = if let (Some(lat), Some(lon)) = (marker.lat, marker.lon) {
-                                (lat, lon)
-                            } else if let Some(location) = &marker.location {
-                                match crate::geocoding::geocode(location) {
-                                    Ok(coords) => coords,
-                                    Err(e) => {
-                                        eprintln!("Failed to geocode '{}': {}", location, e);
-                                        continue;
-                                    }
-                                }
-                            } else {
-                                eprintln!("Marker '{}' has neither lat/lon nor location", marker.name);
-                                continue;
-                            };
-                            
-                            // Store lat/lon as x/y (will be handled by fixer)
-                            all_locations.push(RawLocation {
-                                name: marker.name,
-                                x: lon,
-                                y: lat,
-                                icon_type,
-                                real_lat: Some(lat),
-                                real_lon: Some(lon),
-                                terrain_override: None,
-                            });
-                        }
-
-                        // Process terrain
-                        if let Some(terrain) = map_file.terrain {
-                            let generated_tiles = self.generate_terrain(&terrain, all_locations);
-                            all_tiles.extend(generated_tiles);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to parse {:?}: {}", path, e);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn generate_terrain(&self, builder: &TerrainBuilder, _all_locations: &mut Vec<RawLocation>) -> Vec<RawTile> {
         match builder {
             TerrainBuilder::Circle { center_lat, center_lon, center, radius_hexes, terrain_type } => {
-                // Resolve center point
                 let (lat, lon) = if let (Some(la), Some(lo)) = (center_lat, center_lon) {
                     (*la, *lo)
                 } else if let Some(q) = center {
                     match crate::geocoding::geocode(q) {
                         Ok(c) => c,
                         Err(e) => {
-                            eprintln!("Failed to geocode terrain center '{}': {}", q, e);
+                            error!("Failed to geocode terrain center '{}': {}", q, e);
                             return vec![];
                         }
                     }
                 } else {
-                    eprintln!("Circle terrain has no center");
                     return vec![];
                 };
 
                 let hex_step_deg_lat = self.miles_per_hex / 69.0;
                 let hex_step_deg_lon = self.miles_per_hex / 56.5; 
-
-                // Scale radius based on resolution (Input radius is in "1-Mile Hexes")
-                // If miles_per_hex is 1.0, scale is 1.0. If miles_per_hex is 6.0, scale is 0.166.
                 let resolution_scale = 1.0 / self.miles_per_hex;
                 let effective_radius = (*radius_hexes as f32 * resolution_scale).round() as u32;
 
@@ -265,18 +267,16 @@ impl ManualExtractor {
                     match crate::geocoding::geocode(q) {
                         Ok(c) => c,
                         Err(e) => {
-                            eprintln!("Failed to geocode terrain top_left '{}': {}", q, e);
+                            error!("Failed to geocode terrain top_left '{}': {}", q, e);
                             return vec![];
                         }
                     }
                 } else {
-                    eprintln!("Grid terrain has no top_left");
                     return vec![];
                 };
 
                 let hex_step_deg_lat = self.miles_per_hex / 69.0;
                 let hex_step_deg_lon = self.miles_per_hex / 56.5;
-
                 self.generate_grid_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, tiles)
             }
         }
@@ -285,7 +285,6 @@ impl ManualExtractor {
     fn generate_circle_terrain(&self, center_lat: f32, center_lon: f32, step_lat: f32, step_lon: f32, radius: u32, terrain_type: &str) -> Vec<RawTile> {
         let mut tiles = Vec::new();
         let radius_i = radius as i32;
-        
         for dy in -radius_i..=radius_i {
             for dx in -radius_i..=radius_i {
                 let dist_sq = (dx * dx + dy * dy) as f32;
@@ -308,12 +307,29 @@ impl ManualExtractor {
         let mut tiles = Vec::new();
         for (row_idx, row) in grid.iter().enumerate() {
             for (col_idx, terrain_type) in row.iter().enumerate() {
-                if terrain_type != "empty" && !terrain_type.is_empty() {
+                let mut final_type = terrain_type.clone();
+                
+                // Handle Shorthand
+                if final_type.len() == 1 {
+                    final_type = match final_type.to_lowercase().as_str() {
+                        "g" => "Grass".to_string(),
+                        "s" => "Sand".to_string(),
+                        "w" => "Water".to_string(),
+                        "m" => "Mountain".to_string(),
+                        "r" => "Rock".to_string(),
+                        "c" => "City".to_string(),
+                        "u" | "." | " " => "unknown".to_string(),
+                        _ => final_type,
+                    };
+                }
+
+                let tt_lower = final_type.to_lowercase();
+                if tt_lower != "unknown" && tt_lower != "empty" && !tt_lower.is_empty() {
                     tiles.push(RawTile {
                         x: col_idx as i32,
                         y: row_idx as i32,
-                        tile_type: terrain_type.clone(),
-                        real_lat: Some(start_lat - row_idx as f32 * step_lat), // Lat decreases southwards
+                        tile_type: final_type,
+                        real_lat: Some(start_lat - row_idx as f32 * step_lat),
                         real_lon: Some(start_lon + col_idx as f32 * step_lon),
                         weight: 1.0,
                     });

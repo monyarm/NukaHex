@@ -1,4 +1,5 @@
-use serde::Deserialize;
+use serde::Deserialize; // added for geocoding
+use log::{info, debug};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -15,7 +16,7 @@ fn load_cache() -> HashMap<String, (f32, f32)> {
     if Path::new(CACHE_FILE).exists() {
         if let Ok(content) = fs::read_to_string(CACHE_FILE) {
             if let Ok(cache) = serde_json::from_str(&content) {
-                println!("Loaded geocode cache from {}", CACHE_FILE);
+                info!("Loaded geocode cache from {}", CACHE_FILE);
                 return cache;
             }
         }
@@ -45,12 +46,12 @@ pub fn geocode(query: &str) -> Result<(f32, f32), String> {
     {
         let cache = GEOCODE_CACHE.lock().unwrap();
         if let Some(&coords) = cache.get(query) {
-            println!("Geocoding cache hit for '{}'", query);
+            debug!("Geocoding cache hit for '{}'", query);
             return Ok(coords);
         }
     }
     
-    println!("Geocoding '{}' via Nominatim API...", query);
+    info!("Geocoding '{}' via Nominatim API...", query);
     
     // Call Nominatim API
     let url = format!(
@@ -79,7 +80,7 @@ pub fn geocode(query: &str) -> Result<(f32, f32), String> {
     let lon: f32 = results[0].lon.parse()
         .map_err(|e| format!("Invalid longitude: {}", e))?;
     
-    println!("Geocoded '{}' to ({}, {})", query, lat, lon);
+    info!("Geocoded '{}' to ({}, {})", query, lat, lon);
     
     // Cache the result
     {

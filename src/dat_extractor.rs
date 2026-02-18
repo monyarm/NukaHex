@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use log::{info, debug};
+
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use steamlocate::SteamDir;
@@ -25,7 +27,7 @@ pub fn find_steam_app(app_id: u32, app_name: &str) -> io::Result<PathBuf> {
         Some((app_info, library)) => {
             // Build the full absolute path: library.path() / steamapps/common / install_dir
             let full_path = library.path().join("steamapps").join("common").join(&app_info.install_dir);
-            println!("Found {} at: {:?}", app_name, full_path);
+            info!("Found {} at: {:?}", app_name, full_path);
             Ok(full_path)
         }
         None => Err(io::Error::new(
@@ -209,7 +211,7 @@ pub fn extract_dat2(dat_path: &Path, file_path: &str) -> io::Result<Vec<u8>> {
     let tree_offset = file_size.saturating_sub(tree_size as u64).saturating_sub(8);
     // Usually Tree is just before footer.
     
-    println!("DAT2 Info: FileSize={}, TreeSize={}, FooterSize={}", file_size, tree_size, footer_file_size);
+    debug!("DAT2 Info: FileSize={}, TreeSize={}, FooterSize={}", file_size, tree_size, footer_file_size);
     
     file.seek(SeekFrom::Start(tree_offset))?;
     
@@ -217,7 +219,7 @@ pub fn extract_dat2(dat_path: &Path, file_path: &str) -> io::Result<Vec<u8>> {
     file.read_exact(&mut buf)?;
     let file_count = u32::from_le_bytes(buf);
     
-    println!("DAT2 contains {} files. Searching...", file_count);
+    debug!("DAT2 contains {} files. Searching...", file_count);
 
     let normalized_target = file_path.replace('\\', "/").to_lowercase();
     
@@ -248,7 +250,7 @@ pub fn extract_dat2(dat_path: &Path, file_path: &str) -> io::Result<Vec<u8>> {
         let offset = u32::from_le_bytes(buf);
         
         if name.to_lowercase().replace('\\', "/") == normalized_target {
-            println!("Found candidate: {} (Offset: {}, Packed: {}, Real: {}, Compressed: {})", 
+            debug!("Found candidate: {} (Offset: {}, Packed: {}, Real: {}, Compressed: {})", 
                      name, offset, packed_size, real_size, is_compressed);
             
             let save_pos = file.stream_position()?;
