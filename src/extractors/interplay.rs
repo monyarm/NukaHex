@@ -11,6 +11,7 @@ use log::{info, error, warn};
 pub enum GameVariant {
     Fallout1,
     Fallout2,
+    FalloutBoS,
 }
 
 impl GameVariant {
@@ -18,6 +19,7 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => 38400,
             GameVariant::Fallout2 => 38410,
+            GameVariant::FalloutBoS => 0, // Not on Steam typically
         }
     }
 
@@ -25,6 +27,7 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => "Fallout 1",
             GameVariant::Fallout2 => "Fallout 2",
+            GameVariant::FalloutBoS => "Fallout: Brotherhood of Steel",
         }
     }
     
@@ -32,6 +35,7 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => "fallout1",
             GameVariant::Fallout2 => "fallout2",
+            GameVariant::FalloutBoS => "fallout_bos",
         }
     }
 }
@@ -71,11 +75,23 @@ impl FalloutInterplayExtractor {
     fn extract_real_data(&self) -> io::Result<RawMapData> {
         info!("Extracting {} Data...", self.variant.name());
         
-        let install_dir = if let GameVariant::Fallout2 = self.variant {
-            dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
-        } else {
-            None
-        };
+        // 0. Check Config Overrides first
+        let config_paths = crate::utils::load_config_paths().unwrap_or_default();
+        let mut install_dir = config_paths.get(self.variant.id_str()).map(PathBuf::from);
+
+        if install_dir.is_none() {
+            // 1. Try Steam Discovery (only for PC games)
+            install_dir = match self.variant {
+                GameVariant::Fallout1 | GameVariant::Fallout2 => {
+                    dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
+                }
+                _ => None,
+            };
+        }
+
+        if let Some(ref path) = install_dir {
+            info!("Using installation directory: {:?}", path);
+        }
         
         // 1. Load Metadata
         let city_txt = self.load_text_file(&install_dir, "CITY.TXT")?;
@@ -113,19 +129,28 @@ impl FalloutInterplayExtractor {
             return fs::read_to_string(&cache_path);
         }
         
-        // Try Local (Fallout 2)
-        if let GameVariant::Fallout2 = self.variant {
-            if let Some(dir) = install_dir {
-                // 1. Direct local file
-                let local_path = dir.join("data").join(filename);
-                if local_path.exists() {
-                    let s = fs::read_to_string(local_path)?;
-                    if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
-                    fs::write(&cache_path, &s)?;
-                    return Ok(s);
-                }
-                
-                // 2. DAT
+        // Try Local override or discovered directory
+        if let Some(dir) = install_dir {
+            // 1. Direct local file (data/FILENAME)
+            let local_path = dir.join("data").join(filename);
+            if local_path.exists() {
+                let s = fs::read_to_string(local_path)?;
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &s)?;
+                return Ok(s);
+            }
+
+            // 2. Direct local file (FILENAME) - common for manual overrides
+            let local_path_direct = dir.join(filename);
+            if local_path_direct.exists() {
+                let s = fs::read_to_string(local_path_direct)?;
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &s)?;
+                return Ok(s);
+            }
+            
+            // 3. DAT (Only for DAT-compatible games)
+            if let GameVariant::Fallout2 = self.variant {
                 let master_dat = dir.join("master.dat");
                 if master_dat.exists() {
                     let inner_path = format!("data/{}", filename.replace('/', "\\"));
@@ -168,9 +193,28 @@ impl FalloutInterplayExtractor {
             return fs::read(&cache_path);
         }
         
-        // Try Local (Fallout 2)
-        if let GameVariant::Fallout2 = self.variant {
-            if let Some(dir) = install_dir {
+        // Try Local override or discovered directory
+        if let Some(dir) = install_dir {
+            // 1. Direct local file (data/FILENAME)
+            let local_path = dir.join("data").join(filename);
+            if local_path.exists() {
+                let data = fs::read(local_path)?;
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &data)?;
+                return Ok(data);
+            }
+
+            // 2. Direct local file (FILENAME)
+            let local_path_direct = dir.join(filename);
+            if local_path_direct.exists() {
+                let data = fs::read(local_path_direct)?;
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &data)?;
+                return Ok(data);
+            }
+            
+            // 3. DAT (Only for DAT-compatible games)
+            if let GameVariant::Fallout2 = self.variant {
                 let master_dat = dir.join("master.dat");
                 if master_dat.exists() {
                     let inner_path = format!("data/{}", filename.replace('/', "\\"));

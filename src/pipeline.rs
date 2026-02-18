@@ -30,6 +30,11 @@ pub fn run_pipeline(extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
         let mut step = CachedStep::new(id, &intermediate_dir)
             .add_dependency_file(source_file);
         
+        let config_path = "input/config/paths.json";
+        if Path::new(config_path).exists() {
+            step = step.add_dependency_file(config_path);
+        }
+        
         for path in extractor.get_source_paths() {
             step = step.add_dependency_file(&path);
         }

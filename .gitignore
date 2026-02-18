@@ -2,3 +2,4 @@
 /output
 *.log
 .cache
+/input/games

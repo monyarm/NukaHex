@@ -10,6 +10,7 @@ mod dat_extractor;
 mod geocoding;
 mod caching;
 mod clustering; // Added clustering module
+mod utils;
 
 use std::path::Path;
 use std::fs;
@@ -55,6 +56,7 @@ fn main() -> std::io::Result<()> {
     let mut extractors: Vec<Box<dyn Extractor>> = vec![
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
+        Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutBoS)),
     ];
 
     // Recursively find all JSON files in input/manual
