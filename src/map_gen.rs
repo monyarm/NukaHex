@@ -305,7 +305,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
 }
 
 use crate::schema::RawMapData;
-pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData, gid_map: &HashMap<String, u32>) -> std::io::Result<()> {
+pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData, gid_map: &HashMap<String, u32>, tileset_source: &str) -> std::io::Result<()> {
     // Standard 1x Resolution
     let width = raw_data.width;
     let height = raw_data.height;
@@ -338,7 +338,7 @@ pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData
 
 
     let tilesets = vec![
-        TilesetRef { firstgid: 1, source: "generic.tsj".to_string() }
+        TilesetRef { firstgid: 1, source: tileset_source.to_string() }
     ];
 
     let tile_layer = Layer::TileLayer {

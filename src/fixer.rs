@@ -49,28 +49,245 @@ pub struct BoundingBox {
     pub max_lon: f32,
 }
 
-pub fn fix(raw_maps: Vec<RawMapData>, miles_per_hex: Option<f32>, bounds: Option<BoundingBox>) -> FixedMapData {
-    info!("Running Fixer on {} raw maps...", raw_maps.len());
+pub fn fix(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, miles_per_hex: Option<f32>, bounds: Option<BoundingBox>) -> FixedMapData {
+    info!("Running Global Fixer on {} game clusters and {} manual maps...", game_clusters.len(), manual_maps.len());
 
-    // Check if we should apply rubbersheeting (Fallout 1 data with control points)
-    let has_locations = raw_maps.iter().any(|m| !m.locations.is_empty());
-    let has_tiles = raw_maps.iter().any(|m| !m.tiles.is_empty());
-    
-    // If we have both locations and terrain, use Inverse Warping
+    // If miles_per_hex is 6.0 (global phase), use Translation-Only alignment
     let resolution = miles_per_hex.unwrap_or(6.0);
-    if has_locations && has_tiles {
-        info!("Invoking Inverse Warping pipeline for terrain + locations at {} miles/hex...", resolution);
-        return fix_with_terrain_inverse_warping(raw_maps, resolution, bounds);
-    }
-    
-    // Fallback logic for extraction without terrain
-    if has_locations && !has_tiles {
-        warn!("No tiles provided - generating placeholder terrain");
-        return fix_legacy_pass_through(raw_maps);
+    if resolution >= 5.9 && resolution <= 6.1 {
+        info!("Global Phase: Using Translation-Only alignment...");
+        return fix_translation_only(game_clusters, manual_maps, resolution, bounds);
     }
 
-    // Default pass through
-    fix_legacy_pass_through(raw_maps)
+    // fallback for other resolutions (e.g. city maps)
+    let mut all_raw = game_clusters;
+    all_raw.extend(manual_maps);
+    
+    let has_locations = all_raw.iter().any(|m| !m.locations.is_empty());
+    let has_tiles = all_raw.iter().any(|m| !m.tiles.is_empty());
+    
+    if has_locations && has_tiles {
+        return fix_with_terrain_inverse_warping(all_raw, resolution, bounds);
+    }
+    
+    fix_legacy_pass_through(all_raw)
+}
+
+/// New Global Aligner: Finds a single (dLat, dLon) offset per cluster based on an anchor.
+pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, resolution: f32, _bounds: Option<BoundingBox>) -> FixedMapData {
+    info!("Aligning {} game clusters and {} manual maps via translation...", game_clusters.len(), manual_maps.len());
+    
+    let mut all_fixed_locations = Vec::new();
+    let mut all_fixed_tiles = Vec::new();
+
+    // We'll project everything to lat/lon first
+    for cluster in game_clusters {
+        // 1. Pick Anchor
+        // User: "pick the first marker with proper lat/lon, or the first marker if there isn't one"
+        let anchor_loc = cluster.locations.iter()
+            .find(|l| l.real_lat.is_some() && l.real_lon.is_some())
+            .or_else(|| cluster.locations.first());
+
+        if let Some(anchor) = anchor_loc {
+            // 2. Identify Target (Ideal) Position for Anchor
+            let (target_lat, target_lon) = if let (Some(la), Some(lo)) = (anchor.real_lat, anchor.real_lon) {
+                // If the extractor ALREADY had a target lat/lon (e.g. absolute marker), use it as ground truth.
+                // However, we want to check if it matches our hardcoded knowledge.
+                let mut ideal_lat = la;
+                let mut ideal_lon = lo;
+                
+                // Prioritize hardcoded lookup for canonical alignment
+                for (name, coords_str) in FALLOUT1_REAL_COORDS {
+                    if name.eq_ignore_ascii_case(&anchor.name) {
+                        if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
+                            ideal_lat = la;
+                            ideal_lon = lo;
+                            break;
+                        }
+                    }
+                }
+                (ideal_lat, ideal_lon)
+            } else {
+                // Pick best guess for this anchor name
+                let mut fallback_lat = 35.0;
+                let mut fallback_lon = -115.0;
+                for (name, coords_str) in FALLOUT1_REAL_COORDS {
+                    if name.eq_ignore_ascii_case(&anchor.name) {
+                        if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
+                            fallback_lat = la;
+                            fallback_lon = lo;
+                            break;
+                        }
+                    }
+                }
+                (fallback_lat, fallback_lon)
+            };
+
+            // 3. Calculate Translation Offset
+            // anchor.real_lat is where it ended up after the CLUSTER rubbersheeting (internal degrees).
+            // If it's None, we have a problem—intermediate clusters MUST have real_lat set.
+            // (We ensure this in fix_to_raw)
+            let current_lat = anchor.real_lat.unwrap_or(target_lat);
+            let current_lon = anchor.real_lon.unwrap_or(target_lon);
+            
+            let d_lat = target_lat - current_lat;
+            let d_lon = target_lon - current_lon;
+
+            info!("Cluster aligned via anchor '{}' to offset (dLat: {:.4}, dLon: {:.4})", anchor.name, d_lat, d_lon);
+
+            // Apply offset to all markers
+            for loc in cluster.locations {
+                let lat = loc.real_lat.unwrap_or(loc.x); // x is fallback but shouldn't be needed
+                let lon = loc.real_lon.unwrap_or(loc.y);
+                all_fixed_locations.push((loc.name, lat + d_lat, lon + d_lon, loc.icon_type));
+            }
+
+            // Apply offset to all tiles
+            for tile in cluster.tiles {
+                if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
+                    all_fixed_tiles.push((tile.tile_type, t_lat + d_lat, t_lon + d_lon));
+                }
+            }
+        }
+    }
+
+    // Process manual maps: simply project them (no translation offset)
+    for manual in manual_maps {
+        for loc in manual.locations {
+            let lat = loc.real_lat.unwrap_or(loc.x);
+            let lon = loc.real_lon.unwrap_or(loc.y);
+            all_fixed_locations.push((loc.name, lat, lon, loc.icon_type));
+        }
+        for tile in manual.tiles {
+            if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
+                all_fixed_tiles.push((tile.tile_type, t_lat, t_lon));
+            } else {
+                // If it's a relative manual tile without geocoding, we might have a problem.
+                // But generally ManualExtractor geocodes the center.
+            }
+        }
+    }
+
+    // Now convert these absolute (Lat, Lon) points into the final 6.0 mi/hex grid
+    // Reuse the stable grid logic from inverse_warping
+    const UNIVERSE_ORIGIN_LAT: f32 = 50.0;
+    const UNIVERSE_ORIGIN_LON: f32 = -130.0;
+    let lat_step = resolution / MILES_PER_DEGREE_LAT;
+    let lon_step = resolution / MILES_PER_DEGREE_LON_AT_35N;
+
+    // Convert everything to grid indices
+    let mut grid_locations = Vec::new();
+    let mut grid_tiles_map: HashMap<(i32, i32), String> = HashMap::new();
+
+    for (name, lat, lon, icon) in all_fixed_locations {
+        let gy = ((UNIVERSE_ORIGIN_LAT - lat) / lat_step) as f32;
+        let gx = ((lon - UNIVERSE_ORIGIN_LON) / lon_step) as f32;
+        grid_locations.push(FixedLocation {
+            name, x: gx, y: gy, icon_type: icon,
+            real_lat: Some(lat), real_lon: Some(lon),
+            anchor: None, // We don't need to propagate anchors in the final grid
+        });
+    }
+
+    for (t_type, lat, lon) in all_fixed_tiles {
+        let gy = ((UNIVERSE_ORIGIN_LAT - lat) / lat_step).round() as i32;
+        let gx = ((lon - UNIVERSE_ORIGIN_LON) / lon_step).round() as i32;
+        grid_tiles_map.insert((gx, gy), t_type);
+    }
+
+    // Determine grid bounds based on actual placed tiles, but with a small padding
+    let min_x = grid_tiles_map.keys().map(|(x, _)| *x).min().unwrap_or(0) - 2;
+    let max_x = grid_tiles_map.keys().map(|(x, _)| *x).max().unwrap_or(10) + 2;
+    let min_y = grid_tiles_map.keys().map(|(_, y)| *y).min().unwrap_or(0) - 2;
+    let max_y = grid_tiles_map.keys().map(|(_, y)| *y).max().unwrap_or(10) + 2;
+
+    let width = (max_x - min_x + 1) as u32;
+    let height = (max_y - min_y + 1) as u32;
+
+    let mut final_tiles = Vec::new();
+    // Fill background with "unknown" or "Water" depending on context? 
+    // User image shows massive purple. Let's fill the bounding box of clusters, but keep it tight.
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            let t_type = grid_tiles_map.get(&(x, y)).cloned().unwrap_or_else(|| "unknown".to_string());
+            final_tiles.push(FixedTile {
+                x: x - min_x,
+                y: y - min_y,
+                tile_type: t_type,
+                real_lat: None, real_lon: None,
+                anchor: None,
+            });
+        }
+    }
+
+    let final_locations = grid_locations.into_iter().map(|mut l| {
+        l.x -= min_x as f32;
+        l.y -= min_y as f32;
+        l
+    }).collect();
+
+    FixedMapData {
+        tiles: final_tiles,
+        locations: final_locations,
+        width, height,
+        global_offset_x: 0, global_offset_y: 0
+    }
+}
+
+/// Specialized fix that merges a cluster into a single RawMapData.
+/// This is used for intermediate grouping of maps (e.g. FO1 + FO2).
+pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
+    info!("Merging cluster with {} maps into raw data...", raw_maps.len());
+    
+    // We'll use a high-resolution intermediate fix (1.0 miles/hex)
+    let resolution = 1.0;
+    let fixed = fix_with_terrain_inverse_warping(raw_maps, resolution, None);
+    
+    let _lat_step = resolution / MILES_PER_DEGREE_LAT;
+    let _lon_step = resolution / MILES_PER_DEGREE_LON_AT_35N;
+
+    // We need to know the min/max indices used to derive current x,y
+    // Since fix_with_terrain_inverse_warping doesn't return them, we have a problem.
+    // However, if we store the reference lat/lon in FixedMapData, we can reconstruct.
+    
+    // Let's actually have fix_with_terrain_inverse_warping return a more detailed structure
+    // or just calculate the real-world coords inside it and store them in FixedLocation.
+    
+    // For now, let's assume we can't easily change FixedLocation (it's for final output).
+    // Let's just merge them as RawMapData but with absolute coordinates ALREADY set.
+    
+    // Wait, if I just want to merge FO1 and FO2, I can just rubbersheet them and return a merged RawMapData.
+    
+    RawMapData {
+        locations: fixed.locations.into_iter().map(|l| crate::schema::RawLocation {
+            name: l.name,
+            x: l.x,
+            y: l.y,
+            icon_type: l.icon_type,
+            real_lat: l.real_lat,
+            real_lon: l.real_lon,
+            terrain_override: None,
+            anchor: l.anchor,
+        }).collect(),
+        tiles: fixed.tiles.into_iter().map(|t| crate::schema::RawTile {
+            x: t.x,
+            y: t.y,
+            tile_type: t.tile_type,
+            real_lat: t.real_lat,
+            real_lon: t.real_lon,
+            weight: 1.0,
+            anchor: t.anchor,
+        }).collect(),
+        width: fixed.width,
+        height: fixed.height,
+        coordinate_system: crate::schema::CoordinateSystem::Absolute,
+        coordinate_scale: 1.0,
+        rows: None,
+        has_grid: true,
+        reference_lat: None,
+        reference_lon: None,
+        terrain_data: None,
+    }
 }
 
 fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
@@ -88,6 +305,9 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
                 x: tile.x,
                 y: tile.y,
                 tile_type: tile.tile_type.clone(),
+                real_lat: tile.real_lat,
+                real_lon: tile.real_lon,
+                anchor: tile.anchor.clone(),
             });
             if (tile.x as i32) < min_x { min_x = tile.x as i32; }
             if (tile.y as i32) < min_y { min_y = tile.y as i32; }
@@ -100,6 +320,9 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
                 x: loc.x,
                 y: loc.y,
                 icon_type: loc.icon_type,
+                real_lat: loc.real_lat,
+                real_lon: loc.real_lon,
+                anchor: loc.anchor.clone(),
             }
         }).collect();
         fixed_locations.extend(current_map_locations);
@@ -535,7 +758,10 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             row_tiles.push(FixedTile { 
                 x: x as i32, 
                 y: y as i32, 
-                tile_type: best_type.unwrap_or_else(|| "unknown".to_string()) 
+                tile_type: best_type.unwrap_or_else(|| "unknown".to_string()),
+                real_lat: Some(lat),
+                real_lon: Some(lon),
+                anchor: None, // Inverse warping doesn't have anchors per tile
             });
         }
         row_tiles
@@ -716,6 +942,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             x: grid_x,
             y: grid_y,
             icon_type: *icon_type,
+            real_lat: Some(*lat),
+            real_lon: Some(*lon),
+            anchor: None,
         });
     }
 
@@ -765,6 +994,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             x: t.x - min_x_real,
             y: t.y - min_y_real,
             tile_type: t.tile_type,
+            real_lat: t.real_lat,
+            real_lon: t.real_lon,
+            anchor: t.anchor,
         })
         .collect();
 
@@ -775,6 +1007,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             x: loc.x - min_x_real as f32,
             y: loc.y - min_y_real as f32,
             icon_type: loc.icon_type,
+            real_lat: loc.real_lat,
+            real_lon: loc.real_lon,
+            anchor: loc.anchor,
         })
         .collect();
 
@@ -866,6 +1101,9 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
                 x: x as i32,
                 y: y as i32,
                 tile_type: "Sand".to_string(),
+                real_lat: None,
+                real_lon: None,
+                anchor: None,
             });
         }
     }
@@ -882,6 +1120,9 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
             x: u * grid_width as f32,
             y: v * grid_height as f32,
             icon_type: *icon_type,
+            real_lat: Some(*lat),
+            real_lon: Some(*lon),
+            anchor: None,
         }
     }).collect();
 

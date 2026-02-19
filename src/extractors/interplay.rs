@@ -59,6 +59,13 @@ impl Extractor for FalloutInterplayExtractor {
         "src/extractors/interplay.rs"
     }
 
+    fn get_cluster_id(&self) -> &str {
+        match self.variant {
+            GameVariant::Fallout1 | GameVariant::Fallout2 => "interplay",
+            _ => self.variant.id_str(),
+        }
+    }
+
     fn extract(&self) -> RawMapData {
         match self.extract_real_data() {
             Ok(data) => data,
@@ -358,6 +365,7 @@ impl FalloutInterplayExtractor {
                  name: final_name, x, y, icon_type,
                  real_lat: None, real_lon: None,
                  terrain_override: None,
+                 anchor: None,
              });
         }
     }
@@ -425,6 +433,7 @@ impl FalloutInterplayExtractor {
                     real_lat: None,
                     real_lon: None,
                     weight: 1.0,
+                    anchor: None,
                 });
             }
         }
@@ -441,6 +450,7 @@ impl FalloutInterplayExtractor {
                 name: "Mock City".to_string(), x: 10.0, y: 10.0, icon_type: IconType::City,
                 real_lat: None, real_lon: None,
                 terrain_override: None,
+                anchor: None,
             }],
             width: 20,
             height: 20,

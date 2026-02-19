@@ -37,6 +37,12 @@ impl Extractor for ManualExtractor {
         "src/extractors/manual.rs"
     }
 
+    fn get_cluster_id(&self) -> &str {
+        "manual" // Group all manual markers together? Or one cluster per marker?
+                 // The user said "manual markers... can be left as the final steps"
+                 // So putting them in a "manual" cluster makes sense for the global phase.
+    }
+
     fn extract(&self) -> RawMapData {
         match self.extract_from_json() {
             Ok(data) => data,
@@ -87,6 +93,10 @@ struct ManualMarker {
     y: Option<f32>, // Grid Y (used if coordinate_system is Relative)
     #[serde(default)]
     location: Option<String>,
+    #[serde(default)]
+    pub anchor: Option<String>,
+    #[serde(default)]
+    pub terrain_override: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -125,7 +135,7 @@ impl ManualExtractor {
 
         let mut all_locations = Vec::new();
         let mut all_tiles = Vec::new();
-        let has_grid = map_file.rows.is_some() || map_file.terrain.is_some();
+        let has_grid = map_file.rows.is_some() || matches!(map_file.terrain, Some(TerrainBuilder::Grid { .. }));
 
         // 1. Process markers
         for marker in map_file.markers {
@@ -142,6 +152,7 @@ impl ManualExtractor {
                         real_lat: None,
                         real_lon: None,
                         terrain_override: None,
+                        anchor: marker.anchor.clone(),
                     });
                     continue;
                 }
@@ -175,6 +186,7 @@ impl ManualExtractor {
                 real_lat: Some(lat),
                 real_lon: Some(lon),
                 terrain_override: None,
+                anchor: marker.anchor.clone(),
             });
         }
 
@@ -212,6 +224,7 @@ impl ManualExtractor {
                             real_lat: None,
                             real_lon: None,
                             weight: 1.0,
+                            anchor: None,
                         });
                     }
                 }
@@ -296,6 +309,7 @@ impl ManualExtractor {
                         real_lat: Some(center_lat + dy as f32 * step_lat),
                         real_lon: Some(center_lon + dx as f32 * step_lon),
                         weight: 1.0,
+                        anchor: None,
                     });
                 }
             }
@@ -332,6 +346,7 @@ impl ManualExtractor {
                         real_lat: Some(start_lat - row_idx as f32 * step_lat),
                         real_lon: Some(start_lon + col_idx as f32 * step_lon),
                         weight: 1.0,
+                        anchor: None,
                     });
                 }
             }

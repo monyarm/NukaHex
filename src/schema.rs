@@ -111,6 +111,8 @@ pub struct RawLocation {
     pub real_lon: Option<f32>,
     #[serde(default)]
     pub terrain_override: Option<String>,
+    #[serde(default)]
+    pub anchor: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -124,6 +126,8 @@ pub struct RawTile {
     pub real_lon: Option<f32>,
     #[serde(default = "default_weight")]
     pub weight: f32,
+    #[serde(default)]
+    pub anchor: Option<String>,
 }
 
 fn default_weight() -> f32 { 1.0 }
@@ -147,6 +151,12 @@ pub struct FixedLocation {
     pub x: f32,
     pub y: f32,
     pub icon_type: IconType,
+    #[serde(default)]
+    pub real_lat: Option<f32>,
+    #[serde(default)]
+    pub real_lon: Option<f32>,
+    #[serde(default)]
+    pub anchor: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -154,4 +164,10 @@ pub struct FixedTile {
     pub x: i32,
     pub y: i32,
     pub tile_type: String,
+    #[serde(default)]
+    pub real_lat: Option<f32>,
+    #[serde(default)]
+    pub real_lon: Option<f32>,
+    #[serde(default)]
+    pub anchor: Option<String>,
 }

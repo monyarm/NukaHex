@@ -53,10 +53,10 @@ fn main() -> std::io::Result<()> {
     tile_gen::generate_tiles(tiles_dir)?;
 
     info!("--- Phase 2: Pipeline Execution ---");
-    let mut extractors: Vec<Box<dyn Extractor>> = vec![
+    let game_extractors: Vec<Box<dyn Extractor>> = vec![
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
-        Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutBoS)),
+        // Box::new(???::new(GameVariant::FalloutBoS)), // TODO: Add Fallout BoS support
     ];
 
     // Recursively find all JSON files in input/manual
@@ -78,11 +78,12 @@ fn main() -> std::io::Result<()> {
     let mut manual_files = Vec::new();
     let _ = find_manual_files(Path::new("input/manual"), &mut manual_files);
     
+    let mut manual_extractors: Vec<Box<dyn Extractor>> = Vec::new();
     for file in manual_files {
-        extractors.push(Box::new(crate::extractors::manual::ManualExtractor::new(file, 6.0)));
+        manual_extractors.push(Box::new(crate::extractors::manual::ManualExtractor::new(file, 6.0)));
     }
 
-    pipeline::run_pipeline(extractors, maps_dir);
+    pipeline::run_pipeline(game_extractors, manual_extractors, maps_dir);
 
     info!("Done! stored in output/");
     Ok(())
