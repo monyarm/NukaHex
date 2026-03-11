@@ -37,10 +37,8 @@ impl Extractor for ManualExtractor {
         "src/extractors/manual.rs"
     }
 
-    fn get_cluster_id(&self) -> &str {
-        "manual" // Group all manual markers together? Or one cluster per marker?
-                 // The user said "manual markers... can be left as the final steps"
-                 // So putting them in a "manual" cluster makes sense for the global phase.
+    fn get_cluster_id(&self) -> String {
+        "manual".to_string()
     }
 
     fn extract(&self) -> RawMapData {

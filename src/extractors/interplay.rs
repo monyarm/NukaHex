@@ -59,11 +59,8 @@ impl Extractor for FalloutInterplayExtractor {
         "src/extractors/interplay.rs"
     }
 
-    fn get_cluster_id(&self) -> &str {
-        match self.variant {
-            GameVariant::Fallout1 | GameVariant::Fallout2 => "interplay",
-            _ => self.variant.id_str(),
-        }
+    fn get_cluster_id(&self) -> String {
+        "interplay".to_string()
     }
 
     fn extract(&self) -> RawMapData {

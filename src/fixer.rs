@@ -31,6 +31,13 @@ const FALLOUT1_REAL_COORDS: &[(&str, &str)] = &[
     ("Modoc", "41.6727239,-120.899064"),
     ("New Reno", "39.5294665,-119.89379880000001"),
     ("Broken Hills", "39.5380233,-118.9489428"),
+    // Fallout 4
+    ("DiamondCity", "42.346676,-71.097218"), // Fenway Park
+    ("Goodneighbor", "42.358433,-71.057530"), // Old State House
+    ("BostonPublicLibrary", "42.349395,-71.076615"),
+    ("BunkerHillMonument", "42.376365,-71.060773"),
+    ("USSConstitution", "42.372439,-71.056586"),
+    ("OldNorthChurch", "42.366367,-71.054378"),
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
@@ -66,7 +73,9 @@ pub fn fix(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, miles_p
     let has_locations = all_raw.iter().any(|m| !m.locations.is_empty());
     let has_tiles = all_raw.iter().any(|m| !m.tiles.is_empty());
     
-    if has_locations && has_tiles {
+    let needs_warping = all_raw.iter().any(|m| m.coordinate_scale > 1.01 || m.coordinate_system == crate::schema::CoordinateSystem::Relative);
+    
+    if has_locations && has_tiles && needs_warping {
         return fix_with_terrain_inverse_warping(all_raw, resolution, bounds);
     }
     
@@ -90,32 +99,31 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
 
         if let Some(anchor) = anchor_loc {
             // 2. Identify Target (Ideal) Position for Anchor
+            let mut target_found = false;
             let (target_lat, target_lon) = if let (Some(la), Some(lo)) = (anchor.real_lat, anchor.real_lon) {
-                // If the extractor ALREADY had a target lat/lon (e.g. absolute marker), use it as ground truth.
-                // However, we want to check if it matches our hardcoded knowledge.
                 let mut ideal_lat = la;
                 let mut ideal_lon = lo;
                 
-                // Prioritize hardcoded lookup for canonical alignment
                 for (name, coords_str) in FALLOUT1_REAL_COORDS {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             ideal_lat = la;
                             ideal_lon = lo;
+                            target_found = true;
                             break;
                         }
                     }
                 }
                 (ideal_lat, ideal_lon)
             } else {
-                // Pick best guess for this anchor name
-                let mut fallback_lat = 35.0;
-                let mut fallback_lon = -115.0;
+                let mut fallback_lat = 0.0;
+                let mut fallback_lon = 0.0;
                 for (name, coords_str) in FALLOUT1_REAL_COORDS {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             fallback_lat = la;
                             fallback_lon = lo;
+                            target_found = true;
                             break;
                         }
                     }
@@ -124,14 +132,14 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             };
 
             // 3. Calculate Translation Offset
-            // anchor.real_lat is where it ended up after the CLUSTER rubbersheeting (internal degrees).
-            // If it's None, we have a problem—intermediate clusters MUST have real_lat set.
-            // (We ensure this in fix_to_raw)
-            let current_lat = anchor.real_lat.unwrap_or(target_lat);
-            let current_lon = anchor.real_lon.unwrap_or(target_lon);
+            let current_lat = anchor.real_lat.unwrap_or(0.0);
+            let current_lon = anchor.real_lon.unwrap_or(0.0);
             
-            let d_lat = target_lat - current_lat;
-            let d_lon = target_lon - current_lon;
+            let (d_lat, d_lon) = if target_found {
+                (target_lat - current_lat, target_lon - current_lon)
+            } else {
+                (0.0, 0.0) // Don't shift if not in our hardcoded California list
+            };
 
             info!("Cluster aligned via anchor '{}' to offset (dLat: {:.4}, dLon: {:.4})", anchor.name, d_lat, d_lon);
 
@@ -395,6 +403,22 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             } else if name.to_lowercase() == "the cathedral" {
                 real_coords_map.insert("cathedral".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("11_cathedral".to_string(), (lat, lon, canonical.clone()));
+            } else if name.to_lowercase() == "diamondcity" {
+                real_coords_map.insert("diamondcity".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("diamondcityref".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("diamondcitymarketref".to_string(), (lat, lon, canonical.clone()));
+            } else if name.to_lowercase() == "goodneighbor" {
+                real_coords_map.insert("goodneighbor".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("goodneighborref".to_string(), (lat, lon, canonical.clone()));
+            } else if name.to_lowercase() == "bunkerhillmonument" {
+                real_coords_map.insert("bunkerhillmonument".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("bunkerhillmonumentref".to_string(), (lat, lon, canonical.clone()));
+            } else if name.to_lowercase() == "ussconstitution" {
+                real_coords_map.insert("ussconstitution".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("ussconstitutionref".to_string(), (lat, lon, canonical.clone()));
+            } else if name.to_lowercase() == "bostonpubliclibrary" {
+                real_coords_map.insert("bostonpubliclibrary".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("bostonpubliclibraryref".to_string(), (lat, lon, canonical.clone()));
             }
         }
     }

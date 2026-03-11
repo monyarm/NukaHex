@@ -53,11 +53,15 @@ fn main() -> std::io::Result<()> {
     tile_gen::generate_tiles(tiles_dir)?;
 
     info!("--- Phase 2: Pipeline Execution ---");
-    let game_extractors: Vec<Box<dyn Extractor>> = vec![
+    let mut game_extractors: Vec<Box<dyn Extractor>> = vec![
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
-        // Box::new(???::new(GameVariant::FalloutBoS)), // TODO: Add Fallout BoS support
     ];
+
+    // To prevent long runs parsing huge 4/76 grids on every test, we usually control via CLI args.
+    // For now we will add Fallout 4 to the default pipeline to test it since that's what we built!
+    use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
+    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Fallout4.esm", "Commonwealth")));
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {
