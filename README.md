@@ -6,10 +6,25 @@ A Rust-based tool for extracting, processing, and georeferencing maps from vario
 
 This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout game data, with the ultimate goal of creating a unified, georeferenced map of the United States by combining data from all Fallout games. The tool corrects distorted game map scales and positions using real-world anchor points.
 
+## Supported Sources
+
+| Source | Status | Extraction Method | Notes |
+|--------|--------|-------------------|-------|
+| Fallout 1 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
+| Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
+| Fallout 3 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
+| Fallout: New Vegas | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
+| Fallout 4 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
+| Fallout 76 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
+| Fallout Tactics | 🔧 Planned | - | Detection/extraction not yet implemented |
+| Fallout TV Series (2024) | ✅ Supported | Manual JSON definitions | Locations manually defined |
+| Fallout: Wasteland Warfare (Board Game) | ✅ Supported | Manual JSON definitions | Locations manually defined |
+
 ## Features
 
-- **Multi-game support**: Extract data from Fallout 1, 2, 3, New Vegas, 4, and 76
+- **Multi-game support**: Extract data from all major Fallout games
 - **Automatic extraction**: Locates and extracts game data from Steam installations
+- **Manual definitions**: Support for TV show and board game locations via JSON
 - **Tiled map generation**: Produces industry-standard Tiled map files
 - **Georeferencing**: Maps game coordinates to real-world latitude/longitude
 - **Marker extraction**: Extracts locations, POIs, and other map markers
