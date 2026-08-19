@@ -87,7 +87,23 @@ fn main() -> std::io::Result<()> {
         manual_extractors.push(Box::new(crate::extractors::manual::ManualExtractor::new(file, 6.0)));
     }
 
-    pipeline::run_pipeline(game_extractors, manual_extractors, maps_dir);
+    let mut target_cluster = None;
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--cluster" && i + 1 < args.len() {
+            target_cluster = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    if let Some(ref c) = target_cluster {
+        info!("Running in single-cluster mode for: {}", c);
+    }
+
+    pipeline::run_pipeline(game_extractors, manual_extractors, maps_dir, target_cluster);
 
     info!("Done! stored in output/");
     Ok(())

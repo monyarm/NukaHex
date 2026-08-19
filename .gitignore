@@ -4,3 +4,18 @@
 .cache
 /input/games
 fo76utils_clone
+
+# Rust
+**/*.rs.bk
+*.pdb
+
+# Build artifacts
+build_errors.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

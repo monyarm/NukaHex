@@ -88,9 +88,9 @@ pub struct RawMapData {
     #[serde(default = "default_coordinate_scale")]
     pub coordinate_scale: f32, // How many game units per tile (Interplay=50.0, Manual=1.0)
     #[serde(default)]
-    pub reference_lat: Option<f32>, // Real-world lat for (0,0) index
-    #[serde(default)]
     pub reference_lon: Option<f32>, // Real-world lon for (0,0) index
+    #[serde(default)]
+    pub warnings: Vec<String>, // Any extractor warnings generated
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terrain_data: Option<String>, // WORLDMAP.TXT content if available
 }
@@ -143,6 +143,8 @@ pub struct FixedMapData {
     pub height: u32,
     pub global_offset_x: i32,
     pub global_offset_y: i32,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

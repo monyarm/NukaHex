@@ -1,3 +1,4 @@
 {
-    "fallout_bos": "$input/games/fallout_bos.iso"
+    "fallout_bos": "$input/games/fallout_bos.iso",
+    "fallout4": "/mnt/mediaSSD/SteamLibrary/steamapps/common/Fallout 4"
 }

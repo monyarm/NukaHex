@@ -99,6 +99,35 @@ impl BethesdaExtractor {
         Path::new(bin_dir).join("esmdump")
     }
 
+    fn find_localized_strings(&self, install_dir: &Path) -> Option<(PathBuf, String)> {
+        let data_dir = install_dir.join("Data");
+        
+        // 1. Check for explicit .STRINGS files (older games or loose files)
+        let strings_dir = data_dir.join("Strings");
+        if strings_dir.exists() {
+            let prefix = match self.variant {
+                 BethesdaGameVariant::Fallout4 => "fallout4_en",
+                 BethesdaGameVariant::Fallout3 => "fallout3_en",
+                 BethesdaGameVariant::FalloutNV => "falloutnv_en",
+                 BethesdaGameVariant::Fallout76 => "fallout76_en",
+            };
+            return Some((strings_dir, format!("strings/{}", prefix)));
+        }
+
+        // 2. Check for .ba2 archives (FO4/FO76)
+        let interface_ba2 = data_dir.join("Fallout4 - Interface.ba2");
+        if interface_ba2.exists() {
+             return Some((interface_ba2, "strings/fallout4_en".to_string()));
+        }
+        
+        let startup_ba2 = data_dir.join("Fallout4 - Startup.ba2");
+        if startup_ba2.exists() {
+             return Some((startup_ba2, "strings/fallout4_en".to_string()));
+        }
+
+        None
+    }
+
     fn run_esmdump_ltex(&self, install_dir: &Path) -> io::Result<std::collections::HashMap<u32, String>> {
         let esm_path = install_dir.join("Data").join(&self.plugin_name);
         if !esm_path.exists() {
@@ -115,12 +144,17 @@ impl BethesdaExtractor {
             .spawn()?;
 
         let mut ltex_map = std::collections::HashMap::new();
-        let stdout = child.stdout.expect("Failed to open stdout");
-        let reader = BufReader::new(stdout);
+        let mut stdout = child.stdout.expect("Failed to open stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line_buf = Vec::new();
 
-        for line in reader.lines() {
-            let line = line?;
-            if !line.starts_with("LTEX") { continue; }
+        while reader.read_until(b'\n', &mut line_buf)? > 0 {
+            let line = String::from_utf8_lossy(&line_buf);
+            let line = line.trim();
+            if !line.starts_with("LTEX") { 
+                line_buf.clear();
+                continue; 
+            }
             let columns: Vec<&str> = line.split('\t').collect();
             // TSV Format: Group, Record, FormID, EDID
             if columns.len() >= 4 {
@@ -132,6 +166,7 @@ impl BethesdaExtractor {
                     }
                 }
             }
+            line_buf.clear();
         }
         info!("Extracted {} ground textures (LTEX) from {}", ltex_map.len(), self.plugin_name);
         Ok(ltex_map)
@@ -143,8 +178,15 @@ impl BethesdaExtractor {
             return Err(io::Error::new(io::ErrorKind::NotFound, format!("ESM not found: {:?}", esm_path)));
         }
 
-        let child = Command::new(self.get_esmdump_path())
-            .arg(&esm_path)
+        let mut cmd = Command::new(self.get_esmdump_path());
+        cmd.arg(&esm_path);
+
+        if let Some((loc_path, prefix)) = self.find_localized_strings(install_dir) {
+            info!("Using localization: {:?} with prefix {}", loc_path, prefix);
+            cmd.arg(loc_path).arg(prefix);
+        }
+
+        let child = cmd
             .arg("-t")
             .arg("-v")
             .arg("-i")
@@ -157,12 +199,17 @@ impl BethesdaExtractor {
         let mut trees = Vec::new();
         let mut rocks = Vec::new();
         
-        let stdout = child.stdout.expect("Failed to open stdout");
-        let reader = BufReader::new(stdout);
+        let mut stdout = child.stdout.expect("Failed to open stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line_buf = Vec::new();
 
-        for line in reader.lines() {
-            let line = line?;
-            if !line.starts_with("WRLD") && !line.starts_with("CELL") { continue; }
+        while reader.read_until(b'\n', &mut line_buf)? > 0 {
+            let line = String::from_utf8_lossy(&line_buf);
+            let line = line.trim();
+            if !line.starts_with("WRLD") && !line.starts_with("CELL") { 
+                line_buf.clear();
+                continue; 
+            }
             
             let columns: Vec<&str> = line.split('\t').collect();
             // Columns with -v mode: 
@@ -194,22 +241,26 @@ impl BethesdaExtractor {
                 if is_map_marker && locations.len() < 2 {
                     info!("MapMarker dropped due to no coordinates.");
                 }
+                line_buf.clear();
                 continue;
             }
 
             // To map to `IconType`, we try to parse name or EDID
-            // `FULL` is usually [0x000344c3] in esmdump without string dicts. We will use EDID for the name fallback.
-            // Remove 'MapMarker' from the EDID to make it cleaner
-            let mut marker_name = edid.replace("MapMarker", "").replace("HeadingRef", "").replace("Alt", "");
-            
-            if is_map_marker && !marker_name.is_empty() {
-                // User requested to completely exclude hidden/unmarked markers.
-                // Unnamed markers have no FULL string, meaning they are hidden/internal quest markers.
-                let full_str = columns.get(4).unwrap_or(&"").trim();
-                let has_name = !full_str.is_empty() && full_str != "[]";
-                
-                if has_name {
-                    let icon_type = IconType::from_name(&marker_name);
+        // `FULL` is usually [0x000344c3] in esmdump without string dicts. We will use EDID for the name fallback.
+        // Remove 'MapMarker' from the EDID to make it cleaner
+        let marker_edid_clean = edid.replace("MapMarker", "").replace("HeadingRef", "").replace("Alt", "");
+        
+        if is_map_marker {
+            // Priority: FULL (column 4) > cleaned EDID
+            let full_str = columns.get(4).unwrap_or(&"").trim().to_string();
+            let marker_name = if !full_str.is_empty() && !full_str.starts_with('[') {
+                full_str
+            } else {
+                marker_edid_clean.clone()
+            };
+
+            if !marker_name.is_empty() {
+                let icon_type = IconType::from_name(&marker_edid_clean);
                     
                     locations.push(RawLocation {
                         name: marker_name,
@@ -227,6 +278,7 @@ impl BethesdaExtractor {
             } else if is_rock {
                 rocks.push((x, y));
             }
+            line_buf.clear();
         }
 
         info!("Extracted {} map markers, {} trees, {} rock formations from {}", locations.len(), trees.len(), rocks.len(), self.plugin_name);
@@ -235,8 +287,13 @@ impl BethesdaExtractor {
 
 
 
-    fn run_fo4land_and_findwater(&self, install_dir: &Path, ltex_map: &std::collections::HashMap<u32, String>) -> io::Result<Vec<RawTile>> {
-        let esm_path = install_dir.join("Data").join(format!("{}.esm", self.plugin_name));
+    fn run_fo4land_and_findwater(&self, install_dir: &Path, ltex_map: &std::collections::HashMap<u32, String>, warnings: &mut Vec<String>) -> io::Result<Vec<RawTile>> {
+        let esm_filename = if self.plugin_name.to_lowercase().ends_with(".esm") {
+            self.plugin_name.clone()
+        } else {
+            format!("{}.esm", self.plugin_name)
+        };
+        let esm_path = install_dir.join("Data").join(esm_filename);
         
         let mut seen_unmapped_textures = std::collections::HashSet::new();
         let temp_dir = std::env::temp_dir();
@@ -247,96 +304,154 @@ impl BethesdaExtractor {
         let bin_dir = env!("FO76UTILS_BIN_DIR");
         
         // 1. Run findwater
+        // Usage: findwater INFILE.ESM OUTFILE.DDS [OPTIONS...] worldID
         let findwater_bin = Path::new(bin_dir).join("findwater");
-        let fw_status = Command::new(&findwater_bin)
+        let world_id = if self.worldspace.to_lowercase() == "commonwealth" { "0x0000003C" } else { &self.worldspace };
+        
+        let status = Command::new(&findwater_bin)
             .arg(&esm_path)
             .arg(&water_dds)
-            .arg(&_hmap_dds)
-            .arg(install_dir)
+            .arg(world_id)
             .status();
-            
-        if let Err(e) = fw_status {
-            warn!("Failed to run findwater: {}", e);
+
+        match status {
+            Ok(s) if s.success() => {
+                info!("findwater successful for {}", self.worldspace);
+            }
+            _ => {
+                warnings.push(format!("findwater failed for {}. Water tiles will be missing.", self.worldspace));
+                warn!("findwater failed for {}. Continuing to fo4land.", self.worldspace);
+            }
         }
 
         // 2. Run fo4land (or btddump for 76)
-        let is_76 = matches!(self.variant, BethesdaGameVariant::Fallout76);
-        
-        let terrain_status = if is_76 {
-            let btddump_bin = Path::new(bin_dir).join("btddump");
-            let btd_path = install_dir.join("Data").join("Terrain").join("Appalachia.btd"); // Example default
-            Command::new(&btddump_bin)
-                .arg(btd_path)
-                .arg(&terrain_dds)
-                .arg("9") // format 9 = 32-bit form IDs
-                .args(["-100", "-100", "100", "100"]) // Default dimensions
-                .status()
-        } else {
-            let fo4land_bin = Path::new(bin_dir).join("fo4land");
-            Command::new(&fo4land_bin)
-                .arg(&esm_path)
-                .arg(&terrain_dds)
-                .arg("6") // format 6 = 32-bit Form IDs
-                .status()
+        // Usage: fo4land INFILE.ESM OUTFILE.DDS FMT [XMIN YMIN XMAX YMAX] [worldID]
+        let land_bin = match self.variant {
+            BethesdaGameVariant::Fallout76 => Path::new(bin_dir).join("btddump"),
+            _ => Path::new(bin_dir).join("fo4land"),
         };
 
-        if let Err(e) = terrain_status {
-            warn!("Failed to run terrain extractor: {}", e);
+        let world_id = if self.worldspace.to_lowercase() == "commonwealth" { "0x0000003C" } else { &self.worldspace };
+
+        let mut cmd = Command::new(&land_bin);
+        cmd.arg(&esm_path).arg(&terrain_dds);
+        
+        if self.variant == BethesdaGameVariant::Fallout76 {
+            cmd.arg("1"); // mip level for btddump
+        } else {
+            // Force a square 256x256 cell range
+            cmd.arg("6")
+               .arg("-128").arg("-128").arg("128").arg("128")
+               .arg(world_id);
         }
 
-        let mut tiles = Vec::new();
+        let status = cmd.status()?;
 
-        // 3. Parse the resulting DDS files
-        if std::fs::metadata(&terrain_dds).is_ok() {
-            let bytes = std::fs::read(&terrain_dds)?;
-            if bytes.len() > 128 {
-                let height = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
-                let width = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
-                
-                let pixel_data = &bytes[128..];
-                let expected_len = width * height * 4;
-                if pixel_data.len() >= expected_len {
-                    for y in 0..height {
-                        for x_group in 0..(width / 16) {
-                            let base_x = x_group * 16;
-                            let pixel_idx = (y * width + base_x) * 4;
-                            let form_id = u32::from_le_bytes(pixel_data[pixel_idx..pixel_idx+4].try_into().unwrap());
-                            
-                            let tile_type = match form_id {
-                                0 => "Misc".to_string(), // Empty or null
-                                _ => {
+        if !status.success() {
+            warnings.push(format!("Terrain extraction failed for {}", self.worldspace));
+            return Err(io::Error::new(io::ErrorKind::Other, "Terrain extraction failed"));
+        }
+
+        // 3. Sample DDS files efficiently
+        let mut tiles = Vec::new();
+        
+        // Both tools usually dump the full world space if bounds are omitted or default.
+        // For FO4, the world is roughly -128 to 128 cells (256x256 cells total).
+        let world_cells = 256;
+        
+        let mut terrain_file = std::fs::File::open(&terrain_dds)?;
+        let mut water_file = std::fs::File::open(&water_dds).ok();
+        
+        let mut header = [0u8; 128];
+        terrain_file.read_exact(&mut header)?;
+        let t_width = u32::from_le_bytes(header[16..20].try_into().unwrap()) as usize;
+        let t_height = u32::from_le_bytes(header[12..16].try_into().unwrap()) as usize;
+        info!("Terrain DDS: {}x{}", t_width, t_height);
+
+        let mut w_width = 0;
+        let mut w_height = 0;
+        if let Some(ref mut f) = water_file {
+            let mut w_header = [0u8; 128];
+            if f.read_exact(&mut w_header).is_ok() {
+                w_width = u32::from_le_bytes(w_header[16..20].try_into().unwrap()) as usize;
+                w_height = u32::from_le_bytes(w_header[12..16].try_into().unwrap()) as usize;
+                info!("Water DDS: {}x{}", w_width, w_height);
+            }
+        }
+
+        let t_pixels_per_cell = t_width / world_cells;
+        let w_pixels_per_cell = if w_width > 0 { w_width / world_cells } else { 0 };
+
+        if t_pixels_per_cell == 0 {
+            warnings.push(format!("Terrain extraction produced invalid dimensions for world_cells={}", world_cells));
+            // Maybe its a smaller world, let's try assuming width IS current world cells
+            // return self.extract_mock_data(warnings);
+        }
+
+        use std::io::{Seek, SeekFrom, Read};
+        
+        // Sampling range: enough to cover most worldspaces
+        for cy in -128..128 {
+            for sy in 0..16 {
+                // Read horizontal strips
+                let mut t_row_buf = Vec::new();
+                let ty = ((cy + 128) as usize * t_pixels_per_cell) + (sy * t_pixels_per_cell / 16);
+                if ty < t_height && t_pixels_per_cell > 0 {
+                    t_row_buf = vec![0u8; t_width * 4];
+                    terrain_file.seek(SeekFrom::Start(128 + (ty * t_width * 4) as u64))?;
+                    terrain_file.read_exact(&mut t_row_buf)?;
+                }
+
+                let mut w_row_buf = Vec::new();
+                if let Some(ref mut f) = water_file {
+                    if w_pixels_per_cell > 0 {
+                        let wy = ((cy + 128) as usize * w_pixels_per_cell) + (sy * w_pixels_per_cell / 16);
+                        if wy < w_height {
+                            w_row_buf = vec![0u8; w_width * 4];
+                            f.seek(SeekFrom::Start(128 + (wy * w_width * 4) as u64))?;
+                            f.read_exact(&mut w_row_buf)?;
+                        }
+                    }
+                }
+
+                if t_row_buf.is_empty() && w_row_buf.is_empty() { continue; }
+
+                for cx in -128..128 {
+                    for sx in 0..16 {
+                        // Sample from buffers
+                        let mut tile_type = "Misc".to_string();
+                        let mut has_data = false;
+
+                        if !t_row_buf.is_empty() {
+                            let tx = ((cx + 128) as usize * t_pixels_per_cell) + (sx * t_pixels_per_cell / 16);
+                            if tx < t_width {
+                                let pixel_idx = tx * 4;
+                                let form_id = u32::from_le_bytes(t_row_buf[pixel_idx..pixel_idx+4].try_into().unwrap());
+                                if form_id != 0 {
+                                    has_data = true;
                                     if let Some(texture_name) = ltex_map.get(&form_id) {
-                                        let tn_loc = texture_name.to_lowercase();
-                                        if tn_loc.contains("grass") || tn_loc.contains("forest") || tn_loc.contains("leaves") || tn_loc.contains("moss") {
-                                            "Grass".to_string()
-                                        } else if tn_loc.contains("sand") || tn_loc.contains("beach") || tn_loc.contains("desert") || tn_loc.contains("mojave") || tn_loc.contains("dirt") {
-                                            "Sand".to_string()
-                                        } else if tn_loc.contains("rock") || tn_loc.contains("stone") || tn_loc.contains("mountain") {
-                                            "Mountain".to_string()
-                                        } else if tn_loc.contains("rubble") || tn_loc.contains("debris") {
-                                            "Rock".to_string()
-                                        } else if tn_loc.contains("water") || tn_loc.contains("river") || tn_loc.contains("ocean") || tn_loc.contains("coast") {
-                                            "Water".to_string()
-                                        } else if tn_loc.contains("city") || tn_loc.contains("street") || tn_loc.contains("asphalt") || tn_loc.contains("concrete") || tn_loc.contains("pavement") || tn_loc.contains("cobble") {
-                                            "City".to_string()
-                                        } else {
-                                            if seen_unmapped_textures.insert(texture_name.clone()) {
-                                                warn!("Unmapped ground texture parsed: {}", texture_name);
-                                            }
-                                            "Misc".to_string()
+                                        if seen_unmapped_textures.insert(texture_name.clone()) {
+                                            warnings.push(format!("Unmapped ground texture parsed: {}", texture_name));
                                         }
-                                    } else {
-                                        if seen_unmapped_textures.insert(format!("FormID:{:#010X}", form_id)) {
-                                            warn!("Unmapped unseen ground texture FormID: {:#010X}", form_id);
-                                        }
-                                        "Misc".to_string()
                                     }
                                 }
-                            };
+                            }
+                        }
 
+                        if !w_row_buf.is_empty() {
+                            let wx = ((cx + 128) as usize * w_pixels_per_cell) + (sx * w_pixels_per_cell / 16);
+                            if wx < w_width {
+                                if w_row_buf[wx*4] > 0 {
+                                    tile_type = "Water".to_string();
+                                    has_data = true;
+                                }
+                            }
+                        }
+
+                        if has_data {
                             tiles.push(RawTile {
-                                x: x_group as i32,
-                                y: y as i32,
+                                x: (cx * 16 + sx as i32),
+                                y: (cy * 16 + sy as i32),
                                 tile_type,
                                 real_lat: None,
                                 real_lon: None,
@@ -373,13 +488,14 @@ impl BethesdaExtractor {
         let ltex_map = self.run_esmdump_ltex(&install_path).unwrap_or_default();
 
         // 1. Map markers and density (esmdump)
-        let (mut locations, _trees, _rocks) = self.run_esmdump_refrs(&install_path).unwrap_or_else(|e| {
+        let (locations, _trees, _rocks) = self.run_esmdump_refrs(&install_path).unwrap_or_else(|e| {
             warn!("Failed to extract map markers/density via esmdump: {}", e);
             (vec![], vec![], vec![])
         });
 
         // 2. Terrain and Water (fo4land/findwater)
-        let mut tiles = self.run_fo4land_and_findwater(&install_path, &ltex_map).unwrap_or_else(|e| {
+        let mut warnings = vec![];
+        let mut tiles = self.run_fo4land_and_findwater(&install_path, &ltex_map, &mut warnings).unwrap_or_else(|e| {
             warn!("Failed to extract terrain/water: {}", e);
             vec![]
         });
@@ -432,8 +548,9 @@ impl BethesdaExtractor {
         let mut data = self.extract_mock_data();
         data.locations = locations;
         data.tiles = tiles;
+        data.warnings = warnings;
         data.coordinate_system = crate::schema::CoordinateSystem::Relative;
-        data.coordinate_scale = cell_size; // Game units per tile
+        data.coordinate_scale = 256.0; // 16 tiles per cell
         
         Ok(data)
     }
@@ -447,10 +564,9 @@ impl BethesdaExtractor {
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
             has_grid: false,
-            // 4096 is the standard unit length for one cell in Fallout games
-            coordinate_scale: 4096.0,
-            reference_lat: None,
+            coordinate_scale: 256.0, // 16 tiles per cell
             reference_lon: None,
+            warnings: vec![],
             terrain_data: None,
         }
     }

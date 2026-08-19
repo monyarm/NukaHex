@@ -8,7 +8,7 @@ use log::{info, warn};
 // Each entry can be either:
 // - Numeric coordinates: ("Name", "37.376,-118.482")
 // - Place name/address: ("Name", "Griffith Observatory, Los Angeles")
-const FALLOUT1_REAL_COORDS: &[(&str, &str)] = &[
+const REAL_COORDS: &[(&str, &str)] = &[
     // (name, coordinates_or_address)
     ("Shady Sands", "37.3767525,-118.4820828"),
     ("Mariposa Military Base", "36.624861300000006,-121.78344730000002"), 
@@ -32,12 +32,12 @@ const FALLOUT1_REAL_COORDS: &[(&str, &str)] = &[
     ("New Reno", "39.5294665,-119.89379880000001"),
     ("Broken Hills", "39.5380233,-118.9489428"),
     // Fallout 4
-    ("DiamondCity", "42.346676,-71.097218"), // Fenway Park
+    ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
-    ("BostonPublicLibrary", "42.349395,-71.076615"),
-    ("BunkerHillMonument", "42.376365,-71.060773"),
-    ("USSConstitution", "42.372439,-71.056586"),
-    ("OldNorthChurch", "42.366367,-71.054378"),
+    ("Boston Public Library", "42.349395,-71.076615"),
+    ("Bunker Hill", "42.376365,-71.060773"),
+    ("USS Constitution", "42.372439,-71.056586"),
+    ("Old North Church", "42.366367,-71.054378"),
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
@@ -88,9 +88,11 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     
     let mut all_fixed_locations = Vec::new();
     let mut all_fixed_tiles = Vec::new();
+    let mut warnings = Vec::new();
 
     // We'll project everything to lat/lon first
     for cluster in game_clusters {
+        warnings.extend(cluster.warnings.clone());
         // 1. Pick Anchor
         // User: "pick the first marker with proper lat/lon, or the first marker if there isn't one"
         let anchor_loc = cluster.locations.iter()
@@ -104,7 +106,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                 let mut ideal_lat = la;
                 let mut ideal_lon = lo;
                 
-                for (name, coords_str) in FALLOUT1_REAL_COORDS {
+                for (name, coords_str) in REAL_COORDS {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             ideal_lat = la;
@@ -118,7 +120,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             } else {
                 let mut fallback_lat = 0.0;
                 let mut fallback_lon = 0.0;
-                for (name, coords_str) in FALLOUT1_REAL_COORDS {
+                for (name, coords_str) in REAL_COORDS {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             fallback_lat = la;
@@ -238,7 +240,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         tiles: final_tiles,
         locations: final_locations,
         width, height,
-        global_offset_x: 0, global_offset_y: 0
+        global_offset_x: 0, global_offset_y: 0,
+        warnings,
     }
 }
 
@@ -292,8 +295,8 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
         coordinate_scale: 1.0,
         rows: None,
         has_grid: true,
-        reference_lat: None,
         reference_lon: None,
+        warnings: fixed.warnings, // Propagate warnings!
         terrain_data: None,
     }
 }
@@ -345,6 +348,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
         height,
         global_offset_x: if min_x == i32::MAX { 0 } else { min_x },
         global_offset_y: if min_y == i32::MAX { 0 } else { min_y },
+        warnings: raw_maps.iter().flat_map(|m| m.warnings.clone()).collect(),
     }
 }
 
@@ -359,7 +363,9 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
 // }
 
 fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f32, bounds_limit: Option<BoundingBox>) -> FixedMapData {
-    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0 }; }
+    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![] }; }
+    
+    let mut warnings = Vec::new();
 
     // --- GLOBAL COORDINATE SYSTEM ---
     let universe_origin_lat = 50.0;
@@ -385,7 +391,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // Map Real World Coords for lookup (parse coordinates or geocode addresses)
     // Key: lowercase name, Value: (lat, lon, canonical_name)
     let mut real_coords_map: HashMap<String, (f32, f32, String)> = HashMap::new();
-    for (name, coords_str) in FALLOUT1_REAL_COORDS.iter() {
+    for (name, coords_str) in REAL_COORDS.iter() {
         if let Ok((lat, lon)) = geocoding::parse_coords(coords_str) {
             let canonical = name.to_string();
             real_coords_map.insert(canonical.to_lowercase(), (lat, lon, canonical.clone()));
@@ -403,21 +409,26 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             } else if name.to_lowercase() == "the cathedral" {
                 real_coords_map.insert("cathedral".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("11_cathedral".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "diamondcity" {
+            } else if name.to_lowercase() == "diamond city" {
                 real_coords_map.insert("diamondcity".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("diamond city".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("diamondcityref".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("diamondcitymarketref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "goodneighbor" {
+            } else if name.to_lowercase() == "goodneighbor" || name.to_lowercase() == "good neighbor" {
                 real_coords_map.insert("goodneighbor".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("good neighbor".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("goodneighborref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "bunkerhillmonument" {
+            } else if name.to_lowercase() == "bunker hill" {
                 real_coords_map.insert("bunkerhillmonument".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("bunker hill".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("bunkerhillmonumentref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "ussconstitution" {
+            } else if name.to_lowercase() == "uss constitution" {
                 real_coords_map.insert("ussconstitution".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("uss constitution".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("ussconstitutionref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "bostonpubliclibrary" {
+            } else if name.to_lowercase() == "boston public library" {
                 real_coords_map.insert("bostonpubliclibrary".to_string(), (lat, lon, canonical.clone()));
+                real_coords_map.insert("boston public library".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("bostonpubliclibraryref".to_string(), (lat, lon, canonical.clone()));
             }
         }
@@ -432,19 +443,18 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // 0. Pre-populate with ground truth anchors
     let mut ground_truth_added = HashSet::new();
     for (lower, (lat, lon, name)) in &real_coords_map {
-        seen_locations.insert(lower.clone());
-        
-        if ground_truth_added.contains(name) { continue; }
-        ground_truth_added.insert(name.clone());
-
         // Find icon type if it exists in any map
-        let icon_type = raw_maps.iter()
+        if let Some(found_loc) = raw_maps.iter()
             .flat_map(|m| &m.locations)
             .find(|l| l.name.eq_ignore_ascii_case(name))
-            .map(|l| l.icon_type)
-            .unwrap_or(crate::schema::IconType::Other);
+        {
+            seen_locations.insert(lower.clone());
             
-        all_real_world_locs.push((name.clone(), *lat, *lon, icon_type, None));
+            if ground_truth_added.contains(name) { continue; }
+            ground_truth_added.insert(name.clone());
+            
+            all_real_world_locs.push((name.clone(), *lat, *lon, found_loc.icon_type, None));
+        }
     }
 
     // 1. Process Absolute manual maps (already have lat/lon)
@@ -684,6 +694,17 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         projected_lats.extend(all_real_world_locs.iter().map(|(_, lat, ..)| *lat));
         projected_lons.extend(all_real_world_locs.iter().map(|(_, _, lon, ..)| *lon));
 
+        if projected_lats.is_empty() {
+            warn!("No markers found for fixing! Returning empty map.");
+            return FixedMapData {
+                tiles: vec![],
+                locations: vec![],
+                width: 0, height: 0,
+                global_offset_x: 0, global_offset_y: 0,
+                warnings: vec!["No markers to fix".to_string()],
+            };
+        }
+
         let buffer = 0.2;
         let min_lat = projected_lats.iter().fold(f32::INFINITY, |a, &b| a.min(b)) - buffer;
         let max_lat = projected_lats.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)) + buffer;
@@ -691,6 +712,16 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         let max_lon = projected_lons.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)) + buffer;
         (min_lat, max_lat, min_lon, max_lon)
     };
+
+    if min_lat_raw == 0.0 && max_lat_raw == 0.0 {
+         return FixedMapData {
+            tiles: vec![],
+            locations: vec![],
+            width: 0, height: 0,
+            global_offset_x: 0, global_offset_y: 0,
+            warnings: vec!["No markers to fix".to_string()],
+        };
+    }
 
     let min_lat_idx = ((min_lat_raw - universe_origin_lat) / lat_step).floor() as i32;
     let max_lat_idx = ((max_lat_raw - universe_origin_lat) / lat_step).ceil() as i32;
@@ -756,9 +787,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
                         for irx in (base_rx - 1)..=(base_rx + 1) {
                             for iry in (base_ry - 1)..=(base_ry + 1) {
-                                if irx < 0 || iry < 0 || irx >= raw_maps[game_idx].width as i32 || iry >= raw_maps[game_idx].height as i32 {
-                                    continue;
-                                }
+                                // For relative/Bethesda maps, width/height might not be reliable or might be centered.
+                                // We rely on the HashMap lookup instead of array bounds.
 
                                 if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&(irx, iry)) {
                                     let dx = rx - irx as f32;
@@ -955,8 +985,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             
             // Consider it a collision if markers are within 0.5 units
             if distance < 0.5 {
-                warn!("WARNING: Marker collision: '{}' overlaps '{}' (distance: {:.2})", 
-                         name, existing_loc.name, distance);
+                let msg = format!("Marker collision: '{}' overlaps '{}' (distance: {:.2})", name, existing_loc.name, distance);
+                warn!("WARNING: {}", msg);
+                warnings.push(msg);
                 break;
             }
         }
@@ -981,7 +1012,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let mut max_y_real = i32::MIN;
     
     for tile in &fixed_tiles {
-        if tile.tile_type != "unknown" {
+        if tile.tile_type != "unknown" && tile.tile_type != "" {
             if tile.x < min_x_real { min_x_real = tile.x; }
             if tile.x > max_x_real { max_x_real = tile.x; }
             if tile.y < min_y_real { min_y_real = tile.y; }
@@ -1037,6 +1068,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         })
         .collect();
 
+    let mut final_warnings = Vec::new();
+    for map in &raw_maps {
+        final_warnings.extend(map.warnings.clone());
+    }
+    final_warnings.extend(warnings);
+
     FixedMapData {
         tiles: trimmed_tiles,
         locations: trimmed_locations,
@@ -1044,6 +1081,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         height: trimmed_height,
         global_offset_x: 0,
         global_offset_y: 0,
+        warnings: final_warnings,
     }
 }
 
@@ -1066,7 +1104,7 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
     }
 
 
-    for (name, coords_str) in FALLOUT1_REAL_COORDS {
+    for (name, coords_str) in REAL_COORDS {
         if let Ok((lat, lon)) = geocoding::parse_coords(coords_str) {
             if let Some((gx, gy)) = game_coords.get(&name.to_lowercase()) {
                 control_points.push(ControlPoint {
@@ -1157,5 +1195,6 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
         height: grid_height,
         global_offset_x: 0,
         global_offset_y: 0,
+        warnings: vec![], // Rubbersheeting warnings not yet implemented
     }
 }

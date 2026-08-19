@@ -11,7 +11,7 @@ use log::{info, warn, error};
 
 // ... imports
 
-pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors: Vec<Box<dyn Extractor>>, output_dir: &Path) {
+pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors: Vec<Box<dyn Extractor>>, output_dir: &Path, target_cluster: Option<String>) {
     let intermediate_dir = output_dir.join("intermediate");
     let raw_dir = output_dir.join("raw");
     fs::create_dir_all(&intermediate_dir).unwrap();
@@ -53,9 +53,12 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
     // 1c. Generate raw debug maps for manual extractors with grids (cached)
     for (data, hash, id) in &manual_results {
+        if let Some(target) = &target_cluster {
+            if !id.contains(target) && !target.contains(id) { continue; }
+        }
         if data.has_grid {
             let step_id = format!("raw_debug_{}", id);
-            let mut step = CachedStep::new(&step_id, &intermediate_dir)
+            let step = CachedStep::new(&step_id, &intermediate_dir)
                 .add_dependency_hash(hash)
                 .add_dependency_file("src/map_gen.rs");
             
@@ -123,12 +126,23 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         cluster_names.insert(root, name);
     }
 
-    info!("Identified {} game clusters:", clusters.len());
-    for (root, members) in &cluster_members {
-        info!("  Cluster {} ({}): {:?}", root, cluster_names[root], members);
+    if let Some(target) = &target_cluster {
+        clusters.retain(|root_id, _| {
+            let matches_name = cluster_names.get(root_id).map_or(false, |s| s.contains(target) || target.contains(s));
+            let matches_members = cluster_members.get(root_id).map_or(false, |members| members.iter().any(|m| m.contains(target) || target.contains(m)));
+            matches_name || matches_members
+        });
+        if clusters.is_empty() {
+            warn!("Warning: No clusters matched the target '{}'", target);
+        }
     }
 
-    // --- STAGE 2: CLUSTER FIXING ---
+    info!("Identified {} game clusters to process:", clusters.len());
+    for (root, _) in &clusters {
+        info!("  Cluster {} ({}): {:?}", root, cluster_names[root], cluster_members[root]);
+    }
+
+    // --- STAGE 2.5: CLUSTER FIXING ---
     let mut clustered_raw_maps = Vec::new();
     let mut cluster_hashes = Vec::new();
 
@@ -175,11 +189,36 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             fixed_raw
         });
 
+        // Write out per-cluster markers
+        let cluster_marker_file = output_dir.join(format!("cluster_{}_markers.json", cluster_name));
+        if let Ok(json) = serde_json::to_string_pretty(&cluster_data.locations) {
+            let _ = fs::write(&cluster_marker_file, json);
+        }
+
+        // Write out per-cluster warnings if they exist
+        if !cluster_data.warnings.is_empty() {
+            let log_file = output_dir.join(format!("cluster_{}.log", cluster_name));
+            let mut log_content = String::new();
+            for w in &cluster_data.warnings {
+                log_content.push_str(w);
+                log_content.push('\n');
+            }
+            let _ = fs::write(&log_file, log_content);
+        }
+
         clustered_raw_maps.push(cluster_data);
         cluster_hashes.push(cluster_hash);
     }
 
     // --- STAGE 3: GLOBAL FIXER ---
+    if let Some(target) = &target_cluster {
+        info!("Skipping global fixing for single-cluster run: {}", target);
+        render_all_in_dir(output_dir, Some(target));
+        render_all_in_dir(&raw_dir, Some(target));
+        info!("Done! Cluster outputs stored in {}", output_dir.display());
+        return;
+    }
+
     let mut global_step = CachedStep::new("global_fixed_data", &intermediate_dir)
         .add_dependency_file("src/fixer.rs");
         
@@ -349,6 +388,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                     height: (crop_max_y - crop_min_y).max(1) as u32,
                     tiles: cropped_tiles, locations: cropped_locs,
                     global_offset_x: 0, global_offset_y: 0,
+                    warnings: high_res_data.warnings.clone(),
                 };
 
                 let filename = format!("city_{}.tmj", safe_name);
@@ -359,10 +399,19 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
 
     // --- STAGE 3.5: MARKER EXPORT ---
-     let marker_file = output_dir.join("markers.json");
+     let marker_file = output_dir.join("global_markers.json");
      if let Ok(json) = serde_json::to_string_pretty(&final_fixed_data.locations) {
-         fs::write(&marker_file, json).expect("Failed to write markers.json");
-         info!("[Pipeline] Exported {} markers to markers.json", final_fixed_data.locations.len());
+         fs::write(&marker_file, json).expect("Failed to write global_markers.json");
+         info!("[Pipeline] Exported {} global markers to global_markers.json", final_fixed_data.locations.len());
+     }
+     
+     if !manual_raw_maps.is_empty() {
+         let manual_marker_file = output_dir.join("manual_markers.json");
+         let manual_locs: Vec<_> = manual_raw_maps.iter().flat_map(|m| m.locations.clone()).collect();
+         if let Ok(json) = serde_json::to_string_pretty(&manual_locs) {
+             let _ = fs::write(&manual_marker_file, json);
+             info!("[Pipeline] Exported {} manual markers to manual_markers.json", manual_locs.len());
+         }
      }
 
     // --- STAGE 4: RASTERIZER ---
@@ -384,8 +433,8 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         }
     }
 
-    render_all_in_dir(output_dir);
-    render_all_in_dir(&raw_dir);
+    render_all_in_dir(output_dir, target_cluster.as_ref());
+    render_all_in_dir(&raw_dir, target_cluster.as_ref());
 
     info!("Done! All outputs stored in {}", output_dir.display());
 }
@@ -429,13 +478,17 @@ fn export_markers(data: &RawMapData, id: &str, raw_dir: &Path) {
     }
 }
 
-fn render_all_in_dir(dir: &Path) {
+fn render_all_in_dir(dir: &Path, target_cluster: Option<&String>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(ext) = path.extension() {
                 if ext == "tmj" {
                     let name = path.file_name().unwrap().to_string_lossy();
+                    if let Some(target) = target_cluster {
+                        if !name.contains(target) && !target.contains(&name.to_string()) { continue; }
+                    }
+
                     if name.starts_with("cluster_") || name.starts_with("raw_extracted_") || name.starts_with("raw_manual_") {
                         let png_path = path.with_extension("png");
                         info!("[Rasterizer] Rendering debug/cluster map: {}", name);

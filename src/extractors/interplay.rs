@@ -121,8 +121,8 @@ impl FalloutInterplayExtractor {
             rows: None,
             has_grid: false,
             coordinate_scale: 50.0,
-            reference_lat: None,
             reference_lon: None,
+            warnings: vec![],
             terrain_data: Some(worldmap_txt),
         })
     }
@@ -453,10 +453,10 @@ impl FalloutInterplayExtractor {
             height: 20,
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
-            has_grid: false,
+            has_grid: true,
             coordinate_scale: 50.0,
-            reference_lat: None,
             reference_lon: None,
+            warnings: vec![],
             terrain_data: None,
         }
     }

@@ -55,8 +55,8 @@ impl Extractor for ManualExtractor {
                     rows: None,
                     has_grid: false,
                     coordinate_scale: 1.0,
-                    reference_lat: None,
                     reference_lon: None,
+                    warnings: vec![],
                     terrain_data: None,
                 }
             }
@@ -241,8 +241,8 @@ impl ManualExtractor {
             rows: None, // We've flattened it
             has_grid,
             coordinate_scale: 1.0,
-            reference_lat: None,
             reference_lon: None,
+            warnings: vec![],
             terrain_data: None,
         })
     }
