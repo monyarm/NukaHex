@@ -1281,8 +1281,9 @@ mod invariant_tests {
     fn report_transform_quality() {
         for v in [GameVariant::Fallout1, GameVariant::Fallout2] {
             let map = game(v);
-            assert_eq!(map.coordinate_scale, 50.0, "{:?}: interplay scale must be 50 px/square", v);
-            assert_eq!((map.width, map.height), (28, 30), "{:?}: world map must be 28x30 squares", v);
+            // The world map is 28x30 squares of 50 px, whatever tile resolution the extractor emits.
+            assert_eq!((map.width as f32 * map.coordinate_scale, map.height as f32 * map.coordinate_scale), (1400.0, 1500.0),
+                "{:?}: world map must span 1400x1500 px", v);
             let cps = control_points(&map, None);
             let (sheet, report) = RubberSheet::new_fold_free(cps.clone(), (0.0, 0.0, 28.0 * 50.0, 30.0 * 50.0, 25.0));
             for line in report { println!("{:?} {}", v, line); }
@@ -1341,7 +1342,8 @@ mod invariant_tests {
         for map in &maps {
             let src: HashMap<(i32, i32), &str> = map.tiles.iter().map(|t| ((t.x, t.y), t.tile_type.as_str())).collect();
             for loc in &map.locations {
-                let want = src[&((loc.x / 50.0).floor() as i32, (loc.y / 50.0).floor() as i32)];
+                let s = map.coordinate_scale;
+                let want = src[&((loc.x / s).floor() as i32, (loc.y / s).floor() as i32)];
                 let Some(f) = fixed.locations.iter().find(|f| f.name == loc.name) else { continue };
                 let got = tile_at.get(&(f.x.round() as i32, f.y.round() as i32)).copied().unwrap_or("none");
                 total += 1;

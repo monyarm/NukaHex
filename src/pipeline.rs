@@ -449,7 +449,8 @@ fn extract_one(extractor: &Box<dyn Extractor>, intermediate_dir: &Path) -> (RawM
     
     let mut step = CachedStep::new(&id, intermediate_dir)
         .add_dependency_file(source_file)
-        .add_dependency_file("src/schema.rs");
+        .add_dependency_file("src/schema.rs")
+        .add_dependency_file("src/frm.rs");
     
     let config_path = "input/config/paths.json";
     if Path::new(config_path).exists() {

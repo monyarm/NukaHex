@@ -11,6 +11,7 @@ mod geocoding;
 mod caching;
 mod clustering; // Added clustering module
 mod utils;
+mod frm;
 
 use std::path::Path;
 use std::fs;

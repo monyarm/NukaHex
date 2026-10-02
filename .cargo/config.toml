@@ -1,0 +1,4 @@
+[env]
+# unrar_sys passes `-stdlib=libc++` whenever the compiler accepts it; GCC 15 accepts the flag
+# but libc++ is not installed, so force libstdc++ (later flag wins).
+CXXFLAGS = "-stdlib=libstdc++"
