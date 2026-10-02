@@ -41,7 +41,32 @@ const REAL_COORDS: &[(&str, &str)] = &[
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
+// ponytail: one longitude scale (35N) for the whole grid; east-west distances are off by up to
+// ~8% at 33N/42N. Switch to a real projection when maps beyond California/Nevada need it.
 const MILES_PER_DEGREE_LON_AT_35N: f32 = 56.5;
+
+const UNIVERSE_ORIGIN_LAT: f32 = 50.0;
+const UNIVERSE_ORIGIN_LON: f32 = -130.0;
+
+/// The output-grid convention, used by every stage: continuous (col, row) of a lat/lon on the
+/// world grid at `miles_per_hex`. Rows grow south; integer indices are cell centres.
+/// (Each game's own coordinate scale is separate: see `RawMapData::coordinate_scale`.)
+pub fn to_grid(lat: f32, lon: f32, miles_per_hex: f32) -> (f32, f32) {
+    ((lon - UNIVERSE_ORIGIN_LON) / (miles_per_hex / MILES_PER_DEGREE_LON_AT_35N),
+     (UNIVERSE_ORIGIN_LAT - lat) / (miles_per_hex / MILES_PER_DEGREE_LAT))
+}
+
+/// Inverse of `to_grid`: (lat, lon) at grid position (col, row).
+pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
+    (UNIVERSE_ORIGIN_LAT - row * (miles_per_hex / MILES_PER_DEGREE_LAT),
+     UNIVERSE_ORIGIN_LON + col * (miles_per_hex / MILES_PER_DEGREE_LON_AT_35N))
+}
+
+/// Key of the 1-mile bin holding (lat, lon), for neighbour lookups of manual points.
+fn bin_of(lat: f32, lon: f32) -> (i32, i32) {
+    let (c, r) = to_grid(lat, lon, 1.0);
+    (r.round() as i32, c.round() as i32)
+}
 
 // const LAT_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LAT;
 // const LON_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LON_AT_35N;
@@ -82,6 +107,70 @@ pub fn fix(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, miles_p
     fix_legacy_pass_through(all_raw)
 }
 
+/// Placement for a Relative manual map: maps its grid (x, y) to (lat, lon) using its markers
+/// that are already placed elsewhere (by name, lowercase key in `placed`) as anchors.
+/// 1 anchor: translation at the map's own `miles_per_unit`. 2 anchors: similarity (uniform
+/// scale + rotation) in a local miles frame. 3+: the same fold-free TPS used for games.
+/// None (with a warning) when no anchor is placed yet.
+fn relative_placement<'a>(map: &'a RawMapData, placed: &HashMap<String, (f32, f32)>, warnings: &mut Vec<String>)
+    -> Option<Box<dyn Fn(f32, f32) -> (f32, f32) + Send + Sync + 'a>>
+{
+    let mut cps: Vec<ControlPoint> = map.locations.iter()
+        .filter_map(|l| placed.get(&l.name.to_lowercase()).map(|&(lat, lon)| ControlPoint {
+            name: l.name.clone(), game_x: l.x, game_y: l.y, real_lat: lat, real_lon: lon,
+        }))
+        .collect();
+    cps.sort_by(|a, b| a.name.cmp(&b.name));
+    cps.dedup_by(|a, b| a.game_x == b.game_x && a.game_y == b.game_y);
+
+    let names: Vec<&str> = map.locations.iter().map(|l| l.name.as_str()).collect();
+    if cps.is_empty() {
+        let msg = format!("Relative map ({:?}...) has no placed anchors; skipped", &names[..names.len().min(3)]);
+        warn!("{}", msg);
+        warnings.push(msg);
+        return None;
+    }
+    if cps.len() >= 3 {
+        let area = (0.0, 0.0, map.width as f32, map.height as f32, 0.5);
+        let (sheet, report) = RubberSheet::new_fold_free(cps, area);
+        for msg in report {
+            let msg = format!("Relative map {:?}: {}", &names[..names.len().min(3)], msg);
+            warn!("{}", msg);
+            warnings.push(msg);
+        }
+        return Some(Box::new(move |x, y| sheet.transform(x, y)));
+    }
+
+    // Local planar frame in miles (x east, y south), matching grid orientation.
+    let lat0 = cps.iter().map(|c| c.real_lat).sum::<f32>() / cps.len() as f32;
+    let kx = MILES_PER_DEGREE_LAT * lat0.to_radians().cos();
+    let to_plane = move |lat: f32, lon: f32| (lon * kx, -lat * MILES_PER_DEGREE_LAT);
+    let from_plane = move |e: f32, s: f32| (-s / MILES_PER_DEGREE_LAT, e / kx);
+    let c0 = cps[0].clone();
+    let p0 = to_plane(c0.real_lat, c0.real_lon);
+
+    if cps.len() == 1 {
+        let scale = map.miles_per_unit.unwrap_or_else(|| {
+            warnings.push(format!("Relative map {:?} has one anchor and no miles_per_unit; assuming 6 mi/unit", &names[..names.len().min(3)]));
+            6.0
+        });
+        return Some(Box::new(move |x, y| from_plane(p0.0 + (x - c0.game_x) * scale, p0.1 + (y - c0.game_y) * scale)));
+    }
+
+    // Two anchors: complex ratio a = (p1 - p0) / (g1 - g0); p = p0 + a * (g - g0).
+    let c1 = &cps[1];
+    let p1 = to_plane(c1.real_lat, c1.real_lon);
+    let (gx, gy) = (c1.game_x - c0.game_x, c1.game_y - c0.game_y);
+    let (px, py) = (p1.0 - p0.0, p1.1 - p0.1);
+    let d = gx * gx + gy * gy;
+    if d < 1e-6 { return Some(Box::new(move |_, _| (c0.real_lat, c0.real_lon))); }
+    let (ar, ai) = ((px * gx + py * gy) / d, (py * gx - px * gy) / d);
+    Some(Box::new(move |x, y| {
+        let (dx, dy) = (x - c0.game_x, y - c0.game_y);
+        from_plane(p0.0 + ar * dx - ai * dy, p0.1 + ai * dx + ar * dy)
+    }))
+}
+
 /// New Global Aligner: Finds a single (dLat, dLon) offset per cluster based on an anchor.
 pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, resolution: f32, _bounds: Option<BoundingBox>) -> FixedMapData {
     info!("Aligning {} game clusters and {} manual maps via translation...", game_clusters.len(), manual_maps.len());
@@ -91,7 +180,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     let mut warnings = Vec::new();
 
     // We'll project everything to lat/lon first
-    for cluster in game_clusters {
+    for cluster in &game_clusters {
         warnings.extend(cluster.warnings.clone());
         // 1. Pick Anchor
         // User: "pick the first marker with proper lat/lon, or the first marker if there isn't one"
@@ -146,52 +235,59 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             info!("Cluster aligned via anchor '{}' to offset (dLat: {:.4}, dLon: {:.4})", anchor.name, d_lat, d_lon);
 
             // Apply offset to all markers
-            for loc in cluster.locations {
-                let lat = loc.real_lat.unwrap_or(loc.x); // x is fallback but shouldn't be needed
-                let lon = loc.real_lon.unwrap_or(loc.y);
-                all_fixed_locations.push((loc.name, lat + d_lat, lon + d_lon, loc.icon_type));
+            for loc in &cluster.locations {
+                let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
+                    warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name));
+                    continue;
+                };
+                all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type));
             }
 
             // Apply offset to all tiles
-            for tile in cluster.tiles {
+            for tile in &cluster.tiles {
                 if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                    all_fixed_tiles.push((tile.tile_type, t_lat + d_lat, t_lon + d_lon));
+                    all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon));
                 }
             }
         }
     }
 
-    // Process manual maps: simply project them (no translation offset)
-    for manual in manual_maps {
-        for loc in manual.locations {
-            let lat = loc.real_lat.unwrap_or(loc.x);
-            let lon = loc.real_lon.unwrap_or(loc.y);
-            all_fixed_locations.push((loc.name, lat, lon, loc.icon_type));
+    // Process manual maps: absolute ones are projected as-is (no translation offset);
+    // relative ones are placed afterwards from their markers already placed by name.
+    for manual in manual_maps.iter().filter(|m| m.coordinate_system != crate::schema::CoordinateSystem::Relative) {
+        for loc in &manual.locations {
+            let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
+                warnings.push(format!("Manual marker '{}' has no lat/lon; not placed", loc.name));
+                continue;
+            };
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type));
         }
-        for tile in manual.tiles {
+        for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                all_fixed_tiles.push((tile.tile_type, t_lat, t_lon));
-            } else {
-                // If it's a relative manual tile without geocoding, we might have a problem.
-                // But generally ManualExtractor geocodes the center.
+                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon));
             }
         }
     }
+    for manual in manual_maps.iter().filter(|m| m.coordinate_system == crate::schema::CoordinateSystem::Relative) {
+        let placed: HashMap<String, (f32, f32)> = all_fixed_locations.iter()
+            .map(|(n, lat, lon, _)| (n.to_lowercase(), (*lat, *lon))).collect();
+        let Some(transform) = relative_placement(manual, &placed, &mut warnings) else { continue };
+        for loc in &manual.locations {
+            if placed.contains_key(&loc.name.to_lowercase()) { continue; } // anchors are already placed
+            let (lat, lon) = transform(loc.x, loc.y);
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type));
+        }
+        for tile in &manual.tiles {
+            let (lat, lon) = transform(tile.x as f32, tile.y as f32);
+            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon));
+        }
+    }
 
-    // Now convert these absolute (Lat, Lon) points into the final 6.0 mi/hex grid
-    // Reuse the stable grid logic from inverse_warping
-    const UNIVERSE_ORIGIN_LAT: f32 = 50.0;
-    const UNIVERSE_ORIGIN_LON: f32 = -130.0;
-    let lat_step = resolution / MILES_PER_DEGREE_LAT;
-    let lon_step = resolution / MILES_PER_DEGREE_LON_AT_35N;
-
-    // Convert everything to grid indices
+    // Now convert these absolute (Lat, Lon) points into the final grid
     let mut grid_locations = Vec::new();
-    let mut grid_tiles_map: HashMap<(i32, i32), String> = HashMap::new();
 
     for (name, lat, lon, icon) in all_fixed_locations {
-        let gy = ((UNIVERSE_ORIGIN_LAT - lat) / lat_step) as f32;
-        let gx = ((lon - UNIVERSE_ORIGIN_LON) / lon_step) as f32;
+        let (gx, gy) = to_grid(lat, lon, resolution);
         grid_locations.push(FixedLocation {
             name, x: gx, y: gy, icon_type: icon,
             real_lat: Some(lat), real_lon: Some(lon),
@@ -199,17 +295,25 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         });
     }
 
+    // Downsample: each output cell takes the majority type of the finer cells landing in it
+    // (ties broken by name, so the result does not depend on input order).
+    let mut votes: HashMap<(i32, i32), HashMap<String, u32>> = HashMap::new();
     for (t_type, lat, lon) in all_fixed_tiles {
-        let gy = ((UNIVERSE_ORIGIN_LAT - lat) / lat_step).round() as i32;
-        let gx = ((lon - UNIVERSE_ORIGIN_LON) / lon_step).round() as i32;
-        grid_tiles_map.insert((gx, gy), t_type);
+        if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
+        let (gx, gy) = to_grid(lat, lon, resolution);
+        *votes.entry((gx.round() as i32, gy.round() as i32)).or_default().entry(t_type).or_insert(0) += 1;
     }
+    let grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
+        let best = v.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
+        (k, best)
+    }).collect();
 
-    // Determine grid bounds based on actual placed tiles, but with a small padding
-    let min_x = grid_tiles_map.keys().map(|(x, _)| *x).min().unwrap_or(0) - 2;
-    let max_x = grid_tiles_map.keys().map(|(x, _)| *x).max().unwrap_or(10) + 2;
-    let min_y = grid_tiles_map.keys().map(|(_, y)| *y).min().unwrap_or(0) - 2;
-    let max_y = grid_tiles_map.keys().map(|(_, y)| *y).max().unwrap_or(10) + 2;
+    // Grid bounds: every placed tile and every marker (a marker off the grid would be lost), padded.
+    let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32));
+    let ys = grid_tiles_map.keys().map(|k| k.1).chain(grid_locations.iter().map(|l| l.y.round() as i32));
+    let (min_x, max_x) = xs.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    let (min_y, max_y) = ys.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    let (min_x, max_x, min_y, max_y) = if min_x > max_x { (-2, 12, -2, 12) } else { (min_x - 2, max_x + 2, min_y - 2, max_y + 2) };
 
     let width = (max_x - min_x + 1) as u32;
     let height = (max_y - min_y + 1) as u32;
@@ -242,6 +346,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         width, height,
         global_offset_x: 0, global_offset_y: 0,
         warnings,
+        world_bounds: game_clusters.first().and_then(|m| m.world_bounds),
     }
 }
 
@@ -254,8 +359,6 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
     let resolution = 1.0;
     let fixed = fix_with_terrain_inverse_warping(raw_maps, resolution, None);
     
-    let _lat_step = resolution / MILES_PER_DEGREE_LAT;
-    let _lon_step = resolution / MILES_PER_DEGREE_LON_AT_35N;
 
     // We need to know the min/max indices used to derive current x,y
     // Since fix_with_terrain_inverse_warping doesn't return them, we have a problem.
@@ -298,6 +401,8 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
         reference_lon: None,
         warnings: fixed.warnings, // Propagate warnings!
         terrain_data: None,
+        world_bounds: fixed.world_bounds,
+        miles_per_unit: None,
     }
 }
 
@@ -349,6 +454,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
         global_offset_x: if min_x == i32::MAX { 0 } else { min_x },
         global_offset_y: if min_y == i32::MAX { 0 } else { min_y },
         warnings: raw_maps.iter().flat_map(|m| m.warnings.clone()).collect(),
+        world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
     }
 }
 
@@ -363,19 +469,14 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
 // }
 
 fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f32, bounds_limit: Option<BoundingBox>) -> FixedMapData {
-    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![] }; }
+    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![], world_bounds: None }; }
     
     let mut warnings = Vec::new();
 
-    // --- GLOBAL COORDINATE SYSTEM ---
-    let universe_origin_lat = 50.0;
-    let universe_origin_lon = -130.0;
 
     // 0. Build a Geographic Tile Map for all tiles that ALREADY have lat/lon (Manual data)
     // 0. Build a Manual Points Bin for sub-grid interpolation
     // We use a fixed ~6-mile grid for binning to ensure consistent lookup regardless of rendering resolution
-    let lat_step = miles_per_hex / MILES_PER_DEGREE_LAT;
-    let lon_step = miles_per_hex / MILES_PER_DEGREE_LON_AT_35N;
     
     let bin_lat_step = 1.0 / MILES_PER_DEGREE_LAT;
     let bin_lon_step = 1.0 / MILES_PER_DEGREE_LON_AT_35N;
@@ -396,20 +497,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             let canonical = name.to_string();
             real_coords_map.insert(canonical.to_lowercase(), (lat, lon, canonical.clone()));
             
-            // Add common aliases to ensure FO1 and FO2 find each other
-            if name.to_lowercase() == "shady sands" {
-                real_coords_map.insert("ncr".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("01_shady sands".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "mariposa military base" {
-                real_coords_map.insert("military base".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("08_military base".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "the boneyard" {
-                real_coords_map.insert("boneyard".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("10_boneyard".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "the cathedral" {
-                real_coords_map.insert("cathedral".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("11_cathedral".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "diamond city" {
+            // FO4 editor-ID aliases (FO1/FO2 aliases live in the Interplay extractor, per game).
+            // ponytail: belongs in the Bethesda extractor's name remap; move when FO4 is audited.
+            if name.to_lowercase() == "diamond city" {
                 real_coords_map.insert("diamondcity".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("diamond city".to_string(), (lat, lon, canonical.clone()));
                 real_coords_map.insert("diamondcityref".to_string(), (lat, lon, canonical.clone()));
@@ -440,30 +530,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let mut all_real_world_locs: Vec<(String, f32, f32, crate::schema::IconType, Option<String>)> = Vec::new();
     let mut seen_locations: HashSet<String> = HashSet::new();
 
-    // 0. Pre-populate with ground truth anchors
-    let mut ground_truth_added = HashSet::new();
-    for (lower, (lat, lon, name)) in &real_coords_map {
-        // Find icon type if it exists in any map
-        if let Some(found_loc) = raw_maps.iter()
-            .flat_map(|m| &m.locations)
-            .find(|l| l.name.eq_ignore_ascii_case(name))
-        {
-            seen_locations.insert(lower.clone());
-            
-            if ground_truth_added.contains(name) { continue; }
-            ground_truth_added.insert(name.clone());
-            
-            all_real_world_locs.push((name.clone(), *lat, *lon, found_loc.icon_type, None));
-        }
-    }
-
     // 1. Process Absolute manual maps (already have lat/lon)
     for map in &raw_maps {
         if map.coordinate_system == crate::schema::CoordinateSystem::Absolute && map.coordinate_scale <= 1.01 {
             for tile in &map.tiles {
                 if let (Some(lat), Some(lon)) = (tile.real_lat, tile.real_lon) {
-                    let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
-                    let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+                    let (bin_y, bin_x) = bin_of(lat, lon);
                     
                     manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                         lat, lon, tile_type: tile.tile_type.clone(),
@@ -486,6 +558,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     }
 
     // Build independent RubberSheets and tile maps for Interplay games (coordinate_scale > 1.0)
+    // Per marker name: (display name, icon, terrain override, [(game, lat, lon)]) in first-seen order.
+    let mut game_placements: HashMap<String, (String, crate::schema::IconType, Option<String>, Vec<(usize, f32, f32)>)> = HashMap::new();
+    let mut placement_order: Vec<String> = Vec::new();
     let mut game_sheets: Vec<Option<(RubberSheet, f32)>> = Vec::new();
     let mut game_tile_maps: Vec<HashMap<(i32, i32), (String, f32)>> = Vec::new();
 
@@ -516,20 +591,30 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             }
         }
 
-        info!("Game #{} has {} hardcoded control points: {:?}", game_idx, control_points.len(), control_points.iter().map(|c| &c.name).collect::<Vec<_>>());
-        info!("Game #{} has {} hardcoded control points", game_idx, control_points.len());
-        
+        // Deterministic order (HashMap iteration is not) and no duplicate game positions.
+        control_points.sort_by(|a, b| a.name.cmp(&b.name));
+        control_points.dedup_by(|a, b| a.game_x == b.game_x && a.game_y == b.game_y);
+        info!("Game #{} has {} control points: {:?}", game_idx, control_points.len(), control_points.iter().map(|c| &c.name).collect::<Vec<_>>());
+
         let sheet_opt = if control_points.len() >= 3 {
-            let sheet = RubberSheet::new(control_points);
-            
+            let s = map.coordinate_scale;
+            let area = (0.0, 0.0, map.width as f32 * s, map.height as f32 * s, s / 2.0);
+            let (sheet, report) = RubberSheet::new_fold_free(control_points, area);
+            for msg in report {
+                let msg = format!("Game #{}: {}", game_idx, msg);
+                warn!("{}", msg);
+                warnings.push(msg);
+            }
+
+            // Anchors go through the warp too, so every marker sits on the terrain it came from.
             for loc in &map.locations {
-                let name_lower = loc.name.to_lowercase();
                 if loc.real_lat.is_some() && loc.real_lon.is_some() { continue; } // Handle manual markers later
-                if seen_locations.contains(&name_lower) { continue; }
-                seen_locations.insert(name_lower);
-                
                 let (lat, lon) = sheet.transform(loc.x, loc.y);
-                all_real_world_locs.push((loc.name.clone(), lat, lon, loc.icon_type, loc.terrain_override.clone()));
+                let entry = game_placements.entry(loc.name.to_lowercase()).or_insert_with(|| {
+                    placement_order.push(loc.name.to_lowercase());
+                    (loc.name.clone(), loc.icon_type, loc.terrain_override.clone(), Vec::new())
+                });
+                entry.3.push((game_idx, lat, lon));
             }
             Some((sheet, map.coordinate_scale))
         } else {
@@ -538,11 +623,45 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
         game_sheets.push(sheet_opt);
 
-        let mut tile_map = HashMap::new();
+        let mut tile_map: HashMap<(i32, i32), (String, f32)> = HashMap::new();
         for tile in &map.tiles {
-            tile_map.insert((tile.x, tile.y), (tile.tile_type.clone(), tile.weight));
+            // Speed up: intern common types to avoid excessive allocations
+            let interned_type = match tile.tile_type.as_str() {
+                "Grass" => "Grass",
+                "Water" => "Water",
+                "Sand" => "Sand",
+                "Rock" => "Rock",
+                "City" => "City",
+                "Forest" => "Forest",
+                "Mountain" => "Mountain",
+                "Misc" => "Misc",
+                _ => &tile.tile_type,
+            };
+            tile_map.insert((tile.x, tile.y), (interned_type.to_string(), tile.weight));
         }
         game_tile_maps.push(tile_map);
+    }
+
+    // Merge rule: a place found in several games (or twice in one) gets the mean position;
+    // disagreement beyond 1 mi is reported, never silently dropped.
+    for key in &placement_order {
+        if seen_locations.contains(key) { continue; } // manual absolute data takes precedence
+        seen_locations.insert(key.clone());
+        let (name, icon, terrain, ps) = &game_placements[key];
+        let lat = ps.iter().map(|p| p.1).sum::<f32>() / ps.len() as f32;
+        let lon = ps.iter().map(|p| p.2).sum::<f32>() / ps.len() as f32;
+        let spread = ps.iter().map(|p| {
+            let dy = (p.1 - lat) * MILES_PER_DEGREE_LAT;
+            let dx = (p.2 - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos();
+            (dx * dx + dy * dy).sqrt()
+        }).fold(0.0, f32::max);
+        if spread > 1.0 {
+            let msg = format!("Games disagree on '{}' by up to {:.1} mi from the merged position: {:?}", name, spread,
+                ps.iter().map(|p| format!("game #{} ({:.3}, {:.3})", p.0, p.1, p.2)).collect::<Vec<_>>());
+            warn!("{}", msg);
+            warnings.push(msg);
+        }
+        all_real_world_locs.push((name.clone(), lat, lon, *icon, terrain.clone()));
     }
 
     // 3. Resolve Relative manual data (anchored to ANY resolved markers)
@@ -554,67 +673,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 anchor_lookup.insert(name.to_lowercase(), (*lat, *lon));
             }
 
-            let mut local_control_points = Vec::new();
-            for loc in &map.locations {
-                if let Some((lat, lon)) = anchor_lookup.get(&loc.name.to_lowercase()) {
-                    local_control_points.push(ControlPoint {
-                        name: loc.name.clone(),
-                        game_x: loc.x,
-                        game_y: loc.y,
-                        real_lat: *lat,
-                        real_lon: *lon,
-                    });
-                }
-            }
-
-            if local_control_points.is_empty() {
-                warn!("Relative map has NO anchors among {} resolved markers, skipping", all_real_world_locs.len());
-                continue;
-            }
-
-            info!("Resolving relative map with {} anchors", local_control_points.len());
-
-            // Transformation function
-            let transform = |gx: f32, gy: f32| -> (f32, f32) {
-                match local_control_points.len() {
-                    1 => {
-                        // Translation only
-                        let cp = &local_control_points[0];
-                        (cp.real_lat + (gy - cp.game_y) * lat_step, // approximation
-                         cp.real_lon + (gx - cp.game_x) * lon_step)
-                    },
-                    2 => {
-                        // Translation + Uniform Scaling + Rotation (2-point affine/similarity)
-                        let cp1 = &local_control_points[0];
-                        let cp2 = &local_control_points[1];
-                        
-                        let dg_x = cp2.game_x - cp1.game_x;
-                        let dg_y = cp2.game_y - cp1.game_y;
-                        let dr_lat = cp2.real_lat - cp1.real_lat;
-                        let dr_lon = cp2.real_lon - cp1.real_lon;
-                        
-                        let game_dist_sq = dg_x*dg_x + dg_y*dg_y;
-                        if game_dist_sq < 1e-4 { return (cp1.real_lat, cp1.real_lon); }
-                        
-                        // complex number division/multiplication logic:
-                        // (dr_lat + i*dr_lon) = (s * exp(i*theta)) * (dg_x + i*dg_y)
-                        let s_cos = (dr_lat * dg_x + dr_lon * dg_y) / game_dist_sq;
-                        let s_sin = (dr_lon * dg_x - dr_lat * dg_y) / game_dist_sq;
-                        
-                        let tx = gx - cp1.game_x;
-                        let ty = gy - cp1.game_y;
-                        
-                        let res_lat = cp1.real_lat + (tx * s_cos - ty * s_sin);
-                        let res_lon = cp1.real_lon + (tx * s_sin + ty * s_cos);
-                        (res_lat, res_lon)
-                    },
-                    _ => {
-                        // 3+ points: Use full Rubbersheet (warp)
-                        let sheet = RubberSheet::new(local_control_points.clone());
-                        sheet.transform(gx, gy)
-                    }
-                }
-            };
+            let Some(transform) = relative_placement(map, &anchor_lookup, &mut warnings) else { continue };
 
             // Transform markers
             for loc in &map.locations {
@@ -629,8 +688,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             // Transform tiles
             for tile in &map.tiles {
                 let (lat, lon) = transform(tile.x as f32, tile.y as f32);
-                let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
-                let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+                let (bin_y, bin_x) = bin_of(lat, lon);
                 
                 manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                     lat, lon, tile_type: tile.tile_type.clone(),
@@ -645,8 +703,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // Add terrain overrides as high-weight manual points
     for (_, lat, lon, _, terrain_opt) in &all_real_world_locs {
         if let Some(terrain) = terrain_opt {
-            let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
-            let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+            let (bin_y, bin_x) = bin_of(*lat, *lon);
             
                 manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                     lat: *lat, 
@@ -701,7 +758,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 locations: vec![],
                 width: 0, height: 0,
                 global_offset_x: 0, global_offset_y: 0,
-                warnings: vec!["No markers to fix".to_string()],
+                warnings: warnings,
+                world_bounds: None,
             };
         }
 
@@ -719,40 +777,36 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             locations: vec![],
             width: 0, height: 0,
             global_offset_x: 0, global_offset_y: 0,
-            warnings: vec!["No markers to fix".to_string()],
+            warnings: warnings,
+            world_bounds: None,
         };
     }
 
-    let min_lat_idx = ((min_lat_raw - universe_origin_lat) / lat_step).floor() as i32;
-    let max_lat_idx = ((max_lat_raw - universe_origin_lat) / lat_step).ceil() as i32;
-    let min_lon_idx = ((min_lon_raw - universe_origin_lon) / lon_step).floor() as i32;
-    let max_lon_idx = ((max_lon_raw - universe_origin_lon) / lon_step).ceil() as i32;
+    // North-west and south-east corners on the shared grid.
+    let (nw_col, nw_row) = to_grid(max_lat_raw, min_lon_raw, miles_per_hex);
+    let (se_col, se_row) = to_grid(min_lat_raw, max_lon_raw, miles_per_hex);
+    let (min_col, min_row) = (nw_col.floor() as i32, nw_row.floor() as i32);
+    let (max_col, max_row) = (se_col.ceil() as i32, se_row.ceil() as i32);
 
-    let grid_height = (max_lat_idx - min_lat_idx + 1).abs() as u32;
-    let grid_width = (max_lon_idx - min_lon_idx + 1).abs() as u32;
+    let grid_height = (max_row - min_row + 1) as u32;
+    let grid_width = (max_col - min_col + 1) as u32;
 
-    let get_lat = |idx: i32| universe_origin_lat + idx as f32 * lat_step;
-    let get_lon = |idx: i32| universe_origin_lon + idx as f32 * lon_step;
+    let cell_latlon = |x: u32, y: u32| from_grid((min_col + x as i32) as f32, (min_row + y as i32) as f32, miles_per_hex);
 
-    info!("Stable Grid ({:.1} mi/hex): {}x{} hexes anchored at lat={}, lon={}", 
-             miles_per_hex, grid_width, grid_height, get_lat(max_lat_idx), get_lon(min_lon_idx));
+    info!("Stable Grid ({:.1} mi/hex): {}x{} hexes anchored at {:?}",
+             miles_per_hex, grid_width, grid_height, cell_latlon(0, 0));
 
     // 4. Inverse Sampling Loop (Parallelized)
     let mut fixed_tiles: Vec<FixedTile> = (0..grid_height).into_par_iter().flat_map(|y| {
-        let current_lat_idx = max_lat_idx - y as i32;
-        let lat = get_lat(current_lat_idx);
-        
         let mut row_tiles = Vec::new();
         for x in 0..grid_width {
-            let current_lon_idx = min_lon_idx + x as i32;
-            let lon = get_lon(current_lon_idx);
+            let (lat, lon) = cell_latlon(x, y);
             
             let mut type_votes: HashMap<String, f32> = HashMap::new();
 
             // A) Manual Data
             if !manual_points_bins.is_empty() {
-                let bin_y = ((lat - universe_origin_lat) / bin_lat_step).round() as i32;
-                let bin_x = ((lon - universe_origin_lon) / bin_lon_step).round() as i32;
+                let (bin_y, bin_x) = bin_of(lat, lon);
 
                 for by in (bin_y - 8)..=(bin_y + 8) {
                     for bx in (bin_x - 8)..=(bin_x + 8) {
@@ -775,38 +829,21 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             for (game_idx, sheet_opt) in game_sheets.iter().enumerate() {
                 if let Some((sheet, terrain_scale)) = sheet_opt {
                     if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
-                        if gx < -20.0 || gx > (28.0 * terrain_scale + 20.0) || 
-                           gy < -20.0 || gy > (30.0 * terrain_scale + 20.0) {
-                            continue;
-                        }
-
-                        let rx = gx / (*terrain_scale);
-                        let ry = gy / (*terrain_scale);
-                        let base_rx = rx.round() as i32;
-                        let base_ry = ry.round() as i32;
-
-                        for irx in (base_rx - 1)..=(base_rx + 1) {
-                            for iry in (base_ry - 1)..=(base_ry + 1) {
-                                // For relative/Bethesda maps, width/height might not be reliable or might be centered.
-                                // We rely on the HashMap lookup instead of array bounds.
-
-                                if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&(irx, iry)) {
-                                    let dx = rx - irx as f32;
-                                    let dy = ry - iry as f32;
-                                    let dist_sq = dx*dx + dy*dy;
-                                    if dist_sq < 4.0 {
-                                        let weight = (1.0 / (dist_sq + 0.01)) * (*base_weight);
-                                        *type_votes.entry(tile_type.clone()).or_insert(0.0) += weight;
-                                    }
-                                }
-                            }
+                        // Each game contributes the square that contains this point: game squares
+                        // are discrete, so no blending with neighbours (that erodes narrow features).
+                        // Square i covers game units [i*s, (i+1)*s).
+                        let sq = ((gx / terrain_scale).floor() as i32, (gy / terrain_scale).floor() as i32);
+                        if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&sq) {
+                            // Same strength a manual point has at its own location (1 / 0.01).
+                            *type_votes.entry(tile_type.clone()).or_insert(0.0) += 100.0 * base_weight;
                         }
                     }
                 }
             }
             
+            type_votes.remove("unknown"); // no-data never counts as a vote, whatever its source
             let best_type = type_votes.iter()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .max_by(|a, b| a.1.total_cmp(b.1).then_with(|| b.0.cmp(a.0))) // ties: by name, not hash order
                 .map(|(t, _)| t.clone());
             
             row_tiles.push(FixedTile { 
@@ -869,8 +906,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                                     queue.push((nx, ny));
                                     group_idxs.push(*n_idx);
                                 }
-                            } else {
-                                // Land neighbor -> Vote
+                            } else if n_type != "unknown" {
+                                // Land neighbor -> Vote ("unknown" is no data, not land)
                                 *boundary_votes.entry(n_type.clone()).or_insert(0) += 1;
                             }
                         }
@@ -878,13 +915,11 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 }
             }
 
-            if group_idxs.len() < 5 {
-                // Determine replacement
-                let best_land = boundary_votes.iter()
-                    .max_by_key(|&(_, c)| c)
-                    .map(|(t, _)| t.clone())
-                    .unwrap_or("Sand".to_string());
-                
+            // Only replace when surrounded by known land (no neighbours = no evidence it is a speck).
+            let best_land = boundary_votes.iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .map(|(t, _)| t.clone());
+            if let (true, Some(best_land)) = (group_idxs.len() < 5, best_land) {
                 for idx in group_idxs {
                     to_update.push((idx, best_land.clone()));
                 }
@@ -903,9 +938,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
         // Pass 2: Remove small Land specks (< 2)
         let mut visited_land: HashSet<(i32, i32)> = HashSet::new();
-        // Identify all LAND tiles (not Water/Ocean)
+        // Identify all LAND tiles (not Water/Ocean, and not "unknown", which is no data)
         let land_keys: Vec<(i32, i32)> = map_grid.iter()
-            .filter(|(_, (_, t))| t != "Water" && t != "ocean")
+            .filter(|(_, (_, t))| t != "Water" && t != "ocean" && t != "unknown")
             .map(|(&k, _)| k)
             .collect();
             
@@ -932,6 +967,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                         let ny = cy + dy;
 
                         if let Some((n_idx, n_type)) = map_grid.get(&(nx, ny)) {
+                            if n_type == "unknown" { continue; }
                             if n_type != "Water" && n_type != "ocean" {
                                 if !visited_land.contains(&(nx, ny)) {
                                     visited_land.insert((nx, ny));
@@ -947,13 +983,11 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 }
             }
 
-            if group_idxs.len() < 2 {
-                // Too small -> Flip to Water
-                let best_water = boundary_votes.iter()
-                    .max_by_key(|&(_, c)| c)
-                    .map(|(t, _)| t.clone())
-                    .unwrap_or("Water".to_string()); // Default Water
-
+            // Too small -> flip to the surrounding water, only if there is surrounding water.
+            let best_water = boundary_votes.iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .map(|(t, _)| t.clone());
+            if let (true, Some(best_water)) = (group_idxs.len() < 2, best_water) {
                 for idx in group_idxs {
                     to_update.push((idx, best_water.clone()));
                 }
@@ -972,10 +1006,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let mut all_locations_placed: Vec<FixedLocation> = Vec::new();
     
     for (name, lat, lon, icon_type, _) in all_real_world_locs.iter() {
-        let f_lat_idx = (lat - universe_origin_lat) / lat_step;
-        let f_lon_idx = (lon - universe_origin_lon) / lon_step;
-        let grid_x = f_lon_idx - (min_lon_idx as f32);
-        let grid_y = (max_lat_idx as f32) - f_lat_idx;
+        let (col, row) = to_grid(*lat, *lon, miles_per_hex);
+        let grid_x = col - min_col as f32;
+        let grid_y = row - min_row as f32;
         
         // Check for actual collision (markers overlapping, not just same tile)
         for existing_loc in &all_locations_placed {
@@ -1011,12 +1044,21 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let mut min_y_real = i32::MAX;
     let mut max_y_real = i32::MIN;
     
-    for tile in &fixed_tiles {
-        if tile.tile_type != "unknown" && tile.tile_type != "" {
-            if tile.x < min_x_real { min_x_real = tile.x; }
-            if tile.x > max_x_real { max_x_real = tile.x; }
-            if tile.y < min_y_real { min_y_real = tile.y; }
-            if tile.y > max_y_real { max_y_real = tile.y; }
+    // Use world_bounds if provided (usually for individual cluster extraction)
+    if let Some(bounds) = raw_maps.first().and_then(|m| m.world_bounds) {
+        min_x_real = bounds.min_x;
+        max_x_real = bounds.max_x;
+        min_y_real = bounds.min_y;
+        max_y_real = bounds.max_y;
+        info!("Using official world_bounds: ({}, {}) to ({}, {})", min_x_real, min_y_real, max_x_real, max_y_real);
+    } else {
+        for tile in &fixed_tiles {
+            if tile.tile_type != "unknown" && tile.tile_type != "" {
+                if tile.x < min_x_real { min_x_real = tile.x; }
+                if tile.x > max_x_real { max_x_real = tile.x; }
+                if tile.y < min_y_real { min_y_real = tile.y; }
+                if tile.y > max_y_real { max_y_real = tile.y; }
+            }
         }
     }
 
@@ -1082,6 +1124,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         global_offset_x: 0,
         global_offset_y: 0,
         warnings: final_warnings,
+        world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
     }
 }
 
@@ -1195,6 +1238,162 @@ fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
         height: grid_height,
         global_offset_x: 0,
         global_offset_y: 0,
-        warnings: vec![], // Rubbersheeting warnings not yet implemented
+        warnings: vec![],
+        world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
+    }
+}
+
+#[cfg(test)]
+mod invariant_tests {
+    //! Logical-correctness invariants for the FO1/FO2 pipeline (see plan I1–I10).
+    //! Reads the cached CITY.TXT/WORLDMAP.TXT under `.cache/` via the real extractor.
+    use super::*;
+    use crate::extractors::Extractor;
+    use crate::extractors::interplay::{FalloutInterplayExtractor, GameVariant};
+
+    fn game(v: GameVariant) -> RawMapData { FalloutInterplayExtractor::new(v).extract() }
+
+    fn anchors() -> HashMap<String, (f32, f32)> {
+        REAL_COORDS.iter()
+            .map(|(n, c)| (n.to_lowercase(), geocoding::parse_coords(c).unwrap()))
+            .collect()
+    }
+
+    fn control_points(map: &RawMapData, skip: Option<&str>) -> Vec<ControlPoint> {
+        let a = anchors();
+        map.locations.iter()
+            .filter(|l| Some(l.name.to_lowercase().as_str()) != skip)
+            .filter_map(|l| a.get(&l.name.to_lowercase()).map(|&(lat, lon)| ControlPoint {
+                name: l.name.clone(), game_x: l.x, game_y: l.y, real_lat: lat, real_lon: lon,
+            }))
+            .collect()
+    }
+
+    /// Great-circle-free local distance in true miles (cos(lat) scaling, not the 35N constant).
+    fn miles(a: (f32, f32), b: (f32, f32)) -> f32 {
+        let lat_m = (a.0 + b.0) / 2.0;
+        let dy = (a.0 - b.0) * MILES_PER_DEGREE_LAT;
+        let dx = (a.1 - b.1) * MILES_PER_DEGREE_LAT * lat_m.to_radians().cos();
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    #[test]
+    fn report_transform_quality() {
+        for v in [GameVariant::Fallout1, GameVariant::Fallout2] {
+            let map = game(v);
+            assert_eq!(map.coordinate_scale, 50.0, "{:?}: interplay scale must be 50 px/square", v);
+            assert_eq!((map.width, map.height), (28, 30), "{:?}: world map must be 28x30 squares", v);
+            let cps = control_points(&map, None);
+            let (sheet, report) = RubberSheet::new_fold_free(cps.clone(), (0.0, 0.0, 28.0 * 50.0, 30.0 * 50.0, 25.0));
+            for line in report { println!("{:?} {}", v, line); }
+
+            // I3: exact at anchors
+            for cp in &cps {
+                let p = sheet.transform(cp.game_x, cp.game_y);
+                println!("{:?} anchor-exact {:<24} err {:.3} mi", v, cp.name, miles(p, (cp.real_lat, cp.real_lon)));
+            }
+
+            // I8: leave-one-out
+            for cp in &cps {
+                let loo = RubberSheet::new(control_points(&map, Some(&cp.name.to_lowercase())));
+                let p = loo.transform(cp.game_x, cp.game_y);
+                println!("{:?} LOO {:<24} err {:6.1} mi  predicted ({:.3}, {:.3}) anchor ({:.3}, {:.3})  dN {:+.1} mi dE {:+.1} mi",
+                    v, cp.name, miles(p, (cp.real_lat, cp.real_lon)), p.0, p.1, cp.real_lat, cp.real_lon,
+                    (p.0 - cp.real_lat) * MILES_PER_DEGREE_LAT,
+                    (p.1 - cp.real_lon) * MILES_PER_DEGREE_LAT * cp.real_lat.to_radians().cos());
+            }
+
+            // I2: round trip forward→inverse over the whole world grid, in squares
+            let mut worst_rt = 0f32;
+            // I3: fold check — sign of Jacobian determinant over the grid
+            let (mut pos, mut neg) = (0, 0);
+            for sy in 0..30 { for sx in 0..28 {
+                let (gx, gy) = ((sx as f32 + 0.5) * 50.0, (sy as f32 + 0.5) * 50.0);
+                let p = sheet.transform(gx, gy);
+                let (bx, by) = sheet.inverse_transform(p.0, p.1).unwrap();
+                worst_rt = worst_rt.max(((bx - gx).powi(2) + (by - gy).powi(2)).sqrt() / 50.0);
+                let h = 5.0;
+                let px = sheet.transform(gx + h, gy);
+                let py = sheet.transform(gx, gy + h);
+                let det = (px.0 - p.0) * (py.1 - p.1) - (px.1 - p.1) * (py.0 - p.0);
+                if det > 0.0 { pos += 1 } else { neg += 1; println!("{:?} fold at square ({}, {})", v, sx, sy) }
+            }}
+            println!("{:?} round-trip worst {:.2} squares; jacobian +{} / -{}", v, worst_rt, pos, neg);
+            assert_eq!(neg, 0, "{:?}: warp folds (I3)", v);
+            assert!(worst_rt < 0.01, "{:?}: inverse is not the forward's inverse (I2)", v);
+
+            // I4: implied miles per square (affine scale), x and y separately
+            let c = (14.0 * 50.0, 15.0 * 50.0);
+            let o = sheet.transform(c.0, c.1);
+            println!("{:?} miles/square ~ x {:.1}, y {:.1}", v,
+                miles(o, sheet.transform(c.0 + 50.0, c.1)), miles(o, sheet.transform(c.0, c.1 + 50.0)));
+        }
+    }
+
+    /// Markers and terrain come from the same warp, so each game marker must sit on the game
+    /// square it was drawn on. Checks the warped tile under each marker against the source square.
+    #[test]
+    fn markers_sit_on_their_source_square() {
+        let maps = vec![game(GameVariant::Fallout1), game(GameVariant::Fallout2)];
+        let fixed = fix_with_terrain_inverse_warping(maps.clone(), 1.0, None);
+        let tile_at: HashMap<(i32, i32), &str> = fixed.tiles.iter().map(|t| ((t.x, t.y), t.tile_type.as_str())).collect();
+        let (mut ok, mut total) = (0, 0);
+        for map in &maps {
+            let src: HashMap<(i32, i32), &str> = map.tiles.iter().map(|t| ((t.x, t.y), t.tile_type.as_str())).collect();
+            for loc in &map.locations {
+                let want = src[&((loc.x / 50.0).floor() as i32, (loc.y / 50.0).floor() as i32)];
+                let Some(f) = fixed.locations.iter().find(|f| f.name == loc.name) else { continue };
+                let got = tile_at.get(&(f.x.round() as i32, f.y.round() as i32)).copied().unwrap_or("none");
+                total += 1;
+                if got == want { ok += 1 } else { println!("{:<28} source {:<8} warped {}", loc.name, want, got) }
+            }
+        }
+        println!("{}/{} markers on a tile of their source square's type", ok, total);
+        assert!(ok * 10 >= total * 9, "markers drift off their terrain (I1/I2)");
+    }
+
+    /// Relative manual maps must survive the global (translation-only) pass: markers that are
+    /// not anchors get placed from the anchors, never dropped.
+    #[test]
+    fn relative_manual_maps_are_placed_globally() {
+        let mk = |name: &str, x: f32, y: f32, lat: Option<f32>, lon: Option<f32>| crate::schema::RawLocation {
+            name: name.into(), x, y, icon_type: crate::schema::IconType::City,
+            real_lat: lat, real_lon: lon, terrain_override: None, anchor: None,
+        };
+        let cluster = RawMapData {
+            locations: vec![mk("A", 0.0, 0.0, Some(37.0), Some(-120.0)), mk("B", 0.0, 0.0, Some(38.0), Some(-120.0)),
+                            mk("C", 0.0, 0.0, Some(37.0), Some(-119.0))],
+            coordinate_scale: 1.0, ..Default::default()
+        };
+        let relative = RawMapData {
+            locations: vec![mk("A", 0.0, 10.0, None, None), mk("B", 0.0, 0.0, None, None),
+                            mk("C", 10.0, 10.0, None, None), mk("Mid", 5.0, 5.0, None, None)],
+            coordinate_system: crate::schema::CoordinateSystem::Relative,
+            width: 11, height: 11, coordinate_scale: 1.0, miles_per_unit: Some(6.0), ..Default::default()
+        };
+        let fixed = fix_translation_only(vec![cluster], vec![relative], 6.0, None);
+        let mid = fixed.locations.iter().find(|l| l.name == "Mid").expect("non-anchor marker of a relative map was dropped");
+        // 3 anchors = exact affine; Mid is the midpoint of B and C, i.e. (37.5, -119.5).
+        assert!((mid.real_lat.unwrap() - 37.5).abs() < 1e-3 && (mid.real_lon.unwrap() + 119.5).abs() < 1e-3,
+            "Mid placed at {:?}, {:?}", mid.real_lat, mid.real_lon);
+    }
+
+    /// Every real point the warp covers must invert (else the cell gets no terrain: a hole).
+    /// Probes off-centre points on a fine grid, not just square centres.
+    #[test]
+    fn inverse_has_no_holes() {
+        for v in [GameVariant::Fallout1, GameVariant::Fallout2] {
+            let map = game(v);
+            let (sheet, _) = RubberSheet::new_fold_free(control_points(&map, None), (0.0, 0.0, 1400.0, 1500.0, 25.0));
+            let mut fails = 0;
+            for gy in (3..1500).step_by(7) { for gx in (3..1400).step_by(7) {
+                let p = sheet.transform(gx as f32, gy as f32);
+                match sheet.inverse_transform(p.0, p.1) {
+                    Some((bx, by)) if (bx - gx as f32).abs() < 0.5 && (by - gy as f32).abs() < 0.5 => {}
+                    _ => fails += 1,
+                }
+            }}
+            assert_eq!(fails, 0, "{:?}: {} points do not invert", v, fails);
+        }
     }
 }

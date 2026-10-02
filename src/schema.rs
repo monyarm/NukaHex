@@ -1,6 +1,14 @@
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MapBounds {
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum IconType {
     City,
     Vault,
@@ -68,7 +76,7 @@ impl Default for CoordinateSystem {
     fn default() -> Self { CoordinateSystem::Absolute }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct RawMapData {
     pub locations: Vec<RawLocation>,
     pub tiles: Vec<RawTile>,
@@ -93,6 +101,10 @@ pub struct RawMapData {
     pub warnings: Vec<String>, // Any extractor warnings generated
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terrain_data: Option<String>, // WORLDMAP.TXT content if available
+    #[serde(default)]
+    pub world_bounds: Option<MapBounds>, // Official worldspace extents
+    #[serde(default)]
+    pub miles_per_unit: Option<f32>, // Relative maps: real miles per grid unit, if known
 }
 
 fn default_coordinate_scale() -> f32 {
@@ -145,6 +157,8 @@ pub struct FixedMapData {
     pub global_offset_y: i32,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub world_bounds: Option<MapBounds>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -115,6 +115,10 @@ fn get_terrain_gids(gid_map: &HashMap<String, u32>) -> TerrainGids {
 pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>, tileset_source: &str) -> std::io::Result<()> {
     let width = map_data.width;
     let height = map_data.height;
+
+    if width > 500 || height > 500 {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Map size too large: {}x{}", width, height)));
+    }
     
     let gids = get_terrain_gids(gid_map);
     let mut data = vec![0; (width * height) as usize]; 
@@ -309,6 +313,10 @@ pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData
     // Standard 1x Resolution
     let width = raw_data.width;
     let height = raw_data.height;
+
+    if width > 10000 || height > 10000 {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Raw map size too large: {}x{}", width, height)));
+    }
     
     let gids = get_terrain_gids(gid_map);
 

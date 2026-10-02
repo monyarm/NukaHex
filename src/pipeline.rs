@@ -9,6 +9,9 @@ use std::process::Command;
 
 use log::{info, warn, error};
 
+/// Every source whose logic shapes fixed (warped/merged) data; cached fixer outputs depend on all.
+const FIXER_SOURCES: &[&str] = &["src/fixer.rs", "src/rubbersheeting.rs", "src/geocoding.rs", "src/schema.rs"];
+
 // ... imports
 
 pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors: Vec<Box<dyn Extractor>>, output_dir: &Path, target_cluster: Option<String>) {
@@ -150,7 +153,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         let cluster_name = &cluster_names[&root_id];
         let step_id = format!("cluster_{}", cluster_name);
         let mut cluster_step = CachedStep::new(&step_id, &intermediate_dir)
-            .add_dependency_file("src/fixer.rs")
+            .add_dependency_files(FIXER_SOURCES)
             .add_dependency_file("src/map_gen.rs");
 
         for (_, hash, _) in &maps {
@@ -220,7 +223,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
 
     let mut global_step = CachedStep::new("global_fixed_data", &intermediate_dir)
-        .add_dependency_file("src/fixer.rs");
+        .add_dependency_files(FIXER_SOURCES);
         
     for h in &cluster_hashes {
         global_step = global_step.add_dependency_hash(h);
@@ -330,7 +333,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             let city_step_id = format!("city_map_{}_{:x}", safe_name, cluster_content_hash);
             let mut city_cached_step = CachedStep::new(&city_step_id, &intermediate_dir)
                 .add_dependency_file("src/map_gen.rs")
-                .add_dependency_file("src/fixer.rs")
+                .add_dependency_files(FIXER_SOURCES)
                 .add_dependency_file("src/clustering.rs");
             let mut cluster_dep_hashes: Vec<String> = cluster_dep_hashes.into_iter().collect();
             cluster_dep_hashes.sort();
@@ -389,6 +392,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                     tiles: cropped_tiles, locations: cropped_locs,
                     global_offset_x: 0, global_offset_y: 0,
                     warnings: high_res_data.warnings.clone(),
+                    world_bounds: None,
                 };
 
                 let filename = format!("city_{}.tmj", safe_name);
@@ -444,7 +448,8 @@ fn extract_one(extractor: &Box<dyn Extractor>, intermediate_dir: &Path) -> (RawM
     let source_file = extractor.get_code_path();
     
     let mut step = CachedStep::new(&id, intermediate_dir)
-        .add_dependency_file(source_file);
+        .add_dependency_file(source_file)
+        .add_dependency_file("src/schema.rs");
     
     let config_path = "input/config/paths.json";
     if Path::new(config_path).exists() {

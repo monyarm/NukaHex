@@ -58,6 +58,8 @@ impl Extractor for ManualExtractor {
                     reference_lon: None,
                     warnings: vec![],
                     terrain_data: None,
+                    world_bounds: None,
+                    ..Default::default()
                 }
             }
         }
@@ -244,6 +246,9 @@ impl ManualExtractor {
             reference_lon: None,
             warnings: vec![],
             terrain_data: None,
+            world_bounds: None,
+            miles_per_unit: Some(self.miles_per_hex),
+            ..Default::default()
         })
     }
 

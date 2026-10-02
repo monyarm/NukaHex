@@ -60,8 +60,11 @@ fn main() -> std::io::Result<()> {
 
     // To prevent long runs parsing huge 4/76 grids on every test, we usually control via CLI args.
     // For now we will add Fallout 4 to the default pipeline to test it since that's what we built!
+    // `--no-fo4` skips the experimental Fallout 4 extractor.
     use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
-    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Fallout4.esm", "Commonwealth")));
+    if !std::env::args().any(|a| a == "--no-fo4") {
+        game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, vec!["Fallout4.esm".to_string()], "Commonwealth")));
+    }
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {

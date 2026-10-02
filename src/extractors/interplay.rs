@@ -119,11 +119,9 @@ impl FalloutInterplayExtractor {
             height: height as u32,
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
-            has_grid: false,
-            coordinate_scale: 50.0,
-            reference_lon: None,
-            warnings: vec![],
-            terrain_data: Some(worldmap_txt),
+            coordinate_scale: 50.0, // pixels per world-map square; derived Default would give 0.0
+            world_bounds: None,
+            ..Default::default()
         })
     }
     
@@ -261,21 +259,25 @@ impl FalloutInterplayExtractor {
         Err(io::Error::new(io::ErrorKind::NotFound, format!("Binary file {} not found (Variant: {:?})", filename, self.variant)))
     }
 
+    /// Per-game aliases: CITY.TXT names are often generic ("Military Base", "Hub") and the same
+    /// generic name can mean a different place in another game, so each game maps its own.
     fn remap_location_name(&self, name: &str) -> String {
-        // Shared remapping logic
-        match name {
-            "Military Base" => "Mariposa Military Base".to_string(),
-            "Glow" => "The Glow".to_string(),
-            "Hub" => "The Hub".to_string(),
-            "Boneyard" => "The Boneyard".to_string(),
-            "Cathedral" => "The Cathedral".to_string(),
-            "Brotherhood of Steel" => "Lost Hill Bunker".to_string(),
-            "NCR" => "Shady Sands".to_string(), // NCR is what Shady Sands is called in Fallout 2
-            "Enclave" => "Poseidon Energy Oil Rig".to_string(),
-            "abbey" => "Abbey".to_string(),
-            "EPA" => "Environmental Protection Agency San Francisco Facility".to_string(),
-            _ => name.to_string(),
-        }
+        let canonical = match (self.variant, name) {
+            (GameVariant::Fallout1, "Military Base") => "Mariposa Military Base",
+            (GameVariant::Fallout1, "Glow") => "The Glow",
+            (GameVariant::Fallout1, "Hub") => "The Hub",
+            (GameVariant::Fallout1, "Boneyard") => "The Boneyard",
+            (GameVariant::Fallout1, "Cathedral") => "The Cathedral",
+            (GameVariant::Fallout1, "Brotherhood of Steel") => "Lost Hill Bunker",
+            (GameVariant::Fallout2, "Military Base") => "Mariposa Military Base",
+            (GameVariant::Fallout2, "NCR") => "Shady Sands", // NCR's capital is Shady Sands
+            (GameVariant::Fallout2, "Den") => "The Den",
+            (GameVariant::Fallout2, "Enclave") => "Poseidon Energy Oil Rig",
+            (GameVariant::Fallout2, "abbey") => "Abbey",
+            (GameVariant::Fallout2, "EPA") => "Environmental Protection Agency San Francisco Facility",
+            _ => name,
+        };
+        canonical.to_string()
     }
 
     fn resolve_marker_type(name: &str) -> IconType {
@@ -458,6 +460,8 @@ impl FalloutInterplayExtractor {
             reference_lon: None,
             warnings: vec![],
             terrain_data: None,
+            world_bounds: None,
+            ..Default::default()
         }
     }
 }

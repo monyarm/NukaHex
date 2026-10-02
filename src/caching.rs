@@ -64,6 +64,10 @@ where
         self
     }
     
+    pub fn add_dependency_files(self, paths: &[&str]) -> Self {
+        paths.iter().fold(self, |step, p| step.add_dependency_file(p))
+    }
+
     pub fn add_dependency_hash(mut self, hash: &str) -> Self {
         self.deps_hash.push_str(hash);
         self
