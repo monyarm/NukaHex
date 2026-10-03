@@ -39,7 +39,7 @@ var order = env.LoadOrder.PriorityOrder;
 var world = order.Worldspace().WinningOverrides().FirstOrDefault(w => w.EditorID == worldEdid);
 if (world == null)
 {
-    Console.Error.WriteLine($"worldspace {worldEdid} not found");
+    Console.Error.WriteLine($"worldspace {worldEdid} not found; available: {string.Join(", ", order.Worldspace().WinningOverrides().Select(w => w.EditorID))}");
     return 1;
 }
 

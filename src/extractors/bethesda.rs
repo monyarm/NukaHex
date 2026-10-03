@@ -83,11 +83,19 @@ pub struct BethesdaExtractor {
     variant: BethesdaGameVariant,
     worldspace: &'static str,
     id: String,
+    /// A DLC worldspace: the main maps show it as one marker named after it; its own markers appear
+    /// only on the `_all` map.
+    summarized: bool,
 }
 
 impl BethesdaExtractor {
     pub fn new(variant: BethesdaGameVariant, worldspace: &'static str) -> Self {
-        Self { variant, worldspace, id: format!("{}_{}", variant.id_str(), worldspace.to_lowercase()) }
+        Self { variant, worldspace, id: format!("{}_{}", variant.id_str(), worldspace.to_lowercase()), summarized: false }
+    }
+
+    /// A DLC worldspace, summarized on the main maps by one marker named after it.
+    pub fn dlc(variant: BethesdaGameVariant, worldspace: &'static str) -> Self {
+        Self { summarized: true, ..Self::new(variant, worldspace) }
     }
 
     fn data_dir(&self) -> Option<PathBuf> {
@@ -144,7 +152,7 @@ impl Extractor for BethesdaExtractor {
             return failed(format!("{} installation not found", self.variant.name()));
         };
         match self.dump(&data_dir) {
-            Ok(dump) => build(&dump),
+            Ok(dump) => build(&dump, self.summarized),
             Err(e) => failed(e),
         }
     }
@@ -169,7 +177,12 @@ struct Dump {
 
 #[derive(Deserialize)]
 struct DumpWorld {
+    name: Option<String>,
+    edid: Option<String>,
     default_water_height: Option<f32>,
+    /// The in-game map's north-west and south-east cells.
+    map_nw_cell: Option<[i32; 2]>,
+    map_se_cell: Option<[i32; 2]>,
 }
 
 #[derive(Deserialize)]
@@ -366,7 +379,7 @@ fn cover_terrain(cover: &HashMap<Option<&str>, f32>, class: &HashMap<&str, &'sta
     shares.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or("Sand", |(t, _)| t)
 }
 
-fn build(dump: &Dump) -> RawMapData {
+fn build(dump: &Dump, summarized: bool) -> RawMapData {
     let land: Vec<&DumpCell> = dump.cells.iter().filter(|c| c.heights.is_some() || c.layers.is_some()).collect();
     if land.is_empty() {
         return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
@@ -465,6 +478,19 @@ fn build(dump: &Dump) -> RawMapData {
             continue;
         }
         locations.push(RawLocation { name: name.to_string(), x, y, icon_type, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
+    }
+
+    // A summarized worldspace: one landmark named after it, at the centre of its in-game map (or of
+    // its landscape); its own markers stay on the full map only.
+    if summarized {
+        for l in &mut locations { l.icon_type = IconType::Detail; }
+        let [(nx, ny), (sx, sy)] = match (dump.worldspace.map_nw_cell, dump.worldspace.map_se_cell) {
+            (Some([nx, ny]), Some([sx, sy])) => [(nx, ny), (sx, sy)],
+            _ => [(x0, y1), (x1, y0)],
+        };
+        let (x, y) = to_frame((nx + sx + 1) as f32 * CELL / 2.0, (ny + sy + 1) as f32 * CELL / 2.0);
+        let name = dump.worldspace.name.clone().or_else(|| dump.worldspace.edid.clone()).unwrap_or_default();
+        locations.push(RawLocation { name, x, y, icon_type: IconType::Landmark, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
     }
 
     let (width, height) = (((x1 - x0 + 1) * 2) as u32, ((y1 - y0 + 1) * 2) as u32);
@@ -580,7 +606,7 @@ mod tests {
         let tex = |q| layer(q, 0, "t", None);
         let marker = |name: &str, x, y| DumpMarker { name: Some(name.into()), kind: Some("Encampment".into()), reputation: None, x, y };
         let dump = Dump {
-            worldspace: DumpWorld { default_water_height: None },
+            worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, map_nw_cell: None, map_se_cell: None },
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
             child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
@@ -590,7 +616,7 @@ mod tests {
             land_textures: [("t".to_string(), DumpTexture { edid: Some("Dirt01".into()), texture: None })].into(),
             cells: vec![DumpCell { x: 0, y: 0, water_height: None, heights: None, layers: Some((0..4).map(tex).collect()) }],
         };
-        let map = build(&dump);
+        let map = build(&dump, false);
         assert_eq!((map.width, map.height), (2, 2));
         let mut pos: Vec<(i32, i32)> = map.tiles.iter().map(|t| (t.x, t.y)).collect();
         pos.sort();
@@ -598,5 +624,11 @@ mod tests {
         // (1000, 3000) is in the cell's top-left quadrant: frame (1000, 1096).
         assert_eq!((map.locations[0].x, map.locations[0].y), (1000.0, 1096.0));
         assert_eq!((map.locations[1].x, map.locations[1].y), (2050.0, 2996.0));
+        // Summarized: every marker is a full-map detail, plus one landmark named after the world.
+        let map = build(&dump, true);
+        assert!(map.locations[..2].iter().all(|l| matches!(l.icon_type, IconType::Detail)));
+        let w = &map.locations[2];
+        assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));
+        assert!(matches!(w.icon_type, IconType::Landmark));
     }
 }

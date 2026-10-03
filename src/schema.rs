@@ -21,6 +21,7 @@ pub enum IconType {
     Landmark, // major non-settlement site: base, facility, natural/man-made landmark
     Other,    // minor or random-encounter location
     Misc,
+    Detail,   // inside a summarized DLC worldspace: on the full (`_all`) map only
 }
 
 impl IconType {
@@ -66,6 +67,7 @@ impl IconType {
             IconType::Landmark => "Landmark",
             IconType::Other => "Other",
             IconType::Misc => "Misc",
+            IconType::Detail => "Detail",
         }
     }
 }

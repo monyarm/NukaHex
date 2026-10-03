@@ -13,7 +13,7 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 | Fallout 1 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 3 | 🔧 Planned | Mutagen (C# helper) | Same path as New Vegas; not yet wired |
-| Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave (WastelandNV), all DLC loaded; DLC worldspaces later |
+| Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave (WastelandNV) and Zion (Honest Hearts), all DLC loaded; other DLC worldspaces later |
 | Fallout 4 | 🔧 Planned | Mutagen (C# helper) | To be redone on the Mutagen path |
 | Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |
 | Fallout Tactics | ✅ Supported | Automatic (Steam) | World map and towns |

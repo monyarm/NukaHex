@@ -22,6 +22,12 @@ fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
     out
 }
 
+/// Marker types the main map and its overviews show: towns, vaults and notable places.
+const MAIN_MAP_TYPES: &[&str] = &["City", "Vault", "Monument", "Settlement", "Landmark"];
+/// Marker types city and cluster maps show: everything but the details of summarized DLC worldspaces,
+/// which only `map_all` shows.
+const LOCAL_MAP_TYPES: &[&str] = &["City", "Vault", "Store", "Casino", "Hospital", "Radio", "Monument", "Settlement", "Landmark", "Other", "Misc"];
+
 pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors: Vec<Box<dyn Extractor>>, output_dir: &Path, target_cluster: Option<String>) {
     let intermediate_dir = output_dir.join("intermediate");
     let raw_dir = output_dir.join("raw");
@@ -168,7 +174,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             // Important: Use 6.0 mi/hex for the visual debug TMJ so it's not multi-gigabyte/invalid
             let debug_fixed_for_tmj = fixer::fix(vec![fixed_raw.clone()], vec![], Some(6.0), None);
             let cluster_tmj_name = format!("cluster_{}.tmj", cluster_name);
-            if let Err(e) = map_gen::generate_tmj(output_dir, &cluster_tmj_name, &debug_fixed_for_tmj, &gid_map, None, "generic.tsj") {
+            if let Err(e) = map_gen::generate_tmj(output_dir, &cluster_tmj_name, &debug_fixed_for_tmj, &gid_map, Some(LOCAL_MAP_TYPES), "generic.tsj") {
                 warn!("Warning: Failed to generate cluster TMJ for {}: {}", cluster_name, e);
             }
 
@@ -248,13 +254,12 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
         // 2. Generate map with FILTERED markers (Cities, Vaults, Monuments)
         // Note: Filters are case-insensitive
-        let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Landmark"]; 
-        map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
+        map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(MAIN_MAP_TYPES), "generic.tsj").unwrap();
 
         // 3. The same main map at coarser hex scales.
         for mph in OVERVIEW_MILES_PER_HEX {
             let coarse = fixer::fix_translation_only(clustered_raw_maps.clone(), manual_raw_maps.clone(), mph as f32, None);
-            map_gen::generate_tmj(output_dir, &format!("map_{}mi.tmj", mph), &coarse, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
+            map_gen::generate_tmj(output_dir, &format!("map_{}mi.tmj", mph), &coarse, &gid_map, Some(MAIN_MAP_TYPES), "generic.tsj").unwrap();
         }
     });
 
@@ -413,7 +418,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                 };
 
                 let filename = format!("city_{}.tmj", safe_name);
-                map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, None, "../generic.tsj").unwrap();
+                map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, Some(LOCAL_MAP_TYPES), "../generic.tsj").unwrap();
             });
         }));
     }

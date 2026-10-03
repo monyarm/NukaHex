@@ -112,11 +112,7 @@ fn hex_px(x: f32, y: f32) -> (f32, f32) {
 /// "CountryBorder" or "StateBorder".
 fn border_layer(tiles: &[crate::schema::FixedTile], layer_id: u32, next_obj_id: &mut u32) -> Layer {
     use std::collections::HashMap as Map;
-    // Neighbours of (x, y); odd rows are shifted right.
-    let neighbours = |x: i32, y: i32| {
-        let d = if y.rem_euclid(2) == 1 { 0 } else { -1 };
-        [(x - 1, y), (x + 1, y), (x + d, y - 1), (x + d + 1, y - 1), (x + d, y + 1), (x + d + 1, y + 1)]
-    };
+    let neighbours = crate::fixer::hex_neighbours;
     let mut region: Map<(i32, i32), u16> = tiles.iter().filter_map(|t| t.region.map(|r| ((t.x, t.y), r))).collect();
     // Land tiles outside every real-world region (the warped game coast reaches a little past the
     // real one) take the region of the nearest tile that has one, so borders run to the coast.

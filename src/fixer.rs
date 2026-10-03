@@ -82,6 +82,16 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Red Rock Canyon", "Red Rock Canyon Visitor Center, Nevada"),
     ("Bonnie Springs", "Bonnie Springs, Nevada"),
     ("Spring Mt. Ranch State Park", "Spring Mountain Ranch State Park"),
+    // Honest Hearts (Zion Canyon worldspace: Zion National Park, Utah). The canyon-floor places lie
+    // almost in a line, so the off-axis Narrows (Sorrows Camp is in them) and Three Marys keep the
+    // warp from squashing the game's map. Not anchored: Old Rockville Bridge, which the game puts
+    // north-west of the park entrance while Rockville lies south-west of it.
+    ("Zion Valley Welcome Booth", "Zion Canyon Visitor Center"),
+    ("Pine Creek Tunnel", "Zion-Mount Carmel Tunnel"),
+    ("Patriarchs' Campground", "Court of the Patriarchs"),
+    ("Zion Fishing Lodge", "Zion Lodge"),
+    ("Sorrows Camp", "Temple of Sinawava"),             // mouth of the Narrows
+    ("Three Marys", "37.2083156,-113.0118854"),         // Wikipedia; the name geocodes elsewhere
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -144,6 +154,12 @@ pub fn hex_center(col: i32, row: i32) -> (f32, f32) {
     (col as f32 + 0.5 * row.rem_euclid(2) as f32, row as f32)
 }
 
+/// The six neighbours of hex (col, row) in the staggered layout (odd rows half a hex east).
+pub fn hex_neighbours(col: i32, row: i32) -> [(i32, i32); 6] {
+    let d = if row.rem_euclid(2) == 1 { 0 } else { -1 };
+    [(col - 1, row), (col + 1, row), (col + d, row - 1), (col + d + 1, row - 1), (col + d, row + 1), (col + d + 1, row + 1)]
+}
+
 /// The hex whose centre is nearest grid position (col, row).
 pub fn hex_at(col: f32, row: f32) -> (i32, i32) {
     let r0 = row.round() as i32;
@@ -167,9 +183,11 @@ fn salience(tile_type: &str) -> f32 {
     if tile_type == "Radiation" { 4.0 } else { 1.0 }
 }
 
-/// A lake must not vanish when the map is coarsened. `water` maps each 1 mi water hex to the output
-/// hex it falls in. A water body (connected 1 mi water hexes) that won no output hex, yet covers at
-/// least a quarter of one, takes the output hex holding most of it.
+/// A lake must neither vanish nor fall apart when the map is coarsened. `water` maps each 1 mi water
+/// hex to the output hex it falls in. A water body (connected 1 mi water hexes) that won no output hex,
+/// yet covers at least a quarter of one, takes the output hex holding most of it. A body whose output
+/// hexes form separate pieces is joined along its own course: the fewest extra hexes, each holding at
+/// least an eighth of a hex of it (so a coast never erodes through a peninsula).
 fn keep_water_bodies(water: &HashMap<(i32, i32), (i32, i32)>, tiles: &mut HashMap<(i32, i32), String>, miles_per_hex: f32) {
     let mut keys: Vec<(i32, i32)> = water.keys().copied().collect();
     keys.sort();
@@ -185,12 +203,73 @@ fn keep_water_bodies(water: &HashMap<(i32, i32), (i32, i32)>, tiles: &mut HashMa
                 if water.contains_key(&n) && seen.insert(n) { body.push(n); }
             }
         }
-        if (body.len() as f32) < miles_per_hex * miles_per_hex / 4.0 { continue; }
-        if body.iter().any(|f| tiles.get(&water[f]).is_some_and(|t| t == "Water")) { continue; }
+        let capacity = miles_per_hex * miles_per_hex; // 1 mi hexes per output hex
         let mut share: HashMap<(i32, i32), usize> = HashMap::new();
         for f in &body { *share.entry(water[f]).or_default() += 1; }
-        let best = share.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
-        tiles.insert(best, "Water".to_string());
+        let is_water = |tiles: &HashMap<(i32, i32), String>, c: &(i32, i32)| tiles.get(c).is_some_and(|t| t == "Water");
+        let mut won: HashSet<(i32, i32)> = share.keys().copied().filter(|c| is_water(tiles, c)).collect();
+        if won.is_empty() {
+            if (body.len() as f32) < capacity / 4.0 { continue; }
+            let best = *share.iter().max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0))).unwrap().0;
+            tiles.insert(best, "Water".to_string());
+            continue;
+        }
+        // Gaps in the body's course: hexes it passes through (holding at least an eighth of a hex of
+        // it) but lost. A gap is filled along the shortest route between two won hexes when that is
+        // much shorter than going round through won hexes (or they are not joined at all): this joins
+        // split rivers and keeps both arms of a ring, without fattening a lake along its shore.
+        let gap: HashSet<(i32, i32)> = share.iter().filter(|(c, n)| **n as f32 >= capacity / 8.0 && !won.contains(*c)).map(|(c, _)| *c).collect();
+        let bfs = |from: (i32, i32), through: &dyn Fn(&(i32, i32)) -> bool| {
+            let mut dist: HashMap<(i32, i32), ((i32, i32), usize)> = HashMap::from([(from, (from, 0))]);
+            let mut frontier = vec![from];
+            while !frontier.is_empty() {
+                let mut next = Vec::new();
+                for c in frontier {
+                    let d = dist[&c].1;
+                    for n in hex_neighbours(c.0, c.1) {
+                        if dist.contains_key(&n) { continue; }
+                        let enter = through(&n);
+                        if enter || won.contains(&n) { dist.insert(n, (c, d + 1)); }
+                        if enter { next.push(n); }
+                    }
+                }
+                frontier = next;
+            }
+            dist
+        };
+        let mut seen_gap: HashSet<(i32, i32)> = HashSet::new();
+        let mut fill: HashSet<(i32, i32)> = HashSet::new();
+        let mut gaps: Vec<(i32, i32)> = gap.iter().copied().collect();
+        gaps.sort();
+        for start in gaps {
+            if seen_gap.contains(&start) { continue; }
+            // One connected gap and the won hexes beside it.
+            let mut part = vec![start];
+            seen_gap.insert(start);
+            let mut i = 0;
+            while i < part.len() {
+                let c = part[i];
+                i += 1;
+                for n in hex_neighbours(c.0, c.1) { if gap.contains(&n) && seen_gap.insert(n) { part.push(n); } }
+            }
+            let part_set: HashSet<(i32, i32)> = part.iter().copied().collect();
+            let mut shore: Vec<(i32, i32)> = part.iter().flat_map(|c| hex_neighbours(c.0, c.1)).filter(|n| won.contains(n)).collect();
+            shore.sort();
+            shore.dedup();
+            if shore.len() < 2 || shore.len() > 64 { continue; } // a dead end, or a long coast
+            for (k, &a) in shore.iter().enumerate() {
+                let via_gap = bfs(a, &|c| part_set.contains(c));
+                let via_won = bfs(a, &|c| won.contains(c));
+                for &b in &shore[k + 1..] {
+                    let Some(&(_, through_gap)) = via_gap.get(&b) else { continue };
+                    let around = via_won.get(&b).map_or(usize::MAX, |d| d.1);
+                    if around < through_gap.saturating_add(3) { continue; }
+                    let mut c = via_gap[&b].0;
+                    while c != a { fill.insert(c); c = via_gap[&c].0; }
+                }
+            }
+        }
+        for c in fill { tiles.insert(c, "Water".to_string()); }
     }
 }
 
@@ -230,6 +309,7 @@ pub fn fix(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, miles_p
     }
 
     // fallback for other resolutions (e.g. city maps)
+    let dense_maps = game_clusters.len(); // fixed cluster grids, by contract
     let mut all_raw = game_clusters;
     all_raw.extend(manual_maps);
     
@@ -239,7 +319,7 @@ pub fn fix(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, miles_p
     let needs_warping = all_raw.iter().any(|m| m.coordinate_scale > 1.01 || m.coordinate_system == crate::schema::CoordinateSystem::Relative);
     
     if has_locations && has_tiles && needs_warping {
-        return fix_with_terrain_inverse_warping(all_raw, resolution, bounds);
+        return fix_with_terrain_inverse_warping(all_raw, dense_maps, resolution, bounds);
     }
     
     fix_legacy_pass_through(all_raw)
@@ -480,12 +560,13 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     }).collect();
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
 
-    // Grid bounds: every placed tile and every marker (a marker off the grid would be lost), padded.
+    // Every placed tile and every marker (a marker off the grid would be lost).
     let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32));
     let ys = grid_tiles_map.keys().map(|k| k.1).chain(grid_locations.iter().map(|l| l.y.round() as i32));
     let (min_x, max_x) = xs.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
     let (min_y, max_y) = ys.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
-    let (min_x, max_x, min_y, max_y) = if min_x > max_x { (-2, 12, -2, 12) } else { (min_x - 2, max_x + 2, min_y - 2, max_y + 2) };
+    // Grid bounds: exactly the placed tiles and markers (nothing that does not exist is drawn).
+    let (min_x, max_x, min_y, max_y) = if min_x > max_x { (0, 0, 0, 0) } else { (min_x, max_x, min_y, max_y) };
     let min_y = min_y - min_y.rem_euclid(2); // even, so local and world row parity agree
 
     let width = (max_x - min_x + 1) as u32;
@@ -535,7 +616,7 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
     let resolution = 1.0;
     // A merged cluster keeps the best (lowest) priority tier among its sources.
     let priority = raw_maps.iter().map(|m| m.priority.max(1)).min().unwrap_or(1);
-    let fixed = fix_with_terrain_inverse_warping(raw_maps, resolution, None);
+    let fixed = fix_with_terrain_inverse_warping(raw_maps, 0, resolution, None);
     
 
     // We need to know the min/max indices used to derive current x,y
@@ -649,7 +730,8 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
 //     pub id: usize,
 // }
 
-fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f32, bounds_limit: Option<BoundingBox>) -> FixedMapData {
+/// `dense_maps`: how many of `raw_maps` (the first ones) are already-fixed cluster grids.
+fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize, miles_per_hex: f32, bounds_limit: Option<BoundingBox>) -> FixedMapData {
     if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![], world_bounds: None }; }
     
     let mut warnings = Vec::new();
@@ -666,6 +748,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         lon: f32,
         tile_type: String,
         weight: f32,
+        /// From sparse data (hand-placed manual maps, terrain overrides): may be blended into nearby
+        /// hexes that have no data. Dense fixed-cluster grids never are, so nothing is invented.
+        sparse: bool,
     }
     
     // Map Real World Coords for lookup (parse coordinates or geocode addresses)
@@ -709,8 +794,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let mut all_real_world_locs: Vec<(String, f32, f32, crate::schema::IconType, Option<String>)> = Vec::new();
     let mut seen_locations: HashSet<String> = HashSet::new();
 
-    // 1. Process Absolute manual maps (already have lat/lon)
-    for map in &raw_maps {
+    // 1. Process Absolute manual maps (already have lat/lon); the first `dense_maps` are fixed clusters.
+    for (map_idx, map) in raw_maps.iter().enumerate() {
         if map.coordinate_system == crate::schema::CoordinateSystem::Absolute && map.coordinate_scale <= 1.01 {
             for tile in &map.tiles {
                 if let (Some(lat), Some(lon)) = (tile.real_lat, tile.real_lon) {
@@ -719,6 +804,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                         lat, lon, tile_type: tile.tile_type.clone(),
                         weight: 2.0 * priority_weight(map.priority),
+                        sparse: map_idx >= dense_maps,
                     });
                     manual_projected_lats.push(lat);
                     manual_projected_lons.push(lon);
@@ -877,6 +963,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                     lat, lon, tile_type: tile.tile_type.clone(),
                     weight: 2.0 * priority_weight(map.priority),
+                    sparse: true,
                 });
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
@@ -894,6 +981,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     lon: *lon, 
                     tile_type: terrain.clone(),
                     weight: 3.0 * priority_weight(1), // location terrain overrides come from tier-1 manual data
+                    sparse: true,
                 });
         }
     }
@@ -1031,7 +1119,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 for by in (bin_y - 8)..=(bin_y + 8) {
                     for bx in (bin_x - 8)..=(bin_x + 8) {
                         if let Some(points) = manual_points_bins.get(&(by, bx)) {
-                            for p in points {
+                            for p in points.iter().filter(|p| p.sparse) {
                                 // Distance in units of 6 mi.
                                 let d_lat_game = (p.lat - lat) * MILES_PER_DEGREE_LAT / 6.0;
                                 let d_lon_game = (p.lon - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos() / 6.0;
@@ -1382,6 +1470,72 @@ mod invariant_tests {
         assert_eq!(tiles[&(0, 0)], "Sand");
     }
 
+    /// A narrow body whose output hexes fall apart is joined along its own course.
+    #[test]
+    fn lakes_stay_connected() {
+        // 12 mi hexes, a body crossing (0,0)-(1,0)-(2,0): the ends won, the middle (30 fine hexes,
+        // more than an eighth of 144) lost.
+        let mut water: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
+        for i in 0..100 { water.insert((i, 0), (0, 0)); }
+        for i in 100..130 { water.insert((i, 0), (1, 0)); }
+        for i in 130..230 { water.insert((i, 0), (2, 0)); }
+        let mut tiles: HashMap<(i32, i32), String> = [((0, 0), "Water"), ((1, 0), "Sand"), ((2, 0), "Water")]
+            .into_iter().map(|(k, v)| (k, v.to_string())).collect();
+        keep_water_bodies(&water, &mut tiles, 12.0);
+        assert_eq!(tiles[&(1, 0)], "Water");
+        // A thread of 10 fine hexes (under an eighth) does not pull a hex into the lake.
+        for i in 100..130 { water.remove(&(i, 0)); }
+        for i in 100..110 { water.insert((i, 0), (1, 0)); }
+        for i in 110..130 { water.remove(&(i, 0)); }
+        for i in 110..210 { water.insert((i + 20, 0), (2, 0)); }
+        let mut tiles: HashMap<(i32, i32), String> = [((0, 0), "Water"), ((1, 0), "Sand"), ((2, 0), "Water")]
+            .into_iter().map(|(k, v)| (k, v.to_string())).collect();
+        keep_water_bodies(&water, &mut tiles, 12.0);
+        assert_eq!(tiles[&(1, 0)], "Sand");
+    }
+
+    /// Hexes at exactly `radius` steps from `centre`.
+    fn hex_ring(centre: (i32, i32), radius: usize) -> Vec<(i32, i32)> {
+        let mut dist: HashMap<(i32, i32), usize> = HashMap::from([(centre, 0)]);
+        let mut frontier = vec![centre];
+        for d in 1..=radius {
+            let mut next = Vec::new();
+            for c in frontier { for n in hex_neighbours(c.0, c.1) { if !dist.contains_key(&n) { dist.insert(n, d); next.push(n); } } }
+            frontier = next;
+        }
+        let mut ring: Vec<_> = dist.into_iter().filter(|&(_, d)| d == radius).map(|(c, _)| c).collect();
+        ring.sort();
+        ring
+    }
+
+    /// One water body covering `cells` with the given fine-hex counts (one contiguous fine row).
+    fn body(cells: &[((i32, i32), usize)]) -> HashMap<(i32, i32), (i32, i32)> {
+        let mut water = HashMap::new();
+        let mut i = 0;
+        for &(c, n) in cells { for _ in 0..n { water.insert((i, 0), c); i += 1; } }
+        water
+    }
+
+    /// Both arms of a ring survive: a lost gap in one arm is refilled. A lake's shore, where it
+    /// holds a minority of the hexes around, is not.
+    #[test]
+    fn lake_shapes_persist() {
+        let ring = hex_ring((5, 6), 2);
+        let gap = [ring[0], *ring.iter().find(|c| hex_neighbours(ring[0].0, ring[0].1).contains(c)).unwrap()];
+        let cells: Vec<_> = ring.iter().map(|&c| (c, if gap.contains(&c) { 30 } else { 100 })).collect();
+        let mut tiles: HashMap<(i32, i32), String> = ring.iter().map(|&c| (c, if gap.contains(&c) { "Sand" } else { "Water" }.to_string())).collect();
+        keep_water_bodies(&body(&cells), &mut tiles, 12.0);
+        assert!(gap.iter().all(|c| tiles[c] == "Water"), "ring gap not refilled");
+
+        let lake: Vec<(i32, i32)> = std::iter::once((5, 6)).chain(hex_ring((5, 6), 1)).collect();
+        let shore = hex_ring((5, 6), 2);
+        let cells: Vec<_> = lake.iter().map(|&c| (c, 144)).chain(shore.iter().map(|&c| (c, 40))).collect();
+        let mut tiles: HashMap<(i32, i32), String> = lake.iter().map(|&c| (c, "Water".to_string()))
+            .chain(shore.iter().map(|&c| (c, "Sand".to_string()))).collect();
+        keep_water_bodies(&body(&cells), &mut tiles, 12.0);
+        assert!(shore.iter().all(|c| tiles[c] == "Sand"), "shore was fattened");
+    }
+
     /// Hex centres follow the staggered layout: all six neighbours are one hex apart, and every
     /// centre (and any point nearer to it than to other centres) maps back to its hex.
     #[test]
@@ -1484,7 +1638,7 @@ mod invariant_tests {
     #[test]
     fn markers_sit_on_their_source_square() {
         let maps = vec![game(GameVariant::Fallout1), game(GameVariant::Fallout2)];
-        let fixed = fix_with_terrain_inverse_warping(maps.clone(), 1.0, None);
+        let fixed = fix_with_terrain_inverse_warping(maps.clone(), 0, 1.0, None);
         let tile_at: HashMap<(i32, i32), &str> = fixed.tiles.iter().map(|t| ((t.x, t.y), t.tile_type.as_str())).collect();
         let (mut ok, mut total) = (0, 0);
         for map in &maps {

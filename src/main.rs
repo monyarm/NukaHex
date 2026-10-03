@@ -68,6 +68,7 @@ fn main() -> std::io::Result<()> {
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).
     use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
+    game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {
