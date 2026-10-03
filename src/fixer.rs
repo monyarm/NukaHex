@@ -137,6 +137,23 @@ pub fn to_grid(lat: f32, lon: f32, miles_per_hex: f32) -> (f32, f32) {
     ((x / miles_per_hex as f64) as f32, (-y / (miles_per_hex * HEX_ROW_FRACTION) as f64) as f32)
 }
 
+/// Grid position of the centre of hex (col, row). Hexes are staggered as Tiled draws them (odd rows
+/// half a hex east), so a hex's six neighbours are all one hex apart. Grids start on an even row so
+/// that local and world row parity agree.
+pub fn hex_center(col: i32, row: i32) -> (f32, f32) {
+    (col as f32 + 0.5 * row.rem_euclid(2) as f32, row as f32)
+}
+
+/// The hex whose centre is nearest grid position (col, row).
+pub fn hex_at(col: f32, row: f32) -> (i32, i32) {
+    let r0 = row.round() as i32;
+    (r0 - 1..=r0 + 1).map(|r| {
+        let c = (col - 0.5 * r.rem_euclid(2) as f32).round() as i32;
+        let (hc, hr) = hex_center(c, r);
+        ((c, r), (col - hc).powi(2) + ((row - hr) * HEX_ROW_FRACTION).powi(2))
+    }).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap().0
+}
+
 /// Inverse of `to_grid`: (lat, lon) at grid position (col, row).
 pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
     let (lat, lon) = lcc::inverse(col as f64 * miles_per_hex as f64, -(row as f64) * (miles_per_hex * HEX_ROW_FRACTION) as f64);
@@ -148,6 +165,33 @@ pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
 /// survives on the overview scales.
 fn salience(tile_type: &str) -> f32 {
     if tile_type == "Radiation" { 4.0 } else { 1.0 }
+}
+
+/// A lake must not vanish when the map is coarsened. `water` maps each 1 mi water hex to the output
+/// hex it falls in. A water body (connected 1 mi water hexes) that won no output hex, yet covers at
+/// least a quarter of one, takes the output hex holding most of it.
+fn keep_water_bodies(water: &HashMap<(i32, i32), (i32, i32)>, tiles: &mut HashMap<(i32, i32), String>, miles_per_hex: f32) {
+    let mut keys: Vec<(i32, i32)> = water.keys().copied().collect();
+    keys.sort();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    for start in keys {
+        if !seen.insert(start) { continue; }
+        let mut body = vec![start];
+        let mut i = 0;
+        while i < body.len() {
+            let (x, y) = body[i];
+            i += 1;
+            for n in (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (x + dx, y + dy))) {
+                if water.contains_key(&n) && seen.insert(n) { body.push(n); }
+            }
+        }
+        if (body.len() as f32) < miles_per_hex * miles_per_hex / 4.0 { continue; }
+        if body.iter().any(|f| tiles.get(&water[f]).is_some_and(|t| t == "Water")) { continue; }
+        let mut share: HashMap<(i32, i32), usize> = HashMap::new();
+        for f in &body { *share.entry(water[f]).or_default() += 1; }
+        let best = share.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
+        tiles.insert(best, "Water".to_string());
+    }
 }
 
 /// Region of a tile for border drawing: every tile with data inside a real-world region. Lakes and
@@ -419,15 +463,22 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     // Downsample: each output cell takes the majority type of the finer cells landing in it
     // (ties broken by name, so the result does not depend on input order).
     let mut votes: HashMap<(i32, i32), HashMap<String, f32>> = HashMap::new();
+    let mut water: HashMap<(i32, i32), (i32, i32)> = HashMap::new(); // water: 1 mi hex -> output hex
     for (t_type, lat, lon, w) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
-        *votes.entry((gx.round() as i32, gy.round() as i32)).or_default().entry(t_type).or_insert(0.0) += w;
+        let cell = hex_at(gx, gy);
+        if t_type == "Water" {
+            let (fx, fy) = to_grid(lat, lon, 1.0);
+            water.insert(hex_at(fx, fy), cell);
+        }
+        *votes.entry(cell).or_default().entry(t_type).or_insert(0.0) += w;
     }
-    let grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
+    let mut grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
         let best = v.into_iter().max_by(|a, b| (a.1 * salience(&a.0)).total_cmp(&(b.1 * salience(&b.0))).then_with(|| b.0.cmp(&a.0))).unwrap().0;
         (k, best)
     }).collect();
+    keep_water_bodies(&water, &mut grid_tiles_map, resolution);
 
     // Grid bounds: every placed tile and every marker (a marker off the grid would be lost), padded.
     let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32));
@@ -435,6 +486,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     let (min_x, max_x) = xs.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
     let (min_y, max_y) = ys.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
     let (min_x, max_x, min_y, max_y) = if min_x > max_x { (-2, 12, -2, 12) } else { (min_x - 2, max_x + 2, min_y - 2, max_y + 2) };
+    let min_y = min_y - min_y.rem_euclid(2); // even, so local and world row parity agree
 
     let width = (max_x - min_x + 1) as u32;
     let height = (max_y - min_y + 1) as u32;
@@ -445,7 +497,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     for y in min_y..=max_y {
         for x in min_x..=max_x {
             let t_type = grid_tiles_map.get(&(x, y)).cloned().unwrap_or_else(|| "unknown".to_string());
-            let (lat, lon) = from_grid(x as f32, y as f32, resolution);
+            let (hc, hr) = hex_center(x, y);
+            let (lat, lon) = from_grid(hc, hr, resolution);
             final_tiles.push(FixedTile {
                 x: x - min_x,
                 y: y - min_y,
@@ -921,18 +974,22 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     let min_col = corners.iter().map(|c| c.0).fold(f32::INFINITY, f32::min).floor() as i32;
     let max_col = corners.iter().map(|c| c.0).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
     let min_row = corners.iter().map(|c| c.1).fold(f32::INFINITY, f32::min).floor() as i32;
+    let min_row = min_row - min_row.rem_euclid(2); // even, so local and world row parity agree
     let max_row = corners.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
 
     let grid_height = (max_row - min_row + 1) as u32;
     let grid_width = (max_col - min_col + 1) as u32;
 
-    let cell_latlon = |x: u32, y: u32| from_grid((min_col + x as i32) as f32, (min_row + y as i32) as f32, miles_per_hex);
+    let cell_latlon = |x: u32, y: u32| {
+        let (c, r) = hex_center(min_col + x as i32, min_row + y as i32);
+        from_grid(c, r, miles_per_hex)
+    };
 
     // Points with lat/lon, by the hex they fall in.
     let mut hex_points: HashMap<(i32, i32), Vec<&ManualPoint>> = HashMap::new();
     for p in manual_points_bins.values().flatten() {
         let (c, r) = to_grid(p.lat, p.lon, miles_per_hex);
-        hex_points.entry((c.round() as i32, r.round() as i32)).or_default().push(p);
+        hex_points.entry(hex_at(c, r)).or_default().push(p);
     }
 
     // Game tiles smaller than a hex vote by area: each tile centre is warped to the hex it falls in.
@@ -944,7 +1001,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         for (&(tx, ty), (tile_type, weight)) in &game_tile_maps[game_idx] {
             let (lat, lon) = sheet.transform((tx as f32 + 0.5) * s, (ty as f32 + 0.5) * s);
             let (c, r) = to_grid(lat, lon, miles_per_hex);
-            let bin = bins.entry((c.round() as i32, r.round() as i32)).or_default();
+            let bin = bins.entry(hex_at(c, r)).or_default();
             bin.0 += 1;
             *bin.1.entry(tile_type.clone()).or_default() += weight;
         }
@@ -1309,6 +1366,39 @@ mod invariant_tests {
     use crate::extractors::Extractor;
     use crate::extractors::interplay::{FalloutInterplayExtractor, GameVariant};
 
+    /// A lake split over several coarse hexes, winning none, keeps the one holding most of it; a
+    /// pond too small for the scale does not.
+    #[test]
+    fn lakes_survive_coarsening() {
+        // 12 mi hexes: a 40-hex lake split 22/18 over two hexes that both stay land.
+        let lake: HashMap<(i32, i32), (i32, i32)> = (0..40).map(|i| ((i, 0), if i < 22 { (0, 0) } else { (1, 0) })).collect();
+        let mut tiles: HashMap<(i32, i32), String> = [((0, 0), "Sand".to_string()), ((1, 0), "Sand".to_string())].into();
+        keep_water_bodies(&lake, &mut tiles, 12.0);
+        assert_eq!(tiles[&(0, 0)], "Water");
+        assert_eq!(tiles[&(1, 0)], "Sand");
+        let pond: HashMap<(i32, i32), (i32, i32)> = (0..10).map(|i| ((i, 0), (0, 0))).collect();
+        let mut tiles: HashMap<(i32, i32), String> = [((0, 0), "Sand".to_string())].into();
+        keep_water_bodies(&pond, &mut tiles, 12.0);
+        assert_eq!(tiles[&(0, 0)], "Sand");
+    }
+
+    /// Hex centres follow the staggered layout: all six neighbours are one hex apart, and every
+    /// centre (and any point nearer to it than to other centres) maps back to its hex.
+    #[test]
+    fn hex_grid_is_staggered() {
+        for (c, r) in [(0, 0), (3, 1), (-2, -1), (5, 6)] {
+            let (x, y) = hex_center(c, r);
+            assert_eq!(hex_at(x, y), (c, r));
+            assert_eq!(hex_at(x + 0.3, y - 0.3), (c, r));
+            let d = if r.rem_euclid(2) == 1 { 0 } else { -1 };
+            for n in [(c - 1, r), (c + 1, r), (c + d, r - 1), (c + d + 1, r - 1), (c + d, r + 1), (c + d + 1, r + 1)] {
+                let (nx, ny) = hex_center(n.0, n.1);
+                let dist = (nx - x).hypot((ny - y) * HEX_ROW_FRACTION);
+                assert!((dist - 1.0).abs() < 1e-5, "{:?} -> {:?}: {}", (c, r), n, dist);
+            }
+        }
+    }
+
     fn game(v: GameVariant) -> RawMapData { FalloutInterplayExtractor::new(v).extract() }
 
     fn anchors() -> HashMap<String, (f32, f32)> {
@@ -1403,7 +1493,7 @@ mod invariant_tests {
                 let s = map.coordinate_scale;
                 let want = src[&((loc.x / s).floor() as i32, (loc.y / s).floor() as i32)];
                 let Some(f) = fixed.locations.iter().find(|f| f.name == loc.name) else { continue };
-                let got = tile_at.get(&(f.x.round() as i32, f.y.round() as i32)).copied().unwrap_or("none");
+                let got = tile_at.get(&hex_at(f.x, f.y)).copied().unwrap_or("none");
                 total += 1;
                 if got == want { ok += 1 } else { println!("{:<28} source {:<8} warped {}", loc.name, want, got) }
             }

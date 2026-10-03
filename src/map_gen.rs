@@ -101,9 +101,9 @@ fn terrain_gid(gid_map: &HashMap<String, u32>, tile_type: &str) -> u32 {
 /// Top-left pixel of the hex cell at fractional grid position (x, y). Odd rows are shifted half a
 /// hex; the shift is interpolated by the fractional row so continuous positions move smoothly.
 fn hex_px(x: f32, y: f32) -> (f32, f32) {
-    let frac = y - y.floor();
-    let stagger = if (y.floor() as i32) % 2 == 0 { frac * 33.0 } else { 33.0 - frac * 33.0 };
-    (x * 66.0 + stagger, y * 57.0)
+    // Grid positions already carry the stagger (odd-row hex centres sit at col + 0.5; see
+    // `fixer::hex_center`), so pixels are a plain scale: 66 px per column, 57 px per row.
+    (x * 66.0, y * 57.0)
 }
 
 /// Border lines between tiles of different real-world regions, following hex edges (so straight
@@ -243,11 +243,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
             adjusted_y += 0.5;
         }
         
-        // Pixel coordinates (Approx for Stagger Y, H=76, S=38)
-        // Vertical Step = 19 * 3 = 57. Horizontal Step = 66 (odd row center offset 33).
-        // For smooth placement, we interpolate the 33px stagger based on Y.
-        // Tiled's stagger is usually discrete, but for high-precision GPS markers,
-        // we use the fractional Y to smoothly offset X.
+        // Pixel position of the marker's grid position (its hex's top-left when on a hex centre).
         let (icon_x, icon_y) = hex_px(adjusted_x, adjusted_y);
 
         if let Some(gid) = icon_gid {

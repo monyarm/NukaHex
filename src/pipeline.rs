@@ -385,6 +385,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                 let crop_min_x = (min_x - buffer).floor() as i32;
                 let crop_max_x = (max_x + buffer).ceil() as i32;
                 let crop_min_y = (min_y - buffer).floor() as i32;
+                let crop_min_y = crop_min_y - crop_min_y.rem_euclid(2); // keep row parity (hex stagger)
                 let crop_max_y = (max_y + buffer).ceil() as i32;
 
                 let mut cropped_tiles = Vec::new();
