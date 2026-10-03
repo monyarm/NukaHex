@@ -83,6 +83,15 @@ pub struct Object {
     pub gid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<Text>,
+    /// Polyline vertices relative to (x, y).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polyline: Option<Vec<PolyPoint>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub struct PolyPoint {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

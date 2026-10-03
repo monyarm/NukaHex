@@ -14,6 +14,7 @@ mod utils;
 mod frm;
 mod raster;
 mod zar;
+mod borders;
 mod render;
 
 use std::path::Path;

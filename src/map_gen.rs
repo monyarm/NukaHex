@@ -106,6 +106,81 @@ fn hex_px(x: f32, y: f32) -> (f32, f32) {
     (x * 66.0 + stagger, y * 57.0)
 }
 
+/// Border lines between tiles of different real-world regions, following hex edges (so straight
+/// borders zigzag along the grid). Only drawn between two tiles that both have a region, so
+/// borders never extend past mapped land. One polyline object per connected run of edges, typed
+/// "CountryBorder" or "StateBorder".
+fn border_layer(tiles: &[crate::schema::FixedTile], layer_id: u32, next_obj_id: &mut u32) -> Layer {
+    use std::collections::HashMap as Map;
+    // Neighbours of (x, y); odd rows are shifted right.
+    let neighbours = |x: i32, y: i32| {
+        let d = if y.rem_euclid(2) == 1 { 0 } else { -1 };
+        [(x - 1, y), (x + 1, y), (x + d, y - 1), (x + d + 1, y - 1), (x + d, y + 1), (x + d + 1, y + 1)]
+    };
+    let mut region: Map<(i32, i32), u16> = tiles.iter().filter_map(|t| t.region.map(|r| ((t.x, t.y), r))).collect();
+    // Land tiles outside every real-world region (the warped game coast reaches a little past the
+    // real one) take the region of the nearest tile that has one, so borders run to the coast.
+    let land: std::collections::HashSet<(i32, i32)> = tiles.iter()
+        .filter(|t| t.tile_type != "unknown" && t.tile_type != "Water").map(|t| (t.x, t.y)).collect();
+    let mut frontier: Vec<(i32, i32)> = region.keys().copied().collect();
+    while !frontier.is_empty() {
+        let mut next = Vec::new();
+        for (x, y) in frontier {
+            let r = region[&(x, y)];
+            for n in neighbours(x, y) {
+                if land.contains(&n) && !region.contains_key(&n) { region.insert(n, r); next.push(n); }
+            }
+        }
+        frontier = next;
+    }
+    // Segments in pixels, by kind. Tiles are 66x76, odd rows shifted right by 33, rows 57 apart.
+    let mut segments: Map<bool, Vec<((i32, i32), (i32, i32))>> = Map::new();
+    for (&(x, y), &r) in &region {
+        let odd = y.rem_euclid(2) == 1;
+        let (ox, oy) = (x * 66 + if odd { 33 } else { 0 }, y * 57);
+        let (se, sw) = if odd { ((x + 1, y + 1), (x, y + 1)) } else { ((x, y + 1), (x - 1, y + 1)) };
+        let edges = [((x + 1, y), (ox + 66, oy + 19), (ox + 66, oy + 57)),
+                     (se, (ox + 66, oy + 57), (ox + 33, oy + 76)),
+                     (sw, (ox + 33, oy + 76), (ox, oy + 57))];
+        for (n, a, b) in edges {
+            if let Some(&rn) = region.get(&n) {
+                if rn != r { segments.entry(crate::borders::is_country_border(r, rn)).or_default().push((a, b)); }
+            }
+        }
+    }
+    // Chain segments sharing endpoints into polylines.
+    let mut objects = Vec::new();
+    for (country, segs) in segments {
+        let mut at: Map<(i32, i32), Vec<usize>> = Map::new();
+        for (i, (a, b)) in segs.iter().enumerate() { at.entry(*a).or_default().push(i); at.entry(*b).or_default().push(i); }
+        let mut used = vec![false; segs.len()];
+        for start in 0..segs.len() {
+            if used[start] { continue; }
+            used[start] = true;
+            let mut line = vec![segs[start].0, segs[start].1];
+            for forward in [true, false] {
+                loop {
+                    let end = if forward { *line.last().unwrap() } else { line[0] };
+                    let Some(&i) = at[&end].iter().find(|&&i| !used[i]) else { break };
+                    used[i] = true;
+                    let next = if segs[i].0 == end { segs[i].1 } else { segs[i].0 };
+                    if forward { line.push(next) } else { line.insert(0, next) }
+                }
+            }
+            let (x0, y0) = line[0];
+            objects.push(Object {
+                id: *next_obj_id, name: String::new(),
+                obj_type: if country { "CountryBorder" } else { "StateBorder" }.into(),
+                width: 0.0, height: 0.0, rotation: 0.0, gid: None, visible: true,
+                x: x0 as f32, y: y0 as f32, point: None, text: None,
+                polyline: Some(line.iter().map(|&(x, y)| PolyPoint { x: (x - x0) as f32, y: (y - y0) as f32 }).collect()),
+            });
+            *next_obj_id += 1;
+        }
+    }
+    Layer::ObjectGroup { id: layer_id, name: "Borders".into(), objects, opacity: 1.0, visible: true, x: 0, y: 0 }
+}
+
 pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>, tileset_source: &str) -> std::io::Result<()> {
     let width = map_data.width;
     let height = map_data.height;
@@ -203,6 +278,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
                 // Let's try standardizing.
                 text: None,
                 point: Some(false),
+                polyline: None,
                 });
             next_obj_id += 1;
         }
@@ -228,6 +304,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
                 valign: "bottom".to_string(),
                 pixelsize: 14.0, 
             }),
+            polyline: None,
         });
         next_obj_id += 1;
     }
@@ -257,8 +334,8 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         height,
         width,
         infinite: false,
-        layers: vec![tile_layer, object_layer, text_layer],
-        nextlayerid: 4,
+        layers: vec![tile_layer, border_layer(&map_data.tiles, 4, &mut next_obj_id), object_layer, text_layer],
+        nextlayerid: 5,
         nextobjectid: next_obj_id,
         orientation: "hexagonal".to_string(),
         renderorder: "right-down".to_string(),

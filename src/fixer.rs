@@ -117,6 +117,13 @@ pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
     (lat as f32, lon as f32)
 }
 
+/// Region of a tile for border drawing: only real land tiles get one, so borders never run
+/// through water or past the mapped area.
+fn tile_region(tile_type: &str, lat: f32, lon: f32) -> Option<u16> {
+    if tile_type == "unknown" || tile_type == "Water" { return None; }
+    crate::borders::region_at(lat, lon)
+}
+
 /// Key of the 1-mile bin holding (lat, lon), for neighbour lookups of manual points.
 fn bin_of(lat: f32, lon: f32) -> (i32, i32) {
     let (c, r) = to_grid(lat, lon, 1.0);
@@ -377,9 +384,11 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     for y in min_y..=max_y {
         for x in min_x..=max_x {
             let t_type = grid_tiles_map.get(&(x, y)).cloned().unwrap_or_else(|| "unknown".to_string());
+            let (lat, lon) = from_grid(x as f32, y as f32, resolution);
             final_tiles.push(FixedTile {
                 x: x - min_x,
                 y: y - min_y,
+                region: tile_region(&t_type, lat, lon),
                 tile_type: t_type,
                 real_lat: None, real_lon: None,
                 anchor: None,
@@ -481,6 +490,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
                 real_lat: tile.real_lat,
                 real_lon: tile.real_lon,
                 anchor: tile.anchor.clone(),
+                region: None,
             });
             if (tile.x as i32) < min_x { min_x = tile.x as i32; }
             if (tile.y as i32) < min_y { min_y = tile.y as i32; }
@@ -918,6 +928,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 real_lat: Some(lat),
                 real_lon: Some(lon),
                 anchor: None, // Inverse warping doesn't have anchors per tile
+                region: None, // assigned after cleanup and trimming
             });
         }
         row_tiles
@@ -1152,9 +1163,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // Adjust tile coordinates
     let trimmed_tiles: Vec<FixedTile> = fixed_tiles.into_iter()
         .filter(|t| t.x >= min_x_real && t.x <= max_x_real && t.y >= min_y_real && t.y <= max_y_real)
+        .collect::<Vec<_>>()
+        .into_par_iter()
         .map(|t| FixedTile {
             x: t.x - min_x_real,
             y: t.y - min_y_real,
+            region: t.real_lat.zip(t.real_lon).and_then(|(la, lo)| tile_region(&t.tile_type, la, lo)),
             tile_type: t.tile_type,
             real_lat: t.real_lat,
             real_lon: t.real_lon,

@@ -210,4 +210,7 @@ pub struct FixedTile {
     pub real_lon: Option<f32>,
     #[serde(default)]
     pub anchor: Option<String>,
+    /// Real-world region (index into `borders::REGIONS`) of a land tile, for drawing borders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<u16>,
 }

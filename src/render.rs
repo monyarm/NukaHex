@@ -74,6 +74,17 @@ pub fn render_tmj(tmj: &Path, png: &Path) -> io::Result<()> {
 }
 
 fn draw_object(canvas: &mut RgbaImage, obj: &Object, images: &HashMap<u32, RgbaImage>, scaled: &mut HashMap<(u32, u32, u32), RgbaImage>) {
+    if let Some(points) = &obj.polyline {
+        // Borders: black, wider than the 2 px hex outlines; country borders wider still.
+        let (width, colour) = match obj.obj_type.as_str() {
+            "CountryBorder" => (9.0, Rgba([25, 25, 25, 255])),
+            _ => (6.0, Rgba([25, 25, 25, 255])),
+        };
+        for pair in points.windows(2) {
+            let (a, b) = ((obj.x + pair[0].x, obj.y + pair[0].y), (obj.x + pair[1].x, obj.y + pair[1].y));
+            draw_thick_segment(canvas, a, b, width, colour);
+        }
+    }
     if let Some(gid) = obj.gid {
         // Tile objects: (x, y) is the bottom-left corner; the image is stretched to the object size.
         let gid = gid & GID_MASK;
@@ -91,6 +102,19 @@ fn draw_object(canvas: &mut RgbaImage, obj: &Object, images: &HashMap<u32, RgbaI
         let y = obj.y + match text.valign.as_str() { "center" => (obj.height - th as f32) / 2.0, "bottom" => obj.height - th as f32, _ => 0.0 };
         draw_text_mut(canvas, parse_color(&text.color), x.round() as i32, y.round() as i32, scale, font, &text.text);
     }
+}
+
+/// A segment `width` px wide with round joins (a disc at each end), so chained segments meet cleanly.
+fn draw_thick_segment(canvas: &mut RgbaImage, a: (f32, f32), b: (f32, f32), width: f32, colour: Rgba<u8>) {
+    use imageproc::drawing::{draw_filled_circle_mut, draw_polygon_mut};
+    use imageproc::point::Point;
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+    let (nx, ny) = (-dy / len * width / 2.0, dx / len * width / 2.0);
+    let quad = [(a.0 + nx, a.1 + ny), (b.0 + nx, b.1 + ny), (b.0 - nx, b.1 - ny), (a.0 - nx, a.1 - ny)]
+        .map(|(x, y)| Point::new(x.round() as i32, y.round() as i32));
+    if quad.windows(2).any(|w| w[0] != w[1]) && quad[0] != quad[3] { draw_polygon_mut(canvas, &quad, colour); }
+    for p in [a, b] { draw_filled_circle_mut(canvas, (p.0.round() as i32, p.1.round() as i32), (width / 2.0) as i32, colour); }
 }
 
 /// "#RRGGBB" or "#AARRGGBB" (Tiled's format); white on parse failure.

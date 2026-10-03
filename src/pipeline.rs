@@ -272,6 +272,11 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
     add_render(output_dir.join("map_all.tmj"), output_dir.join("rendered_map_all.png"));
     add_render(output_dir.join("map.tmj"), output_dir.join("rendered_map.png"));
+    // Coarser overviews of the main map: half and quarter resolution (12 and 24 mi per hex).
+    const OVERVIEW_MILES_PER_HEX: [u32; 2] = [12, 24];
+    for mph in OVERVIEW_MILES_PER_HEX {
+        add_render(output_dir.join(format!("map_{}mi.tmj", mph)), output_dir.join(format!("rendered_map_{}mi.png", mph)));
+    }
     step.run(|| {
         info!("[Builder] Running...");
         // Call map generator with FixedMapData
@@ -284,6 +289,12 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         // Note: Filters are case-insensitive
         let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Landmark"]; 
         map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
+
+        // 3. The same main map at coarser hex scales.
+        for mph in OVERVIEW_MILES_PER_HEX {
+            let coarse = fixer::fix_translation_only(clustered_raw_maps.clone(), manual_raw_maps.clone(), mph as f32, None);
+            map_gen::generate_tmj(output_dir, &format!("map_{}mi.tmj", mph), &coarse, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
+        }
     });
 
 
