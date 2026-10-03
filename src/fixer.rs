@@ -92,10 +92,14 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Zion Fishing Lodge", "Zion Lodge"),
     ("Sorrows Camp", "Temple of Sinawava"),             // mouth of the Narrows
     ("Three Marys", "37.2083156,-113.0118854"),         // Wikipedia; the name geocodes elsewhere
-    // Old World Blues (Big MT; fictional, its location deliberately unstated). Fan theory: the
-    // mountains south of Beatty, cutting off US-95 and Nevada 373 (California 127's continuation,
-    // which the NCR "couldn't take north" past the Big Empty): Bare Mountain.
-    ("Big MT", "Bare Mountain, Nevada"),
+    // Lonesome Road (the Divide; fictional). Canon: devastated land in the north-western Mojave, near
+    // the California/Nevada border, along Route 127 (the NCR's northern supply route), with Big MT to
+    // its south. 127 crosses the border at Death Valley Junction.
+    ("The Divide", "Death Valley Junction, California"),
+    // Old World Blues (Big MT; fictional, its location deliberately unstated). South of the Divide
+    // (Hopeville, in its south-west corner) and beside Route 127, which the NCR "couldn't take north"
+    // past the Divide and the Big Empty: the south end of the Resting Spring Range, at Shoshone.
+    ("Big MT", "Shoshone, California"),
     // Dead Money (the Sierra Madre; fictional, location never stated). "A mystic place close to the
     // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
     // Desert meets the Grand Canyon, at Grand Canyon West.

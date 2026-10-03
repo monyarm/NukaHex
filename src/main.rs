@@ -74,6 +74,9 @@ fn main() -> std::io::Result<()> {
         "NVDLC01Villa", "NVDLC01WestTownN", "NVDLC01WestTownS", "NVDLC01EastTownN", "NVDLC01EastTownS",
         "NVDLC01VillaDean", "NVDLC01VillaChristine",
     ])));
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::FalloutNV, "The Divide", &[ // Lonesome Road
+        "NVDLC04DivideWorld", "NVDLC04Road01World", "NVDLC04Road02World", "NVDLC04NukeSilo2", "NVDLC04DivideVistaWorld",
+    ])));
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {
