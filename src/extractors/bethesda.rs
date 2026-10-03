@@ -15,6 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const CELL: f32 = 4096.0;
+/// Real miles per game unit of the Mojave map (the mean scale of an affine fit to its 24 anchors:
+/// 0.280 and 0.258 along its axes, i.e. about 1.1 mi per cell). DLC worldspaces placed by a single
+/// canon or fan-theory location use it, so they keep their size relative to the Mojave.
+const NV_MILES_PER_UNIT: f32 = 0.000269;
 const QUAD: f32 = CELL / 2.0;
 const VERTEX_SPACING: f32 = CELL / 32.0;
 /// Built-up share (building footprint over ground area), averaged over a quadrant and its 8
@@ -493,6 +497,8 @@ fn build(dump: &Dump, summarized: bool) -> RawMapData {
         locations.push(RawLocation { name, x, y, icon_type: IconType::Landmark, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
     }
 
+    let miles_per_unit = summarized.then_some(NV_MILES_PER_UNIT);
+
     let (width, height) = (((x1 - x0 + 1) * 2) as u32, ((y1 - y0 + 1) * 2) as u32);
     let mut summary: HashMap<&str, usize> = HashMap::new();
     for t in &tiles { *summary.entry(t.tile_type.as_str()).or_default() += 1; }
@@ -506,6 +512,7 @@ fn build(dump: &Dump, summarized: bool) -> RawMapData {
         world_bounds: Some(MapBounds { min_x: 0, min_y: 0, max_x: width as i32 - 1, max_y: height as i32 - 1 }),
         coordinate_scale: QUAD,
         priority: 1,
+        miles_per_unit,
         ..Default::default()
     }
 }

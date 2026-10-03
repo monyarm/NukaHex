@@ -92,6 +92,10 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Zion Fishing Lodge", "Zion Lodge"),
     ("Sorrows Camp", "Temple of Sinawava"),             // mouth of the Narrows
     ("Three Marys", "37.2083156,-113.0118854"),         // Wikipedia; the name geocodes elsewhere
+    // Old World Blues (Big MT; fictional, its location deliberately unstated). Fan theory: the
+    // mountains south of Beatty, cutting off US-95 and Nevada 373 (California 127's continuation,
+    // which the NCR "couldn't take north" past the Big Empty): Bare Mountain.
+    ("Big MT", "Bare Mountain, Nevada"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -864,6 +868,17 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
         control_points.sort_by(|a, b| a.name.cmp(&b.name));
         control_points.dedup_by(|a, b| a.game_x == b.game_x && a.game_y == b.game_y);
         info!("Game #{} has {} control points: {:?}", game_idx, control_points.len(), control_points.iter().map(|c| &c.name).collect::<Vec<_>>());
+
+        // A map placed by one anchor and a known scale (a fictional DLC worldspace set at a canon or
+        // fan-theory location): north-up at that scale, via two synthetic anchors east and south of it.
+        if let (1..=2, Some(mpu)) = (control_points.len(), map.miles_per_unit) {
+            let c = control_points[0].clone();
+            let d = 10_000.0f32; // game units; any distance gives the same similarity
+            let (dlat, dlon) = (d * mpu / MILES_PER_DEGREE_LAT, d * mpu / (MILES_PER_DEGREE_LAT * c.real_lat.to_radians().cos()));
+            control_points.truncate(1);
+            control_points.push(ControlPoint { name: format!("{} (east)", c.name), game_x: c.game_x + d, game_y: c.game_y, real_lat: c.real_lat, real_lon: c.real_lon + dlon });
+            control_points.push(ControlPoint { name: format!("{} (south)", c.name), game_x: c.game_x, game_y: c.game_y + d, real_lat: c.real_lat - dlat, real_lon: c.real_lon });
+        }
 
         let sheet_opt = if control_points.len() >= 3 {
             let s = map.coordinate_scale;
