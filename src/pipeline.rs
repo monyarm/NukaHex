@@ -224,15 +224,17 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     // --- STAGE 4: BUILDER ---
     let builder_source = "src/map_gen.rs";
     
+    // Coarser overviews of the main map: half, quarter and eighth resolution (12, 24 and 48 mi per hex).
+    const OVERVIEW_MILES_PER_HEX: [u32; 3] = [12, 24, 48];
+
     // We return () from the builder step as it just generates files
     let step = CachedStep::new("builder", &intermediate_dir)
         .add_dependency_file(builder_source)
-        .add_dependency_hash(&combined_global_hash);
+        .add_dependency_hash(&combined_global_hash)
+        .add_dependency_hash(&format!("overviews {:?}", OVERVIEW_MILES_PER_HEX));
 
     add_render(output_dir.join("map_all.tmj"), output_dir.join("rendered_map_all.png"));
     add_render(output_dir.join("map.tmj"), output_dir.join("rendered_map.png"));
-    // Coarser overviews of the main map: half and quarter resolution (12 and 24 mi per hex).
-    const OVERVIEW_MILES_PER_HEX: [u32; 2] = [12, 24];
     for mph in OVERVIEW_MILES_PER_HEX {
         add_render(output_dir.join(format!("map_{}mi.tmj", mph)), output_dir.join(format!("rendered_map_{}mi.png", mph)));
     }
