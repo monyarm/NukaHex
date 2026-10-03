@@ -10,7 +10,7 @@ use crate::extractors::Extractor;
 use crate::schema::{IconType, MapBounds, RawLocation, RawMapData, RawTile};
 use log::{info, warn};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -85,21 +85,34 @@ impl BethesdaGameVariant {
 
 pub struct BethesdaExtractor {
     variant: BethesdaGameVariant,
-    worldspace: &'static str,
+    /// The worldspaces placed together as one map (several for a place split over exteriors).
+    worldspaces: Vec<&'static str>,
     id: String,
-    /// A DLC worldspace: the main maps show it as one marker named after it; its own markers appear
-    /// only on the `_all` map.
+    /// A DLC place: the main maps show it as one marker (`summary_name`, else the worldspace's own
+    /// name); its own markers appear only on the `_all` map.
     summarized: bool,
+    summary_name: Option<&'static str>,
 }
 
 impl BethesdaExtractor {
     pub fn new(variant: BethesdaGameVariant, worldspace: &'static str) -> Self {
-        Self { variant, worldspace, id: format!("{}_{}", variant.id_str(), worldspace.to_lowercase()), summarized: false }
+        Self::group(variant, &worldspace.to_lowercase(), &[worldspace])
+    }
+
+    fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
     pub fn dlc(variant: BethesdaGameVariant, worldspace: &'static str) -> Self {
         Self { summarized: true, ..Self::new(variant, worldspace) }
+    }
+
+    /// A DLC place split over several exteriors, which the game builds in one shared frame:
+    /// placed together and summarized by one marker called `name`.
+    pub fn dlc_group(variant: BethesdaGameVariant, name: &'static str, worldspaces: &[&'static str]) -> Self {
+        let id: String = name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        Self { summarized: true, summary_name: Some(name), ..Self::group(variant, &id, worldspaces) }
     }
 
     fn data_dir(&self) -> Option<PathBuf> {
@@ -109,12 +122,12 @@ impl BethesdaExtractor {
         Some(install.join("Data")).filter(|d| d.is_dir())
     }
 
-    fn dump(&self, data_dir: &Path) -> Result<Dump, String> {
-        let out = Path::new(".cache/bethesda").join(format!("{}.json", self.id));
+    fn dump(&self, data_dir: &Path, worldspace: &str) -> Result<Dump, String> {
+        let out = Path::new(".cache/bethesda").join(format!("{}_{}.json", self.id, worldspace.to_lowercase()));
         std::fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
         let result = Command::new(env!("MUTAGEN_DOTNET"))
             .arg(env!("MUTAGEN_DUMP_DLL"))
-            .args([self.variant.release(), &data_dir.to_string_lossy(), self.worldspace, &out.to_string_lossy()])
+            .args([self.variant.release(), &data_dir.to_string_lossy(), worldspace, &out.to_string_lossy()])
             .output().map_err(|e| e.to_string())?;
         let log = String::from_utf8_lossy(&result.stderr);
         if !result.status.success() {
@@ -155,8 +168,9 @@ impl Extractor for BethesdaExtractor {
         let Some(data_dir) = self.data_dir() else {
             return failed(format!("{} installation not found", self.variant.name()));
         };
-        match self.dump(&data_dir) {
-            Ok(dump) => build(&dump, self.summarized),
+        let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
+        match dumps {
+            Ok(dumps) => build(&dumps, self.summarized.then(|| self.summary_name)),
             Err(e) => failed(e),
         }
     }
@@ -175,6 +189,8 @@ struct Dump {
     statics: Vec<DumpStatic>,
     #[serde(default)]
     water_planes: Vec<DumpWaterPlane>,
+    #[serde(default)]
+    volumes: Vec<DumpVolume>,
     land_textures: HashMap<String, DumpTexture>,
     cells: Vec<DumpCell>,
 }
@@ -239,10 +255,28 @@ struct DumpWaterPlane {
 impl DumpWaterPlane {
     /// Whether world point (x, y) lies under the plane's footprint.
     fn covers(&self, x: f32, y: f32) -> bool {
-        let (dx, dy) = (x - self.x, y - self.y);
-        let (sin, cos) = self.rotation.sin_cos();
-        (dx * cos - dy * sin).abs() <= self.half_x && (dx * sin + dy * cos).abs() <= self.half_y
+        in_box((self.x, self.y), self.rotation, (self.half_x, self.half_y), (x, y))
     }
+}
+
+/// Whether world point `p` lies in the box centred on `c`, rotated by `rotation` (radians, clockwise)
+/// with half extents `half`.
+fn in_box(c: (f32, f32), rotation: f32, half: (f32, f32), p: (f32, f32)) -> bool {
+    let (dx, dy) = (p.0 - c.0, p.1 - c.1);
+    let (sin, cos) = rotation.sin_cos();
+    (dx * cos - dy * sin).abs() <= half.0 && (dx * sin + dy * cos).abs() <= half.1
+}
+
+/// A placed primitive volume (a trigger box), with its base form's editor ID.
+#[derive(Deserialize)]
+struct DumpVolume {
+    #[serde(rename = "base")]
+    base: Option<String>,
+    x: f32,
+    y: f32,
+    rotation: f32,
+    half_x: f32,
+    half_y: f32,
 }
 
 #[derive(Deserialize)]
@@ -383,18 +417,67 @@ fn cover_terrain(cover: &HashMap<Option<&str>, f32>, class: &HashMap<&str, &'sta
     shares.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or("Sand", |(t, _)| t)
 }
 
-fn build(dump: &Dump, summarized: bool) -> RawMapData {
-    let land: Vec<&DumpCell> = dump.cells.iter().filter(|c| c.heights.is_some() || c.layers.is_some()).collect();
-    if land.is_empty() {
-        return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
-    }
-    let x0 = land.iter().map(|c| c.x).min().unwrap();
-    let x1 = land.iter().map(|c| c.x).max().unwrap();
-    let y0 = land.iter().map(|c| c.y).min().unwrap();
-    let y1 = land.iter().map(|c| c.y).max().unwrap();
-    // World units -> frame units (origin at the north-west corner, y south).
-    let to_frame = |x: f32, y: f32| (x - x0 as f32 * CELL, (y1 + 1) as f32 * CELL - y);
+/// Ground that irradiates: radiation markers (circles of their radius) and Dead Money's Cloud (its
+/// damage-trigger boxes and its cloud meshes, as circles of the mesh's footprint).
+enum Hazard {
+    Circle((f32, f32), f32),
+    Box((f32, f32), f32, (f32, f32)),
+}
 
+/// A hazard and whether it is pervasive: the Cloud fills the Sierra Madre's streets between the
+/// buildings, so its volumes understate it and any quadrant it touches counts as irradiated.
+type Placed = (Hazard, bool);
+
+impl Hazard {
+    fn covers(&self, p: (f32, f32)) -> bool {
+        match *self {
+            Hazard::Circle(c, r) => (p.0 - c.0).hypot(p.1 - c.1) <= r,
+            Hazard::Box(c, rotation, half) => in_box(c, rotation, half, p),
+        }
+    }
+    /// Centre and the radius of a circle enclosing the hazard.
+    fn reach(&self) -> ((f32, f32), f32) {
+        match *self {
+            Hazard::Circle(c, r) => (c, r),
+            Hazard::Box(c, _, half) => (c, half.0.hypot(half.1)),
+        }
+    }
+}
+
+fn hazards(dump: &Dump) -> Vec<Placed> {
+    let cloud = |s: &str| s.to_lowercase().contains("toxiccloud");
+    let markers = dump.radiation.iter().filter_map(|r| r.radius.filter(|&v| v > 0.0).map(|v| (Hazard::Circle((r.x, r.y), v), false)));
+    let triggers = dump.volumes.iter().filter(|v| v.base.as_deref().is_some_and(cloud))
+        .map(|v| (Hazard::Box((v.x, v.y), v.rotation, (v.half_x, v.half_y)), true));
+    let meshes = dump.statics.iter().filter(|o| cloud(&o.model))
+        .map(|o| (Hazard::Circle((o.x, o.y), (o.area / std::f32::consts::PI).sqrt()), true));
+    markers.chain(triggers).chain(meshes).collect()
+}
+
+/// The common tile frame of one or more worldspaces: one tile per landscape quadrant, x east, y
+/// south, origin at the north-west corner of their combined landscape (cells x0..=x1, y0..=y1).
+#[derive(Clone, Copy)]
+struct Frame { x0: i32, x1: i32, y0: i32, y1: i32 }
+
+impl Frame {
+    fn of(dumps: &[Dump]) -> Option<Frame> {
+        let land: Vec<&DumpCell> = dumps.iter().flat_map(|d| &d.cells).filter(|c| c.heights.is_some() || c.layers.is_some()).collect();
+        Some(Frame {
+            x0: land.iter().map(|c| c.x).min()?, x1: land.iter().map(|c| c.x).max()?,
+            y0: land.iter().map(|c| c.y).min()?, y1: land.iter().map(|c| c.y).max()?,
+        })
+    }
+    /// World units -> frame units.
+    fn to_frame(&self, x: f32, y: f32) -> (f32, f32) { (x - self.x0 as f32 * CELL, (self.y1 + 1) as f32 * CELL - y) }
+    fn to_world(&self, fx: f32, fy: f32) -> (f32, f32) { (fx + self.x0 as f32 * CELL, (self.y1 + 1) as f32 * CELL - fy) }
+    fn tile_of(&self, x: f32, y: f32) -> (i32, i32) {
+        let (fx, fy) = self.to_frame(x, y);
+        ((fx / QUAD).floor() as i32, (fy / QUAD).floor() as i32)
+    }
+}
+
+/// Terrain of every landscape quadrant of one worldspace, in `frame`.
+fn dump_terrain(dump: &Dump, frame: Frame) -> HashMap<(i32, i32), &'static str> {
     let class: HashMap<&str, &'static str> = dump.land_textures.iter()
         .map(|(k, t)| (k.as_str(), texture_terrain(t.edid.as_deref().unwrap_or(""), t.texture.as_deref().unwrap_or(""))))
         .collect();
@@ -402,14 +485,14 @@ fn build(dump: &Dump, summarized: bool) -> RawMapData {
 
     // Per quadrant tile: (wet, slope, ground cover terrain).
     let mut quads: HashMap<(i32, i32), (bool, Option<f32>, &'static str)> = HashMap::new();
-    for cell in &land {
+    for cell in dump.cells.iter().filter(|c| c.heights.is_some() || c.layers.is_some()) {
         let water = cell.water_height.filter(|&w| w < NO_WATER).unwrap_or(default_water);
         let layers = cell.layers.as_deref().unwrap_or(&[]);
         let h = cell.heights.as_deref();
         let wet = h.map(|h| cell_wet(cell, h, water, &dump.water_planes));
         for q in 0..4u8 {
             let in_quad: Vec<&DumpLayer> = layers.iter().filter(|l| l.quadrant == q).collect();
-            let pos = ((cell.x - x0) * 2 + (q & 1) as i32, (y1 - cell.y) * 2 + 1 - (q >> 1) as i32);
+            let pos = ((cell.x - frame.x0) * 2 + (q & 1) as i32, (frame.y1 - cell.y) * 2 + 1 - (q >> 1) as i32);
             quads.insert(pos, (wet.as_deref().is_some_and(|w| quadrant_wet(w, q)), h.map(|h| quadrant_slope(h, q)), cover_terrain(&quadrant_cover(&in_quad), &class)));
         }
     }
@@ -417,92 +500,114 @@ fn build(dump: &Dump, summarized: bool) -> RawMapData {
     let mut footprint: HashMap<(&'static str, (i32, i32)), f32> = HashMap::new();
     for o in &dump.statics {
         let Some(kind) = static_terrain(&o.model) else { continue };
-        let (fx, fy) = to_frame(o.x, o.y);
-        *footprint.entry((kind, ((fx / QUAD).floor() as i32, (fy / QUAD).floor() as i32))).or_default() += o.area / (QUAD * QUAD);
+        *footprint.entry((kind, frame.tile_of(o.x, o.y))).or_default() += o.area / (QUAD * QUAD);
     }
     // Water first; then overgrowth, mountain and city where the footprint or slope averaged over the
     // 3x3 quadrants around is high (so ranges, built-up and overgrown areas count, not single bluffs,
     // shacks or plants); else the ground cover.
-    let mut tiles: Vec<RawTile> = quads.iter().map(|(&(x, y), &(wet, _, ground))| {
+    let mut terrain: HashMap<(i32, i32), &'static str> = quads.iter().map(|(&(x, y), &(wet, _, ground))| {
         let around = || (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (x + dx, y + dy)));
         let slopes: Vec<f32> = around().filter_map(|p| quads.get(&p).and_then(|q| q.1)).collect();
         let steep = !slopes.is_empty() && slopes.iter().sum::<f32>() / slopes.len() as f32 > MOUNTAIN_SLOPE;
         let share = |kind| around().map(|p| footprint.get(&(kind, p)).copied().unwrap_or(0.0)).sum::<f32>() / 9.0;
         // Overgrowth shows even on a hillside, such as Vault 22's.
-        let terrain = if wet { "Water" } else if share("Grass") >= VEGETATION_FOOTPRINT { "Grass" } else if steep { "Mountain" }
+        let t = if wet { "Water" } else if share("Grass") >= VEGETATION_FOOTPRINT { "Grass" } else if steep { "Mountain" }
             else if share("City") >= CITY_FOOTPRINT { "City" } else { ground };
-        RawTile { x, y, tile_type: terrain.to_string(), real_lat: None, real_lon: None, weight: 1.0, anchor: None }
+        ((x, y), t)
     }).collect();
+
+    // Radiation: quadrants whose centre lies inside a radiation marker's radius (so a leaking barrel
+    // irradiates nothing), or that the pervasive Cloud touches at all. Water stays water.
+    let hazards = hazards(dump);
+    let mut candidates: HashMap<(i32, i32), Vec<&Placed>> = HashMap::new();
+    let mut touched: HashSet<(i32, i32)> = HashSet::new();
+    for hz in &hazards {
+        let ((cx, cy), r) = hz.0.reach();
+        let (lo, hi) = (frame.tile_of(cx - r, cy + r), frame.tile_of(cx + r, cy - r));
+        for ty in lo.1..=hi.1 { for tx in lo.0..=hi.0 { candidates.entry((tx, ty)).or_default().push(hz); } }
+        if hz.1 { touched.insert(frame.tile_of(cx, cy)); }
+    }
+    for ((tx, ty), hs) in candidates {
+        // The Cloud: any of 16 sample points (4x4) inside it. Markers: the quadrant's centre inside.
+        let at = |i: f32, j: f32| frame.to_world((tx as f32 + i) * QUAD, (ty as f32 + j) * QUAD);
+        let cloud = (0..16).any(|i| { let p = at(((i % 4) as f32 + 0.5) / 4.0, ((i / 4) as f32 + 0.5) / 4.0); hs.iter().any(|h| h.1 && h.0.covers(p)) });
+        let marker = hs.iter().any(|h| !h.1 && h.0.covers(at(0.5, 0.5)));
+        if !(cloud || marker || touched.contains(&(tx, ty))) { continue; }
+        let t = terrain.entry((tx, ty)).or_insert("Radiation");
+        if *t != "Water" { *t = "Radiation"; }
+    }
+    terrain
+}
+
+/// Terrain precedence when worldspaces sharing a frame disagree on a quadrant: the most notable wins.
+const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Mountain", "Snow"];
+
+/// One map from one or more worldspaces sharing a frame (see `GROUP_PRECEDENCE`). `summary`: None for a worldspace
+/// shown in full; Some(name) for a summarized DLC place, shown on the main maps as one landmark
+/// (called `name`, else the worldspace's own name) at the centre of its map, its markers as details.
+fn build(dumps: &[Dump], summary: Option<Option<&str>>) -> RawMapData {
+    let Some(frame) = Frame::of(dumps) else {
+        return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
+    };
+    // Worldspaces sharing a frame are different parts of one place built on the same coordinates, so
+    // a quadrant shows the most notable thing any of them has there.
+    let rank = |t: &str| GROUP_PRECEDENCE.iter().position(|&p| p == t).unwrap_or(GROUP_PRECEDENCE.len());
+    let mut best: HashMap<(i32, i32), &'static str> = HashMap::new();
+    for dump in dumps {
+        for (pos, t) in dump_terrain(dump, frame) {
+            let e = best.entry(pos).or_insert(t);
+            if rank(t) < rank(e) { *e = t; }
+        }
+    }
+    let mut tiles: Vec<RawTile> = best.into_iter()
+        .map(|((x, y), t)| RawTile { x, y, tile_type: t.to_string(), real_lat: None, real_lon: None, weight: 1.0, anchor: None })
+        .collect();
     tiles.sort_by_key(|t| (t.y, t.x)); // deterministic order
 
-    // Radiation: quadrants whose centre lies inside a radiation marker's radius (area-weighted, so
-    // small hazards such as a leaking barrel cover no quadrant and cast no vote).
-    let mut by_pos: HashMap<(i32, i32), usize> = tiles.iter().enumerate().map(|(i, t)| ((t.x, t.y), i)).collect();
-    let mut irradiated = 0;
-    for r in &dump.radiation {
-        let Some(radius) = r.radius.filter(|&v| v > 0.0) else { continue };
-        let (fx, fy) = to_frame(r.x, r.y);
-        let span = (radius / QUAD).ceil() as i32 + 1;
-        let (cx, cy) = ((fx / QUAD).floor() as i32, (fy / QUAD).floor() as i32);
-        for ty in cy - span..=cy + span {
-            for tx in cx - span..=cx + span {
-                let centre = ((tx as f32 + 0.5) * QUAD, (ty as f32 + 0.5) * QUAD);
-                if (centre.0 - fx).hypot(centre.1 - fy) > radius { continue; }
-                match by_pos.get(&(tx, ty)) {
-                    Some(&i) if tiles[i].tile_type == "Water" => {}
-                    Some(&i) => { tiles[i].tile_type = "Radiation".into(); irradiated += 1; }
-                    None => {
-                        by_pos.insert((tx, ty), tiles.len());
-                        tiles.push(RawTile { x: tx, y: ty, tile_type: "Radiation".into(), real_lat: None, real_lon: None, weight: 1.0, anchor: None });
-                        irradiated += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Markers of child worldspaces (Freeside...) sit on this map at position * scale + offset.
-    let child = dump.child_markers.iter().map(|m| {
-        let (scale, [ox, oy]) = (m.map_scale.unwrap_or(1.0), m.map_offset.unwrap_or([0.0, 0.0]));
-        (&m.marker, m.marker.x * scale + ox, m.marker.y * scale + oy)
-    });
     let mut locations: Vec<RawLocation> = Vec::new();
     let mut members: HashMap<String, usize> = HashMap::new(); // gates merged so far, per place
-    for (m, wx, wy) in dump.markers.iter().map(|m| (m, m.x, m.y)).chain(child) {
-        let Some(name) = m.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
-        let name = NV_PLACES.iter().find(|(_, gates)| gates.contains(&name)).map_or(name, |(place, _)| place);
-        let (x, y) = to_frame(wx, wy);
-        let icon_type = marker_icon(name, m.kind.as_deref().unwrap_or("None"), m.reputation.is_some());
-        if let Some(l) = locations.iter_mut().find(|l| l.name == name) {
-            // Another gate of the same place: running mean of the gate positions.
-            let n = members.entry(name.to_string()).or_insert(1);
-            *n += 1;
-            l.x += (x - l.x) / *n as f32;
-            l.y += (y - l.y) / *n as f32;
-            continue;
+    for dump in dumps {
+        // Markers of child worldspaces (Freeside...) sit on this map at position * scale + offset.
+        let child = dump.child_markers.iter().map(|m| {
+            let (scale, [ox, oy]) = (m.map_scale.unwrap_or(1.0), m.map_offset.unwrap_or([0.0, 0.0]));
+            (&m.marker, m.marker.x * scale + ox, m.marker.y * scale + oy)
+        });
+        for (m, wx, wy) in dump.markers.iter().map(|m| (m, m.x, m.y)).chain(child) {
+            let Some(name) = m.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
+            let name = NV_PLACES.iter().find(|(_, gates)| gates.contains(&name)).map_or(name, |(place, _)| place);
+            let (x, y) = frame.to_frame(wx, wy);
+            let icon_type = marker_icon(name, m.kind.as_deref().unwrap_or("None"), m.reputation.is_some());
+            if let Some(l) = locations.iter_mut().find(|l| l.name == name) {
+                // Another gate (or exterior) of the same place: running mean of the positions.
+                let n = members.entry(name.to_string()).or_insert(1);
+                *n += 1;
+                l.x += (x - l.x) / *n as f32;
+                l.y += (y - l.y) / *n as f32;
+                continue;
+            }
+            locations.push(RawLocation { name: name.to_string(), x, y, icon_type, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
         }
-        locations.push(RawLocation { name: name.to_string(), x, y, icon_type, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
     }
 
-    // A summarized worldspace: one landmark named after it, at the centre of its in-game map (or of
-    // its landscape); its own markers stay on the full map only.
-    if summarized {
+    // A summarized place: one landmark at the centre of its in-game map, clipped to its landscape
+    // (Dead Money's exteriors carry the Mojave's map rectangle); its own markers on the full map only.
+    if let Some(name) = summary {
         for l in &mut locations { l.icon_type = IconType::Detail; }
-        let [(nx, ny), (sx, sy)] = match (dump.worldspace.map_nw_cell, dump.worldspace.map_se_cell) {
-            (Some([nx, ny]), Some([sx, sy])) => [(nx, ny), (sx, sy)],
-            _ => [(x0, y1), (x1, y0)],
-        };
-        let (x, y) = to_frame((nx + sx + 1) as f32 * CELL / 2.0, (ny + sy + 1) as f32 * CELL / 2.0);
-        let name = dump.worldspace.name.clone().or_else(|| dump.worldspace.edid.clone()).unwrap_or_default();
+        let w = &dumps[0].worldspace;
+        let (mut nx, mut ny, mut sx, mut sy) = (frame.x0, frame.y1, frame.x1, frame.y0);
+        if let (Some([mnx, mny]), Some([msx, msy])) = (w.map_nw_cell, w.map_se_cell) {
+            (nx, ny, sx, sy) = (mnx.max(frame.x0), mny.min(frame.y1), msx.min(frame.x1), msy.max(frame.y0));
+            if nx > sx || sy > ny { (nx, ny, sx, sy) = (frame.x0, frame.y1, frame.x1, frame.y0); }
+        }
+        let (x, y) = frame.to_frame((nx + sx + 1) as f32 * CELL / 2.0, (ny + sy + 1) as f32 * CELL / 2.0);
+        let name = name.map(str::to_string).or_else(|| w.name.clone()).or_else(|| w.edid.clone()).unwrap_or_default();
         locations.push(RawLocation { name, x, y, icon_type: IconType::Landmark, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
     }
 
-    let miles_per_unit = summarized.then_some(NV_MILES_PER_UNIT);
-
-    let (width, height) = (((x1 - x0 + 1) * 2) as u32, ((y1 - y0 + 1) * 2) as u32);
-    let mut summary: HashMap<&str, usize> = HashMap::new();
-    for t in &tiles { *summary.entry(t.tile_type.as_str()).or_default() += 1; }
-    info!("[Bethesda] {} markers, {} cells, {}x{} tiles ({} irradiated): {:?}", locations.len(), land.len(), width, height, irradiated, summary);
+    let (width, height) = (((frame.x1 - frame.x0 + 1) * 2) as u32, ((frame.y1 - frame.y0 + 1) * 2) as u32);
+    let mut tally: HashMap<&str, usize> = HashMap::new();
+    for t in &tiles { *tally.entry(t.tile_type.as_str()).or_default() += 1; }
+    info!("[Bethesda] {} worldspace(s), {} markers, {}x{} tiles: {:?}", dumps.len(), locations.len(), width, height, tally);
 
     RawMapData {
         locations,
@@ -512,7 +617,7 @@ fn build(dump: &Dump, summarized: bool) -> RawMapData {
         world_bounds: Some(MapBounds { min_x: 0, min_y: 0, max_x: width as i32 - 1, max_y: height as i32 - 1 }),
         coordinate_scale: QUAD,
         priority: 1,
-        miles_per_unit,
+        miles_per_unit: summary.is_some().then_some(NV_MILES_PER_UNIT),
         ..Default::default()
     }
 }
@@ -620,10 +725,12 @@ mod tests {
             radiation: vec![],
             statics: vec![],
             water_planes: vec![],
+            volumes: vec![],
             land_textures: [("t".to_string(), DumpTexture { edid: Some("Dirt01".into()), texture: None })].into(),
             cells: vec![DumpCell { x: 0, y: 0, water_height: None, heights: None, layers: Some((0..4).map(tex).collect()) }],
         };
-        let map = build(&dump, false);
+        let dump = [dump];
+        let map = build(&dump, None);
         assert_eq!((map.width, map.height), (2, 2));
         let mut pos: Vec<(i32, i32)> = map.tiles.iter().map(|t| (t.x, t.y)).collect();
         pos.sort();
@@ -632,7 +739,7 @@ mod tests {
         assert_eq!((map.locations[0].x, map.locations[0].y), (1000.0, 1096.0));
         assert_eq!((map.locations[1].x, map.locations[1].y), (2050.0, 2996.0));
         // Summarized: every marker is a full-map detail, plus one landmark named after the world.
-        let map = build(&dump, true);
+        let map = build(&dump, Some(None));
         assert!(map.locations[..2].iter().all(|l| matches!(l.icon_type, IconType::Detail)));
         let w = &map.locations[2];
         assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));

@@ -96,6 +96,10 @@ const REAL_COORDS: &[(&str, &str)] = &[
     // mountains south of Beatty, cutting off US-95 and Nevada 373 (California 127's continuation,
     // which the NCR "couldn't take north" past the Big Empty): Bare Mountain.
     ("Big MT", "Bare Mountain, Nevada"),
+    // Dead Money (the Sierra Madre; fictional, location never stated). "A mystic place close to the
+    // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
+    // Desert meets the Grand Canyon, at Grand Canyon West.
+    ("Sierra Madre", "Grand Canyon West, Arizona"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -183,7 +187,7 @@ pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
 /// Vote multiplier of a terrain type when a hex picks its winner. Radiation is a hazard worth showing:
 /// at 4 to 1 it takes a hex once it covers about a fifth of it, so a zone such as Camp Searchlight
 /// survives on the overview scales.
-fn salience(tile_type: &str) -> f32 {
+pub fn salience(tile_type: &str) -> f32 {
     if tile_type == "Radiation" { 4.0 } else { 1.0 }
 }
 
@@ -1374,21 +1378,14 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     let mut min_y_real = i32::MAX;
     let mut max_y_real = i32::MIN;
     
-    // Use world_bounds if provided (usually for individual cluster extraction)
-    if let Some(bounds) = raw_maps.first().and_then(|m| m.world_bounds) {
-        min_x_real = bounds.min_x;
-        max_x_real = bounds.max_x;
-        min_y_real = bounds.min_y;
-        max_y_real = bounds.max_y;
-        info!("Using official world_bounds: ({}, {}) to ({}, {})", min_x_real, min_y_real, max_x_real, max_y_real);
-    } else {
-        for tile in &fixed_tiles {
-            if tile.tile_type != "unknown" && tile.tile_type != "" {
-                if tile.x < min_x_real { min_x_real = tile.x; }
-                if tile.x > max_x_real { max_x_real = tile.x; }
-                if tile.y < min_y_real { min_y_real = tile.y; }
-                if tile.y > max_y_real { max_y_real = tile.y; }
-            }
+    // The extent of the known tiles. (A raw map's `world_bounds` are in its own game tiles, not this
+    // grid's hexes, so they cannot bound it.)
+    for tile in &fixed_tiles {
+        if tile.tile_type != "unknown" && tile.tile_type != "" {
+            if tile.x < min_x_real { min_x_real = tile.x; }
+            if tile.x > max_x_real { max_x_real = tile.x; }
+            if tile.y < min_y_real { min_y_real = tile.y; }
+            if tile.y > max_y_real { max_y_real = tile.y; }
         }
     }
 
@@ -1407,6 +1404,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     min_y_real = (min_y_real - buffer_tiles).max(0);
     max_x_real = (max_x_real + buffer_tiles).min(grid_width as i32 - 1);
     max_y_real = (max_y_real + buffer_tiles).min(grid_height as i32 - 1);
+    min_y_real -= min_y_real.rem_euclid(2); // keep row parity (hex stagger)
     
     let trimmed_width = (max_x_real - min_x_real + 1) as u32;
     let trimmed_height = (max_y_real - min_y_real + 1) as u32;

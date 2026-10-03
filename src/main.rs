@@ -70,6 +70,10 @@ fn main() -> std::io::Result<()> {
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC03BigMT"))); // Old World Blues
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::FalloutNV, "Sierra Madre", &[ // Dead Money
+        "NVDLC01Villa", "NVDLC01WestTownN", "NVDLC01WestTownS", "NVDLC01EastTownN", "NVDLC01EastTownS",
+        "NVDLC01VillaDean", "NVDLC01VillaChristine",
+    ])));
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {

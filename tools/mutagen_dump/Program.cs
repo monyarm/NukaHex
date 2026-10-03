@@ -1,6 +1,6 @@
 // Dumps one worldspace of a Fallout 3 / New Vegas install as JSON for the Rust extractor:
 // map markers (and those of child worldspaces), per-cell landscape (absolute heights + texture layers),
-// land textures, placed statics and trees, water planes, doors and radiation sources.
+// land textures, placed statics and trees, water planes, primitive volumes, doors and radiation sources.
 // Raw decoded data only; all classification happens in Rust.
 //
 // Usage: mutagen_dump <Fallout3|FalloutNV> <data dir> <worldspace EditorID> <out.json>
@@ -122,6 +122,7 @@ var radiation = new List<object>();
 var doors = new List<float[]>();
 var statics = new List<object>();
 var waterPlanes = new List<object>();
+var volumes = new List<object>();
 foreach (var ctx in order.PlacedObject().WinningContextOverrides(lc))
 {
     if (!ctx.TryGetParent<IWorldspaceGetter>(out var ws)) continue;
@@ -180,6 +181,19 @@ foreach (var ctx in order.PlacedObject().WinningContextOverrides(lc))
             ["half_y"] = Math.Abs(waterBounds.Second.Y - waterBounds.First.Y) * scale / 2,
         });
     }
+    // Primitive volumes (trigger boxes and spheres): base, centre, z rotation and half extents.
+    if (r.Primitive is { } prim)
+    {
+        var scale = r.Scale ?? 1f;
+        volumes.Add(new Dictionary<string, object?>
+        {
+            ["base"] = r.Base.TryResolve(lc)?.EditorID,
+            ["x"] = pos.Value.X, ["y"] = pos.Value.Y,
+            ["rotation"] = r.Placement!.Rotation.Z,
+            ["half_x"] = prim.Bounds.X * scale, ["half_y"] = prim.Bounds.Y * scale,
+            ["shape"] = prim.PrimitiveType.ToString(),
+        });
+    }
     if (r.Radiation is > 0)
     {
         radiation.Add(new Dictionary<string, object?>
@@ -214,6 +228,7 @@ var output = new Dictionary<string, object?>
     ["doors"] = doors,
     ["statics"] = statics,
     ["water_planes"] = waterPlanes,
+    ["volumes"] = volumes,
     ["radiation"] = radiation,
     ["land_textures"] = textures,
     ["cells"] = cells.Values.ToArray(),
