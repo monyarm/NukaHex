@@ -513,52 +513,121 @@ impl FalloutInterplayExtractor {
     }
 }
 
-/// Per-pixel sea/land from the art. The classifier is trained on the game's own interior squares
-/// (a square whose 8 neighbours share its type), so each game's art style teaches itself: features are
-/// the 9x9 mean colour and brightness texture; the decision is a linear discriminant (LDA).
-/// None if the game has no interior sea or land squares to learn from.
-fn classify_sea(rgb: &[[u8; 3]], w: usize, h: usize, is_water: &dyn Fn(i32, i32) -> Option<bool>) -> Option<Vec<bool>> {
-    const R: usize = 4;
-    let chan = |c: usize| rgb.iter().map(|p| p[c] as f64).collect::<Vec<_>>();
-    let lum: Vec<f64> = rgb.iter().map(|p| (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0).collect();
-    let lum2: Vec<f64> = lum.iter().map(|l| l * l).collect();
-    let (m_lum, m_lum2) = (crate::raster::box_mean(&lum, w, h, R), crate::raster::box_mean(&lum2, w, h, R));
-    let feats: [Vec<f64>; 4] = [
-        crate::raster::box_mean(&chan(0), w, h, R), crate::raster::box_mean(&chan(1), w, h, R), crate::raster::box_mean(&chan(2), w, h, R),
-        m_lum.iter().zip(&m_lum2).map(|(m, m2)| (m2 - m * m).max(0.0).sqrt()).collect(),
-    ];
-    let f = |i: usize| [feats[0][i], feats[1][i], feats[2][i], feats[3][i]];
+/// Per-pixel terrain classifier learned from the art. It is trained on the game's own interior
+/// squares (a square whose 8 neighbours share its type), so each game's art style teaches itself.
+/// Features: 9x9 mean colour and brightness texture. Decision: linear discriminant (LDA) with one
+/// shared covariance, restricted at prediction time to the types allowed at that spot.
+struct ArtModel {
+    feats: [Vec<f64>; 4],
+    classes: Vec<String>,
+    means: Vec<[f64; 4]>,
+    inv_cov: [[f64; 4]; 4],
+}
 
-    // Training pixels: interior squares only.
-    let (mut sum, mut n) = ([[0.0f64; 4]; 2], [0usize; 2]);
-    let mut samples: Vec<(usize, usize)> = Vec::new(); // (pixel, class)
-    for sy in 0..(h / SQUARE_PX) as i32 { for sx in 0..(w / SQUARE_PX) as i32 {
-        let Some(water) = is_water(sx, sy) else { continue };
-        let interior = (-1..=1).all(|dy| (-1..=1).all(|dx| is_water(sx + dx, sy + dy).map_or(true, |v| v == water)));
-        if !interior { continue; }
-        let class = water as usize;
-        for y in 0..SQUARE_PX { for x in 0..SQUARE_PX {
-            let i = (sy as usize * SQUARE_PX + y) * w + sx as usize * SQUARE_PX + x;
-            let v = f(i);
-            for k in 0..4 { sum[class][k] += v[k]; }
-            n[class] += 1;
-            samples.push((i, class));
-        }}
-    }}
-    if n[0] == 0 || n[1] == 0 { return None; }
-    let mu = |c: usize| { let mut m = sum[c]; for k in 0..4 { m[k] /= n[c] as f64; } m };
-    let (mu0, mu1) = (mu(0), mu(1));
-    let total = (n[0] + n[1]) as f64;
-    let mean: Vec<f64> = (0..4).map(|k| (sum[0][k] + sum[1][k]) / total).collect();
-    let mut cov = [[0.0f64; 4]; 4];
-    for &(i, _) in &samples {
-        let v = f(i);
-        for a in 0..4 { for b in 0..4 { cov[a][b] += (v[a] - mean[a]) * (v[b] - mean[b]) / total; } }
+impl ArtModel {
+    /// None if fewer than two square types have interior squares to learn from.
+    /// `train_on` limits which squares are used for training (all of them in production).
+    fn train(rgb: &[[u8; 3]], w: usize, h: usize, ty: &HashMap<(i32, i32), String>, train_on: &dyn Fn(i32, i32) -> bool) -> Option<Self> {
+        const R: usize = 4;
+        let chan = |c: usize| rgb.iter().map(|p| p[c] as f64).collect::<Vec<_>>();
+        let lum: Vec<f64> = rgb.iter().map(|p| (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0).collect();
+        let lum2: Vec<f64> = lum.iter().map(|l| l * l).collect();
+        let (m_lum, m_lum2) = (crate::raster::box_mean(&lum, w, h, R), crate::raster::box_mean(&lum2, w, h, R));
+        let feats: [Vec<f64>; 4] = [
+            crate::raster::box_mean(&chan(0), w, h, R), crate::raster::box_mean(&chan(1), w, h, R), crate::raster::box_mean(&chan(2), w, h, R),
+            m_lum.iter().zip(&m_lum2).map(|(m, m2)| (m2 - m * m).max(0.0).sqrt()).collect(),
+        ];
+        let f = |i: usize| [feats[0][i], feats[1][i], feats[2][i], feats[3][i]];
+
+        let mut classes: Vec<String> = ty.values().cloned().collect();
+        classes.sort();
+        classes.dedup();
+        let (mut sum, mut n) = (vec![[0.0f64; 4]; classes.len()], vec![0usize; classes.len()]);
+        let mut samples: Vec<(usize, usize)> = Vec::new();
+        let is_interior = |sx: i32, sy: i32, t: &String| (-1..=1).all(|dy| (-1..=1).all(|dx| ty.get(&(sx + dx, sy + dy)).map_or(true, |v| v == t)));
+        // Types too small to have interior squares (towns) learn from all their squares.
+        let has_interior: Vec<&String> = ty.iter().filter(|(p, t)| is_interior(p.0, p.1, t)).map(|(_, t)| t).collect();
+        for (&(sx, sy), t) in ty {
+            if !train_on(sx, sy) { continue; }
+            if has_interior.contains(&t) && !is_interior(sx, sy, t) { continue; }
+            let k = classes.iter().position(|c| c == t).unwrap();
+            for y in 0..SQUARE_PX { for x in 0..SQUARE_PX {
+                let i = (sy as usize * SQUARE_PX + y) * w + sx as usize * SQUARE_PX + x;
+                let v = f(i);
+                for d in 0..4 { sum[k][d] += v[d]; }
+                n[k] += 1;
+                samples.push((i, k));
+            }}
+        }
+        // Pooled within-class covariance, then keep only classes that had training squares.
+        let mean = |k: usize| -> [f64; 4] { std::array::from_fn(|d| sum[k][d] / n[k] as f64) };
+        let mut cov = [[0.0f64; 4]; 4];
+        for &(i, k) in &samples {
+            let (mu, v) = (mean(k), f(i));
+            for a in 0..4 { for b in 0..4 { cov[a][b] += (v[a] - mu[a]) * (v[b] - mu[b]) / samples.len() as f64; } }
+        }
+        let kept: Vec<usize> = (0..classes.len()).filter(|&k| n[k] > 0).collect();
+        if kept.len() < 2 { return None; }
+        let means: Vec<[f64; 4]> = kept.iter().map(|&k| mean(k)).collect();
+        let classes: Vec<String> = kept.iter().map(|&k| classes[k].clone()).collect();
+        let mut inv_cov = [[0.0; 4]; 4];
+        for c in 0..4 {
+            let col = solve4(cov, std::array::from_fn(|r| (r == c) as u8 as f64))?;
+            for r in 0..4 { inv_cov[r][c] = col[r]; }
+        }
+        Some(ArtModel { feats, classes, means, inv_cov })
     }
-    let wv = solve4(cov, std::array::from_fn(|k| mu1[k] - mu0[k]))?;
-    let dot = |v: [f64; 4]| (0..4).map(|k| v[k] * wv[k]).sum::<f64>();
-    let thr = (dot(mu0) + dot(mu1)) / 2.0;
-    Some((0..w * h).map(|i| dot(f(i)) > thr).collect())
+
+    fn class_index(&self, name: &str) -> Option<usize> { self.classes.iter().position(|c| c == name) }
+
+    /// Most likely class of pixel `i` among `allowed` (class indices); None if none allowed.
+    fn predict(&self, i: usize, allowed: &[usize]) -> Option<usize> {
+        let x: [f64; 4] = std::array::from_fn(|d| self.feats[d][i]);
+        let score = |k: usize| {
+            let mu = self.means[k];
+            let s: [f64; 4] = std::array::from_fn(|r| (0..4).map(|c| self.inv_cov[r][c] * mu[c]).sum());
+            (0..4).map(|d| x[d] * s[d] - 0.5 * mu[d] * s[d]).sum::<f64>()
+        };
+        allowed.iter().copied().max_by(|&a, &b| score(a).total_cmp(&score(b)))
+    }
+}
+
+/// Two-stage art classifier: water vs land is one binary decision (sharper than a shared
+/// multi-class fit); land types are then separated by their own model.
+struct ArtClassifier { water: Option<ArtModel>, land: Option<ArtModel> }
+
+impl ArtClassifier {
+    fn train(rgb: &[[u8; 3]], w: usize, h: usize, ty: &HashMap<(i32, i32), String>, train_on: &dyn Fn(i32, i32) -> bool) -> Self {
+        let binary = ty.iter().map(|(k, t)| (*k, if t == "Water" { t.clone() } else { "Land".to_string() })).collect();
+        let lands = ty.iter().filter(|(_, t)| *t != "Water").map(|(k, t)| (*k, t.clone())).collect();
+        ArtClassifier { water: ArtModel::train(rgb, w, h, &binary, train_on), land: ArtModel::train(rgb, w, h, &lands, train_on) }
+    }
+
+    /// Label of pixel `i` among the `present` types; `mask` (FO2 walk mask) overrides water vs land.
+    fn label(&self, i: usize, present: &[&str], mask: Option<bool>) -> Option<String> {
+        let lands: Vec<&str> = present.iter().copied().filter(|t| *t != "Water").collect();
+        let has_water = present.contains(&"Water");
+        let water = match (mask, has_water, lands.is_empty()) {
+            (Some(v), ..) => v,
+            (None, true, true) => true,
+            (None, false, _) => false,
+            (None, true, false) => {
+                let m = self.water.as_ref()?;
+                let allowed = [m.class_index("Water")?, m.class_index("Land")?];
+                m.predict(i, &allowed) == Some(allowed[0])
+            }
+        };
+        if water { return Some("Water".to_string()); }
+        match lands.as_slice() {
+            [] => None,
+            [only] => Some(only.to_string()),
+            _ => {
+                let m = self.land.as_ref()?;
+                let allowed: Vec<usize> = lands.iter().filter_map(|t| m.class_index(t)).collect();
+                m.predict(i, &allowed).map(|c| m.classes[c].clone())
+            }
+        }
+    }
 }
 
 /// Solves the 4x4 system A x = b (Gaussian elimination, partial pivoting).
@@ -578,44 +647,47 @@ fn solve4(mut a: [[f64; 4]; 4], mut b: [f64; 4]) -> Option<[f64; 4]> {
     Some(x)
 }
 
-/// Splits each square into SUB_PX blocks. Coastal squares (Water, or touching Water) take Water or
-/// land per block from the art: FO2's walk mask where present, else the learned classifier.
-/// Inland squares keep their own type, so the art can never invent lakes.
+/// Saturated glowing red (the Glow crater's radiation veins); nothing else in FO1/FO2 art has it.
+fn is_radiation_glow(p: [u8; 3]) -> bool {
+    let (r, g, b) = (p[0] as f32, p[1] as f32, p[2] as f32);
+    r >= 50.0 && r > 2.5 * g && r > 2.5 * b
+}
+
+/// Splits each square into SUB_PX blocks:
+/// - Squares whose neighbourhood has one type keep it, so the art never invents terrain.
+/// - Boundary squares take, per block, the art classifier's majority vote among the types present
+///   in their 3x3 neighbourhood; FO2's walk mask decides water vs land where it exists.
+/// - Blocks within reach of the Glow's radiation glow become Radiation.
 fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]], mask: &[Option<bool>]) -> Vec<RawTile> {
     let (w, h) = (w_sq * SQUARE_PX, h_sq * SQUARE_PX);
-    let ty: HashMap<(i32, i32), &str> = squares.iter().map(|t| ((t.x, t.y), t.tile_type.as_str())).collect();
-    let is_water = |x: i32, y: i32| ty.get(&(x, y)).map(|t| *t == "Water");
-    let learned = classify_sea(rgb, w, h, &is_water);
-    let sea = |i: usize| mask[i].or_else(|| learned.as_ref().map(|l| l[i]));
+    let ty: HashMap<(i32, i32), String> = squares.iter().map(|t| ((t.x, t.y), t.tile_type.clone())).collect();
+    let art = ArtClassifier::train(rgb, w, h, &ty, &|_, _| true);
+    let glow: Vec<f64> = rgb.iter().map(|p| is_radiation_glow(*p) as u8 as f64).collect();
+    let near_glow = crate::raster::box_mean(&glow, w, h, 15);
 
     let k = SQUARE_PX / SUB_PX;
     let mut out = Vec::with_capacity(squares.len() * k * k);
     for sq in squares {
         let (sx, sy) = (sq.x, sq.y);
-        let neighbours = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (sx + dx, sy + dy)));
-        let coastal = neighbours.clone().any(|(x, y)| is_water(x, y) == Some(true));
-        // Land type for sea-square blocks the art shows as land: the most common land neighbour.
-        let land = {
-            let mut votes: HashMap<&str, usize> = HashMap::new();
-            for (x, y) in neighbours { if let Some(t) = ty.get(&(x, y)) { if *t != "Water" { *votes.entry(t).or_default() += 1; } } }
-            votes.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or("Sand", |(t, _)| t)
-        };
+        let mut present: Vec<&str> = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (sx + dx, sy + dy)))
+            .filter_map(|p| ty.get(&p).map(|s| s.as_str())).collect();
+        present.sort();
+        present.dedup();
         for by in 0..k { for bx in 0..k {
-            let tile_type = if coastal {
-                let (mut s, mut n) = (0usize, 0usize);
-                for y in 0..SUB_PX { for x in 0..SUB_PX {
-                    let i = (sy as usize * SQUARE_PX + by * SUB_PX + y) * w + sx as usize * SQUARE_PX + bx * SUB_PX + x;
-                    if let Some(v) = sea(i) { n += 1; s += v as usize; }
-                }}
-                match (n > 0, 2 * s > n) {
-                    (true, true) => "Water",
-                    (true, false) if sq.tile_type == "Water" => land,
-                    _ => sq.tile_type.as_str(),
+            let mut tile_type = sq.tile_type.clone();
+            let pixels = (0..SUB_PX).flat_map(|y| (0..SUB_PX).map(move |x| (sy as usize * SQUARE_PX + by * SUB_PX + y) * w + sx as usize * SQUARE_PX + bx * SUB_PX + x));
+            if present.len() > 1 {
+                let mut votes: HashMap<String, usize> = HashMap::new();
+                for i in pixels.clone() {
+                    if let Some(l) = art.label(i, &present, mask[i]) { *votes.entry(l).or_default() += 1; }
                 }
-            } else { sq.tile_type.as_str() };
+                if let Some((t, _)) = votes.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))) { tile_type = t; }
+            }
+            // Glow pixels must be dense nearby (>1% of a 31x31 window), so stray red specks don't count.
+            if pixels.clone().any(|i| near_glow[i] > 0.01) { tile_type = "Radiation".to_string(); }
             out.push(RawTile {
                 x: sx * k as i32 + bx as i32, y: sy * k as i32 + by as i32,
-                tile_type: tile_type.to_string(),
+                tile_type,
                 real_lat: None, real_lon: None, weight: sq.weight, anchor: None,
             });
         }}
@@ -628,32 +700,85 @@ fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]
 mod tests {
     use super::*;
 
-    /// The learned sea classifier must agree with FO2's exact walk masks on coastal pixels,
+    fn art(v: GameVariant) -> Option<(Vec<RawTile>, usize, usize, Vec<[u8; 3]>, Vec<Option<bool>>)> {
+        let ex = FalloutInterplayExtractor::new(v);
+        let dir = dat_extractor::find_steam_app(v.app_id(), v.name()).ok();
+        let wm = ex.load_text_file(&dir, "WORLDMAP.TXT").ok()?;
+        let (squares, ws, hs, _) = ex.parse_worldmap_txt(&wm).ok()?;
+        match ex.load_world_art(&dir, ws as usize, hs as usize) {
+            Ok((rgb, mask)) => Some((squares, ws as usize * SQUARE_PX, hs as usize * SQUARE_PX, rgb, mask)),
+            Err(e) => { eprintln!("skipping: {:?} art unavailable ({})", v, e); None }
+        }
+    }
+
+    /// The learned classifier's water must agree with FO2's exact walk masks on coastal pixels,
     /// since FO1 (which has no masks) relies on it alone.
     #[test]
     fn learned_sea_matches_fo2_masks() {
-        let ex = FalloutInterplayExtractor::new(GameVariant::Fallout2);
-        let dir = dat_extractor::find_steam_app(GameVariant::Fallout2.app_id(), "Fallout 2").ok();
-        let wm = ex.load_text_file(&dir, "WORLDMAP.TXT").unwrap();
-        let (squares, ws, hs, _) = ex.parse_worldmap_txt(&wm).unwrap();
-        let (rgb, mask) = match ex.load_world_art(&dir, ws as usize, hs as usize) {
-            Ok(a) => a,
-            Err(e) => { eprintln!("skipping: FO2 art unavailable ({})", e); return; }
-        };
-        let (w, h) = (ws as usize * SQUARE_PX, hs as usize * SQUARE_PX);
-        let ty: HashMap<(i32, i32), bool> = squares.iter().map(|t| ((t.x, t.y), t.tile_type == "Water")).collect();
-        let learned = classify_sea(&rgb, w, h, &|x, y| ty.get(&(x, y)).copied()).expect("classifier");
+        let Some((squares, w, h, rgb, mask)) = art(GameVariant::Fallout2) else { return };
+        let ty: HashMap<(i32, i32), String> = squares.iter().map(|t| ((t.x, t.y), t.tile_type.clone())).collect();
+        let binary = ty.iter().map(|(k, t)| (*k, if t == "Water" { t.clone() } else { "Land".into() })).collect();
+        let m = ArtModel::train(&rgb, w, h, &binary, &|_, _| true).expect("classifier");
+        let all: Vec<usize> = (0..m.classes.len()).collect();
+        let water = m.class_index("Water").unwrap();
         let (mut agree, mut total) = (0usize, 0usize);
         for y in 0..h { for x in 0..w {
             let (sx, sy) = ((x / SQUARE_PX) as i32, (y / SQUARE_PX) as i32);
-            let coastal = (-1..=1).any(|dy| (-1..=1).any(|dx| ty.get(&(sx + dx, sy + dy)) == Some(&true)));
-            if let (true, Some(m)) = (coastal, mask[y * w + x]) {
+            let coastal = (-1..=1).any(|dy| (-1..=1).any(|dx| ty.get(&(sx + dx, sy + dy)).map(|s| s.as_str()) == Some("Water")));
+            if let (true, Some(mk)) = (coastal, mask[y * w + x]) {
                 total += 1;
-                agree += (m == learned[y * w + x]) as usize;
+                agree += (mk == (m.predict(y * w + x, &all) == Some(water))) as usize;
             }
         }}
         let acc = agree as f64 / total as f64;
         println!("learned vs mask on {} coastal pixels: {:.3}", total, acc);
         assert!(acc > 0.9, "classifier accuracy {:.3}", acc);
+    }
+
+    /// Trained on half the squares (checkerboard), the classifier must recover the other half's
+    /// interior squares. Production only ever chooses among the types around a square, so this
+    /// measures the same decision: each held-out pixel against its own type and one other.
+    #[test]
+    fn classifier_recovers_held_out_square_types() {
+        for v in [GameVariant::Fallout1, GameVariant::Fallout2] {
+            let Some((squares, w, h, rgb, _)) = art(v) else { continue };
+            let ty: HashMap<(i32, i32), String> = squares.iter().map(|t| ((t.x, t.y), t.tile_type.clone())).collect();
+            let art = ArtClassifier::train(&rgb, w, h, &ty, &|x, y| (x + y) % 2 == 0);
+            let mut types: Vec<&str> = ty.values().map(|s| s.as_str()).collect();
+            types.sort();
+            types.dedup();
+            let mut per_type: HashMap<&str, (usize, usize)> = HashMap::new();
+            for (&(sx, sy), t) in &ty {
+                let interior = (-1..=1).all(|dy| (-1..=1).all(|dx| ty.get(&(sx + dx, sy + dy)).map_or(true, |v| v == t)));
+                if (sx + sy) % 2 == 0 || !interior { continue; }
+                for y in (0..SQUARE_PX).step_by(5) { for x in (0..SQUARE_PX).step_by(5) {
+                    let i = (sy as usize * SQUARE_PX + y) * w + sx as usize * SQUARE_PX + x;
+                    for other in types.iter().filter(|o| **o != t.as_str()) {
+                        let e = per_type.entry(t.as_str()).or_default();
+                        e.1 += 1;
+                        e.0 += (art.label(i, &[t.as_str(), other], None).as_deref() == Some(t.as_str())) as usize;
+                    }
+                }}
+            }
+            let (agree, total) = per_type.values().fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+            let acc = agree as f64 / total as f64;
+            println!("{:?}: held-out pairwise accuracy {:.3}; per type {:?}", v, acc,
+                per_type.iter().map(|(t, (a, n))| (*t, format!("{:.2}", *a as f64 / *n as f64))).collect::<Vec<_>>());
+            assert!(acc >= 0.85, "{:?} accuracy {:.3}", v, acc);
+        }
+    }
+
+    /// Radiation comes from the Glow crater's art: present in FO1, absent in FO2.
+    #[test]
+    fn radiation_only_at_the_glow() {
+        for (v, expect) in [(GameVariant::Fallout1, true), (GameVariant::Fallout2, false)] {
+            let Some((squares, w, h, rgb, mask)) = art(v) else { continue };
+            let tiles = refine_with_art(&squares, w / SQUARE_PX, h / SQUARE_PX, &rgb, &mask);
+            let rad: Vec<(i32, i32)> = tiles.iter().filter(|t| t.tile_type == "Radiation").map(|t| (t.x, t.y)).collect();
+            println!("{:?}: {} radiation blocks", v, rad.len());
+            assert_eq!(!rad.is_empty(), expect);
+            // FO1: all near the Glow (px 1223,1272 -> block 122,127).
+            assert!(rad.iter().all(|&(x, y)| (x - 122).abs() <= 12 && (y - 127).abs() <= 12), "{:?}", rad);
+        }
     }
 }

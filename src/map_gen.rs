@@ -24,8 +24,8 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
     let mut gid_map = HashMap::new();
     let mut next_id = 0;
 
-    let terrain_assets = vec!["grass.png", "water.png", "sand.png", "rock.png", "mountain.png", "city.png", "unknown.png"];
-    for filename in terrain_assets {
+    for (name, ..) in crate::tile_gen::TERRAINS {
+        let filename = &format!("{}.png", name.to_lowercase());
         if let Some(path) = resolve_asset_path(filename) {
              // 66x76 (Mathematical standard for Side 38)
              tiles.push(TileDef { id: next_id, image: path, imageheight: 76, imagewidth: 66 });
@@ -90,26 +90,20 @@ pub fn generate_tsj(output_dir: &Path) -> std::io::Result<HashMap<String, u32>> 
     Ok(gid_map)
 }
 
-struct TerrainGids {
-    grass: u32,
-    water: u32,
-    sand: u32,
-    rock: u32,
-    mountain: u32,
-    city: u32,
-    unknown: u32,
+/// Gid of a tile type's terrain tile (aliases resolved); unknown types use the "unknown" tile.
+fn terrain_gid(gid_map: &HashMap<String, u32>, tile_type: &str) -> u32 {
+    let key = |name: &str| format!("terrain_{}", name.to_lowercase());
+    gid_map.get(&key(crate::tile_gen::canonical_terrain(tile_type)))
+        .or_else(|| gid_map.get(&key("unknown")))
+        .copied().unwrap_or(1)
 }
 
-fn get_terrain_gids(gid_map: &HashMap<String, u32>) -> TerrainGids {
-    let water = *gid_map.get("terrain_water").unwrap_or(&1);
-    let grass = *gid_map.get("terrain_grass").unwrap_or(&1);
-    let sand  = *gid_map.get("terrain_sand").unwrap_or(&1);
-    let rock  = *gid_map.get("terrain_rock").unwrap_or(&grass);
-    let mountain = *gid_map.get("terrain_mountain").unwrap_or(&rock);
-    let city = *gid_map.get("terrain_city").unwrap_or(&rock);
-    let unknown = *gid_map.get("terrain_unknown").unwrap_or(&water);
-    
-    TerrainGids { grass, water, sand, rock, mountain, city, unknown }
+/// Top-left pixel of the hex cell at fractional grid position (x, y). Odd rows are shifted half a
+/// hex; the shift is interpolated by the fractional row so continuous positions move smoothly.
+fn hex_px(x: f32, y: f32) -> (f32, f32) {
+    let frac = y - y.floor();
+    let stagger = if (y.floor() as i32) % 2 == 0 { frac * 33.0 } else { 33.0 - frac * 33.0 };
+    (x * 66.0 + stagger, y * 57.0)
 }
 
 pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, gid_map: &HashMap<String, u32>, allowed_types: Option<&[&str]>, tileset_source: &str) -> std::io::Result<()> {
@@ -120,25 +114,12 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Map size too large: {}x{}", width, height)));
     }
     
-    let gids = get_terrain_gids(gid_map);
     let mut data = vec![0; (width * height) as usize]; 
 
     for tile in &map_data.tiles {
         let index = (tile.y as u32 * width + tile.x as u32) as usize;
         if index < data.len() {
-            let gid = match tile.tile_type.as_str() {
-                "Grass" => gids.grass,
-                "Water" => gids.water,
-                "Sand" | "SandyDesert" | "Desert"  => gids.sand,
-                "Rock" => gids.rock,
-                "Mountain" => gids.mountain,
-                "City" | "Urban" | "Rubble" => gids.city,
-                "unknown" => gids.unknown,
-                _ => {
-                    // warn!("Warning: Unknown tile type '{}'", tile.tile_type);
-                    gids.unknown
-                },
-            };
+            let gid = terrain_gid(gid_map, &tile.tile_type);
             data[index] = gid;
         }
     }
@@ -192,16 +173,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         // For smooth placement, we interpolate the 33px stagger based on Y.
         // Tiled's stagger is usually discrete, but for high-precision GPS markers,
         // we use the fractional Y to smoothly offset X.
-        let stagger_offset = if (adjusted_y.floor() as i32) % 2 == 0 {
-            // Even row -> moving towards odd row
-            (adjusted_y - adjusted_y.floor()) * 33.0
-        } else {
-            // Odd row -> moving towards even row
-            33.0 - (adjusted_y - adjusted_y.floor()) * 33.0
-        };
-
-        let icon_x = adjusted_x * 66.0 + stagger_offset;
-        let icon_y = adjusted_y * 57.0;
+        let (icon_x, icon_y) = hex_px(adjusted_x, adjusted_y);
 
         if let Some(gid) = icon_gid {
             // Center the icon on the hex
@@ -231,7 +203,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
                 // Let's try standardizing.
                 text: None,
                 point: Some(false),
-            });
+                });
             next_obj_id += 1;
         }
 
@@ -318,23 +290,13 @@ pub fn generate_raw_tmj(output_dir: &Path, filename: &str, raw_data: &RawMapData
         return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Raw map size too large: {}x{}", width, height)));
     }
     
-    let gids = get_terrain_gids(gid_map);
-
     // Initialize with Sand (or Unknown/Void if we prefer)
-    let mut data = vec![gids.sand; (width * height) as usize]; 
+    let mut data = vec![terrain_gid(gid_map, "Sand"); (width * height) as usize]; 
 
     // 1. Render Base Tiles (if present)
     if !raw_data.tiles.is_empty() {
         for tile in &raw_data.tiles {
-            let gid = match tile.tile_type.as_str() {
-                "Grass" => gids.grass,
-                "Water" => gids.water,
-                "Sand" => gids.sand,
-                "Rock" => gids.rock,
-                "Mountain" => gids.mountain,
-                "City" => gids.city,
-                _ => gids.unknown,
-            };
+            let gid = terrain_gid(gid_map, &tile.tile_type);
             
             // Render 1x1 Tile
             if tile.x >= 0 && tile.x < width as i32 && tile.y >= 0 && tile.y < height as i32 {

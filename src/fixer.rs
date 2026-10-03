@@ -775,7 +775,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 global_offset_x: 0, global_offset_y: 0,
                 warnings: warnings,
                 world_bounds: None,
-            };
+                    };
         }
 
         let buffer = 0.2;
@@ -794,7 +794,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             global_offset_x: 0, global_offset_y: 0,
             warnings: warnings,
             world_bounds: None,
-        };
+            };
     }
 
     // North-west and south-east corners on the shared grid.
@@ -888,7 +888,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         let mut visited_water: HashSet<(i32, i32)> = HashSet::new();
         // Identify all water tiles
         let water_keys: Vec<(i32, i32)> = map_grid.iter()
-            .filter(|(_, (_, t))| t == "Water" || t == "ocean")
+            .filter(|(_, (_, t))| t == "Water")
             .map(|(&k, _)| k)
             .collect();
 
@@ -915,7 +915,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                         let ny = cy + dy;
 
                         if let Some((n_idx, n_type)) = map_grid.get(&(nx, ny)) {
-                            if n_type == "Water" || n_type == "ocean" {
+                            if n_type == "Water" {
                                 if !visited_water.contains(&(nx, ny)) {
                                     visited_water.insert((nx, ny));
                                     queue.push((nx, ny));
@@ -955,7 +955,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
         let mut visited_land: HashSet<(i32, i32)> = HashSet::new();
         // Identify all LAND tiles (not Water/Ocean, and not "unknown", which is no data)
         let land_keys: Vec<(i32, i32)> = map_grid.iter()
-            .filter(|(_, (_, t))| t != "Water" && t != "ocean" && t != "unknown")
+            .filter(|(_, (_, t))| t != "Water" && t != "unknown")
             .map(|(&k, _)| k)
             .collect();
             
@@ -983,7 +983,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
                         if let Some((n_idx, n_type)) = map_grid.get(&(nx, ny)) {
                             if n_type == "unknown" { continue; }
-                            if n_type != "Water" && n_type != "ocean" {
+                            if n_type != "Water" {
                                 if !visited_land.contains(&(nx, ny)) {
                                     visited_land.insert((nx, ny));
                                     queue.push((nx, ny));
@@ -1086,7 +1086,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     }
 
     // Add small buffer, but CLAMP to actual grid boundaries (0..grid_width)
-    // to avoid creating new "ocean" (unknown) borders on top/left
+    // to avoid creating new "unknown" borders on top/left
     let buffer_tiles = 1;
     min_x_real = (min_x_real - buffer_tiles).max(0);
     min_y_real = (min_y_real - buffer_tiles).max(0);

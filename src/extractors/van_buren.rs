@@ -273,6 +273,17 @@ fn extract_world_map() -> io::Result<RawMapData> {
     })
 }
 
+/// Interstates are drawn dark maroon (about 48-72, 32-40, 32-40): red well above green, green ~ blue.
+fn is_road(p: [u8; 3]) -> bool {
+    let [r, g, b] = p.map(|v| v as i32);
+    r >= 40 && r * 100 > g * 135 && (g - b).abs() <= 12
+}
+fn is_teal(p: [u8; 3]) -> bool {
+    let [r, g, b] = p.map(|v| v as i32);
+    g > r + 20 && b > r + 10 && g < 200 && !is_ring_green(p)
+}
+
+
 /// Water from the teal lakes/rivers, Mountain where local relief is in the top
 /// (1 - MOUNTAIN_QUANTILE) of the map, Sand elsewhere. Drawn overlays (rings, labels, borders,
 /// roads, grid) are excluded from the relief measure.
@@ -286,8 +297,8 @@ fn classify_terrain(img: &RgbImage) -> Vec<RawTile> {
         let [r, g, b] = px(i);
         let green = g > 150 && r < 130 && b < 130;
         let yellow = r > 150 && g > 120 && b < 90 && (r - g).abs() < 70;
-        let road = r > g + 25 && r > 90 && r - b > 50;
-        if g > r + 20 && b > r + 10 && g < 200 && !green { teal[i] = 1.0; }
+        let road = is_road([r as u8, g as u8, b as u8]);
+        if is_teal([r as u8, g as u8, b as u8]) { teal[i] = 1.0; }
         if !(green || yellow || road) { keep[i] = 1.0; lum[i] = (r + g + b) as f64 / 3.0; }
     }
     // Overlay pixels take the mean of nearby kept pixels (normalised convolution), then relief = 9x9 std.
@@ -350,5 +361,7 @@ mod tests {
         assert_eq!(ys.len(), 2, "horizontal borders {:?}", ys);
         assert!(xs[0].abs_diff(260) <= 2 && xs[1].abs_diff(1230) <= 2, "{:?}", xs);
         assert!(ys[0].abs_diff(181) <= 2 && ys[1].abs_diff(1162) <= 2, "{:?}", ys);
+
     }
 }
+
