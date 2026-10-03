@@ -1,4 +1,4 @@
-use crate::schema::{RawMapData, FixedMapData, FixedTile, FixedLocation};
+use crate::schema::{RawMapData, FixedMapData, FixedTile, FixedLocation, priority_weight};
 use crate::rubbersheeting::{RubberSheet, ControlPoint};
 use crate::geocoding;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +31,12 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Modoc", "41.6727239,-120.899064"),
     ("New Reno", "39.5294665,-119.89379880000001"),
     ("Broken Hills", "39.5380233,-118.9489428"),
+    // Van Buren (real places on its world map; the rest are fictional and placed by the warp)
+    ("Denver", "39.7392,-104.9903"),
+    ("Boulder", "40.0150,-105.2705"),
+    ("Hoover Dam", "36.0160,-114.7377"),
+    ("Grand Canyon", "36.0544,-112.1401"), // Grand Canyon Village, South Rim
+    ("Mesa Verde", "37.1838,-108.4887"),   // Mesa Verde NP, Chapin Mesa
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -246,7 +252,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             // Apply offset to all tiles
             for tile in &cluster.tiles {
                 if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                    all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon));
+                    all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon, priority_weight(cluster.priority)));
                 }
             }
         }
@@ -264,7 +270,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon));
+                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon, priority_weight(manual.priority)));
             }
         }
     }
@@ -279,7 +285,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             let (lat, lon) = transform(tile.x as f32, tile.y as f32);
-            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon));
+            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon, priority_weight(manual.priority)));
         }
     }
 
@@ -297,14 +303,14 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
 
     // Downsample: each output cell takes the majority type of the finer cells landing in it
     // (ties broken by name, so the result does not depend on input order).
-    let mut votes: HashMap<(i32, i32), HashMap<String, u32>> = HashMap::new();
-    for (t_type, lat, lon) in all_fixed_tiles {
+    let mut votes: HashMap<(i32, i32), HashMap<String, f32>> = HashMap::new();
+    for (t_type, lat, lon, w) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
-        *votes.entry((gx.round() as i32, gy.round() as i32)).or_default().entry(t_type).or_insert(0) += 1;
+        *votes.entry((gx.round() as i32, gy.round() as i32)).or_default().entry(t_type).or_insert(0.0) += w;
     }
     let grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
-        let best = v.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
+        let best = v.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
         (k, best)
     }).collect();
 
@@ -357,6 +363,8 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
     
     // We'll use a high-resolution intermediate fix (1.0 miles/hex)
     let resolution = 1.0;
+    // A merged cluster keeps the best (lowest) priority tier among its sources.
+    let priority = raw_maps.iter().map(|m| m.priority.max(1)).min().unwrap_or(1);
     let fixed = fix_with_terrain_inverse_warping(raw_maps, resolution, None);
     
 
@@ -403,6 +411,8 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
         terrain_data: None,
         world_bounds: fixed.world_bounds,
         miles_per_unit: None,
+        priority,
+        control_points: Vec::new(),
     }
 }
 
@@ -539,7 +549,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     
                     manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                         lat, lon, tile_type: tile.tile_type.clone(),
-                        weight: 2.0,
+                        weight: 2.0 * priority_weight(map.priority),
                     });
                     manual_projected_lats.push(lat);
                     manual_projected_lons.push(lon);
@@ -559,7 +569,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
     // Build independent RubberSheets and tile maps for Interplay games (coordinate_scale > 1.0)
     // Per marker name: (display name, icon, terrain override, [(game, lat, lon)]) in first-seen order.
-    let mut game_placements: HashMap<String, (String, crate::schema::IconType, Option<String>, Vec<(usize, f32, f32)>)> = HashMap::new();
+    let mut game_placements: HashMap<String, (String, crate::schema::IconType, Option<String>, Vec<(usize, f32, f32, f32)>)> = HashMap::new();
     let mut placement_order: Vec<String> = Vec::new();
     let mut game_sheets: Vec<Option<(RubberSheet, f32)>> = Vec::new();
     let mut game_tile_maps: Vec<HashMap<(i32, i32), (String, f32)>> = Vec::new();
@@ -591,6 +601,10 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             }
         }
 
+        // Extractor-derived anchors (e.g. drawn state borders).
+        control_points.extend(map.control_points.iter().map(|c| ControlPoint {
+            name: c.name.clone(), game_x: c.x, game_y: c.y, real_lat: c.lat, real_lon: c.lon,
+        }));
         // Deterministic order (HashMap iteration is not) and no duplicate game positions.
         control_points.sort_by(|a, b| a.name.cmp(&b.name));
         control_points.dedup_by(|a, b| a.game_x == b.game_x && a.game_y == b.game_y);
@@ -614,7 +628,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     placement_order.push(loc.name.to_lowercase());
                     (loc.name.clone(), loc.icon_type, loc.terrain_override.clone(), Vec::new())
                 });
-                entry.3.push((game_idx, lat, lon));
+                entry.3.push((game_idx, lat, lon, priority_weight(map.priority)));
             }
             Some((sheet, map.coordinate_scale))
         } else {
@@ -637,19 +651,20 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 "Misc" => "Misc",
                 _ => &tile.tile_type,
             };
-            tile_map.insert((tile.x, tile.y), (interned_type.to_string(), tile.weight));
+            tile_map.insert((tile.x, tile.y), (interned_type.to_string(), tile.weight * priority_weight(map.priority)));
         }
         game_tile_maps.push(tile_map);
     }
 
-    // Merge rule: a place found in several games (or twice in one) gets the mean position;
+    // Merge rule: a place found in several games (or twice in one) gets the priority-weighted mean position;
     // disagreement beyond 1 mi is reported, never silently dropped.
     for key in &placement_order {
         if seen_locations.contains(key) { continue; } // manual absolute data takes precedence
         seen_locations.insert(key.clone());
         let (name, icon, terrain, ps) = &game_placements[key];
-        let lat = ps.iter().map(|p| p.1).sum::<f32>() / ps.len() as f32;
-        let lon = ps.iter().map(|p| p.2).sum::<f32>() / ps.len() as f32;
+        let wsum = ps.iter().map(|p| p.3).sum::<f32>();
+        let lat = ps.iter().map(|p| p.1 * p.3).sum::<f32>() / wsum;
+        let lon = ps.iter().map(|p| p.2 * p.3).sum::<f32>() / wsum;
         let spread = ps.iter().map(|p| {
             let dy = (p.1 - lat) * MILES_PER_DEGREE_LAT;
             let dx = (p.2 - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos();
@@ -692,7 +707,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                 
                 manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                     lat, lon, tile_type: tile.tile_type.clone(),
-                    weight: 2.0,
+                    weight: 2.0 * priority_weight(map.priority),
                 });
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
@@ -709,7 +724,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     lat: *lat, 
                     lon: *lon, 
                     tile_type: terrain.clone(),
-                    weight: 3.0, // High weight for specific location terrain overrides
+                    weight: 3.0 * priority_weight(1), // location terrain overrides come from tier-1 manual data
                 });
         }
     }
@@ -1397,5 +1412,23 @@ mod invariant_tests {
             }}
             assert_eq!(fails, 0, "{:?}: {} points do not invert", v, fails);
         }
+    }
+
+    /// Votes are weighted by source priority: where a tier-1 and a tier-3 source disagree on a
+    /// cell, the tier-1 type wins even when outnumbered (weights 16 vs 2 x 4).
+    #[test]
+    fn higher_priority_source_wins_the_vote() {
+        let src = |priority: u8, tiles: Vec<(&str, f32)>| RawMapData {
+            locations: vec![crate::schema::RawLocation { name: format!("anchor{}", priority), x: 0.0, y: 0.0,
+                icon_type: crate::schema::IconType::Other, real_lat: Some(37.0), real_lon: Some(-118.0),
+                terrain_override: None, anchor: None }],
+            tiles: tiles.into_iter().map(|(t, dlon)| crate::schema::RawTile { x: 0, y: 0, tile_type: t.into(),
+                real_lat: Some(37.0), real_lon: Some(-118.0 + dlon), weight: 1.0, anchor: None }).collect(),
+            coordinate_scale: 1.0, priority, ..Default::default()
+        };
+        let fixed = fix_translation_only(
+            vec![src(1, vec![("Sand", 0.0)]), src(3, vec![("Water", 0.0), ("Water", 0.001)])], vec![], 6.0, None);
+        let land: Vec<&str> = fixed.tiles.iter().map(|t| t.tile_type.as_str()).filter(|t| *t != "unknown").collect();
+        assert_eq!(land, vec!["Sand"]);
     }
 }

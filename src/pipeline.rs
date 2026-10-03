@@ -164,7 +164,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     clusters.sort_by(|a, b| cluster_names[&a.0].cmp(&cluster_names[&b.0]));
     for (root_id, maps) in &clusters {
         for (data, _, id) in maps {
-            let is_manual = id != "fallout1" && id != "fallout2" && id != "fallout_bos";
+            let is_manual = data.coordinate_scale <= 1.01; // the fixer's own definition of game data
             if is_manual && !data.has_grid { continue; }
             let prefix = if is_manual { "raw_manual" } else { "raw_extracted" };
             let tmj = raw_dir.join(format!("{}_{}.tmj", prefix, id));
@@ -192,7 +192,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             let gid_map = map_gen::generate_tsj(output_dir).expect("Failed to generate TSJ");
             for (data, _, id) in maps {
                 // RULE: Only non-manual OR manual with explicit grid
-                let is_manual = id != "fallout1" && id != "fallout2" && id != "fallout_bos";
+                let is_manual = data.coordinate_scale <= 1.01; // the fixer's own definition of game data
                 if is_manual && !data.has_grid { continue; }
                 
                 let prefix = if is_manual { "raw_manual" } else { "raw_extracted" };
@@ -282,7 +282,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
         // 2. Generate map with FILTERED markers (Cities, Vaults, Monuments)
         // Note: Filters are case-insensitive
-        let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Ruins", "Landmark"]; 
+        let allowed_types = vec!["City", "Vault", "Monument", "Settlement", "Landmark"]; 
         map_gen::generate_tmj(output_dir, "map.tmj", &final_fixed_data, &gid_map, Some(&allowed_types), "generic.tsj").unwrap();
     });
 
@@ -296,7 +296,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     let city_targets: Vec<&crate::schema::FixedLocation> = final_fixed_data.locations.iter()
         .filter(|loc| {
             let t = loc.icon_type.to_string();
-            matches!(t, "City" | "Vault" | "Monument" | "Settlement" | "Ruins" | "Landmark")
+            matches!(t, "City" | "Vault" | "Monument" | "Settlement" | "Landmark")
         })
         .collect();
 

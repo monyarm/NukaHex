@@ -20,6 +20,11 @@ pub enum BethesdaGameVariant {
 }
 
 impl BethesdaGameVariant {
+    /// Source priority tier: FO3/NV/4 are tier 1; FO76 is tier 2 (early in the timeline).
+    fn priority(&self) -> u8 {
+        match self { BethesdaGameVariant::Fallout76 => 2, _ => 1 }
+    }
+
     fn app_id(&self) -> u32 {
         match self {
             BethesdaGameVariant::Fallout3 => 22370,
@@ -179,6 +184,7 @@ impl Extractor for BethesdaExtractor {
                     rows: None,
                     has_grid: false,
                     coordinate_scale: 256.0,
+                    priority: self.variant.priority(),
                     reference_lon: None,
                     warnings: vec![format!("Extraction failed: {}", e)],
                     terrain_data: None,
@@ -799,6 +805,7 @@ impl BethesdaExtractor {
             has_grid: true,
             coordinate_scale: 512.0, 
             warnings,
+            priority: self.variant.priority(),
             ..Default::default()
         };
         Ok(data)

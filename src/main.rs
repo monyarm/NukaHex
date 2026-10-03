@@ -12,6 +12,7 @@ mod caching;
 mod clustering; // Added clustering module
 mod utils;
 mod frm;
+mod raster;
 mod render;
 
 use std::path::Path;
@@ -58,6 +59,7 @@ fn main() -> std::io::Result<()> {
     let mut game_extractors: Vec<Box<dyn Extractor>> = vec![
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
+        Box::new(crate::extractors::van_buren::VanBurenExtractor),
     ];
 
     // To prevent long runs parsing huge 4/76 grids on every test, we usually control via CLI args.

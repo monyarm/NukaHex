@@ -14,9 +14,9 @@ pub fn generate_tiles(output_dir: &Path) -> std::io::Result<()> {
         ("grass.png", Rgba([34, 139, 34, 255]), Rgba([20, 80, 20, 255])),
         ("water.png", Rgba([30, 144, 255, 255]), Rgba([10, 80, 180, 255])),
         ("sand.png", Rgba([238, 214, 175, 255]), Rgba([180, 160, 120, 255])),
-        ("rock.png", Rgba([128, 128, 128, 255]), Rgba([80, 80, 80, 255])),
+        ("rock.png", Rgba([112, 128, 144, 255]), Rgba([70, 80, 90, 255])),    // Slate: bare rock
         ("mountain.png", Rgba([139, 115, 85, 255]), Rgba([100, 80, 60, 255])),  // Brown
-        ("city.png", Rgba([128, 128, 128, 255]), Rgba([90, 90, 90, 255])),     // Grey
+        ("city.png", Rgba([128, 128, 128, 255]), Rgba([90, 90, 90, 255])),     // Grey: "City" = rubble (ruined urban area)
         ("unknown.png", Rgba([128, 0, 128, 255]), Rgba([80, 0, 80, 255])),     // Purple
     ];
 

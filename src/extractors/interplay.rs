@@ -146,6 +146,7 @@ impl FalloutInterplayExtractor {
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
             coordinate_scale: scale, // pixels per tile; derived Default would give 0.0
+            priority: 1,
             world_bounds: None,
             warnings,
             ..Default::default()
@@ -320,20 +321,26 @@ impl FalloutInterplayExtractor {
         canonical.to_string()
     }
 
+    /// Category of every world-map location. Major sites (towns, vaults, landmarks) appear on
+    /// the main map; minor or random-encounter locations are `Other` (shown on the full map only).
     fn resolve_marker_type(name: &str) -> IconType {
         match name {
-            // Fallout 1
             "Vault 13" | "Vault 15" => IconType::Vault,
-            "Shady Sands" | "Junktown" | "The Hub" | "Necropolis" | "The Boneyard" => IconType::City,
-            "The Glow" | "Mariposa Military Base" | "The Cathedral" => IconType::Monument, // Or Ruins/Landmark? Using Monument for now.
-            // Fallout 2
-            "Vault City" | "San Francisco" | "New Reno" | "Redding" | "Broken Hills" | "Klamath" | "Modoc" | "Navarro" | "Gecko" | "Arroyo" | "The Den" => IconType::City,
-            "Poseidon Energy Oil Rig" => IconType::Monument,
-            // Fallback
-            _ => IconType::from_name(name),
+            // Towns
+            "Shady Sands" | "Junktown" | "The Hub" | "Necropolis" | "The Boneyard"
+            | "Arroyo" | "The Den" | "Klamath" | "Modoc" | "Gecko" | "Broken Hills" | "New Reno"
+            | "Redding" | "San Francisco" | "Vault City" => IconType::City,
+            "Primitive Tribe" => IconType::Settlement,
+            // Bases, facilities and other major sites
+            "Lost Hill Bunker" | "Mariposa Military Base" | "The Glow" | "The Cathedral" | "Navarro"
+            | "Sierra Army Base" | "Poseidon Energy Oil Rig" | "Abbey"
+            | "Environmental Protection Agency San Francisco Facility" => IconType::Landmark,
+            // Everything else: minor locations, side areas and map variants (e.g. Hub Deathclaw Cave,
+            // Ghost Farm, Golgotha, Reno Stables, Fake Vault 13a/b).
+            _ => IconType::Other,
         }
     }
-    
+
     fn parse_city_txt(&self, content: &str) -> io::Result<Vec<RawLocation>> {
         let mut locations = Vec::new();
         let mut current_name: Option<String> = None;
@@ -506,21 +513,6 @@ impl FalloutInterplayExtractor {
     }
 }
 
-/// Box mean of `v` (w x h) over a (2r+1)^2 window, clamped at the edges, via an integral image.
-fn box_mean(v: &[f64], w: usize, h: usize, r: usize) -> Vec<f64> {
-    let mut sat = vec![0.0; (w + 1) * (h + 1)];
-    for y in 0..h { for x in 0..w {
-        sat[(y + 1) * (w + 1) + x + 1] = v[y * w + x] + sat[y * (w + 1) + x + 1] + sat[(y + 1) * (w + 1) + x] - sat[y * (w + 1) + x];
-    }}
-    let mut out = vec![0.0; w * h];
-    for y in 0..h { for x in 0..w {
-        let (x0, y0, x1, y1) = (x.saturating_sub(r), y.saturating_sub(r), (x + r + 1).min(w), (y + r + 1).min(h));
-        let s = sat[y1 * (w + 1) + x1] - sat[y0 * (w + 1) + x1] - sat[y1 * (w + 1) + x0] + sat[y0 * (w + 1) + x0];
-        out[y * w + x] = s / ((x1 - x0) * (y1 - y0)) as f64;
-    }}
-    out
-}
-
 /// Per-pixel sea/land from the art. The classifier is trained on the game's own interior squares
 /// (a square whose 8 neighbours share its type), so each game's art style teaches itself: features are
 /// the 9x9 mean colour and brightness texture; the decision is a linear discriminant (LDA).
@@ -530,9 +522,9 @@ fn classify_sea(rgb: &[[u8; 3]], w: usize, h: usize, is_water: &dyn Fn(i32, i32)
     let chan = |c: usize| rgb.iter().map(|p| p[c] as f64).collect::<Vec<_>>();
     let lum: Vec<f64> = rgb.iter().map(|p| (p[0] as f64 + p[1] as f64 + p[2] as f64) / 3.0).collect();
     let lum2: Vec<f64> = lum.iter().map(|l| l * l).collect();
-    let (m_lum, m_lum2) = (box_mean(&lum, w, h, R), box_mean(&lum2, w, h, R));
+    let (m_lum, m_lum2) = (crate::raster::box_mean(&lum, w, h, R), crate::raster::box_mean(&lum2, w, h, R));
     let feats: [Vec<f64>; 4] = [
-        box_mean(&chan(0), w, h, R), box_mean(&chan(1), w, h, R), box_mean(&chan(2), w, h, R),
+        crate::raster::box_mean(&chan(0), w, h, R), crate::raster::box_mean(&chan(1), w, h, R), crate::raster::box_mean(&chan(2), w, h, R),
         m_lum.iter().zip(&m_lum2).map(|(m, m2)| (m2 - m * m).max(0.0).sqrt()).collect(),
     ];
     let f = |i: usize| [feats[0][i], feats[1][i], feats[2][i], feats[3][i]];

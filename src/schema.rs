@@ -18,7 +18,8 @@ pub enum IconType {
     Radio,
     Monument,
     Settlement,
-    Other,
+    Landmark, // major non-settlement site: base, facility, natural/man-made landmark
+    Other,    // minor or random-encounter location
     Misc,
 }
 
@@ -26,7 +27,9 @@ impl IconType {
     pub fn from_name(name: &str) -> Self {
         let name_lower = name.to_lowercase();
         
-        if name_lower.contains("vault") {
+        if name_lower == "landmark" {
+            IconType::Landmark
+        } else if name_lower.contains("vault") {
             IconType::Vault
         } else if name_lower.contains("store") || name_lower.contains("shop") || name_lower.contains("market") {
             IconType::Store
@@ -60,6 +63,7 @@ impl IconType {
             IconType::Radio => "Radio", 
             IconType::Monument => "Monument",
             IconType::Settlement => "Settlement",
+            IconType::Landmark => "Landmark",
             IconType::Other => "Other",
             IconType::Misc => "Misc",
         }
@@ -105,6 +109,26 @@ pub struct RawMapData {
     pub world_bounds: Option<MapBounds>, // Official worldspace extents
     #[serde(default)]
     pub miles_per_unit: Option<f32>, // Relative maps: real miles per grid unit, if known
+    /// Source priority tier (1 = canon games and manual locations ... 5 = mods); sets vote weight.
+    #[serde(default)]
+    pub priority: u8,
+    /// Extractor-derived anchors (e.g. drawn state borders), in game coordinates.
+    #[serde(default)]
+    pub control_points: Vec<RawControlPoint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawControlPoint {
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    pub lat: f32,
+    pub lon: f32,
+}
+
+/// Vote weight of a source priority tier: 16/8/4/2/1 for tiers 1..5 (0, the default, counts as 1).
+pub fn priority_weight(priority: u8) -> f32 {
+    (1u32 << (5 - priority.clamp(1, 5))) as f32
 }
 
 fn default_coordinate_scale() -> f32 {
