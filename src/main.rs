@@ -65,13 +65,9 @@ fn main() -> std::io::Result<()> {
         Box::new(crate::extractors::tactics::TacticsExtractor),
     ];
 
-    // To prevent long runs parsing huge 4/76 grids on every test, we usually control via CLI args.
-    // For now we will add Fallout 4 to the default pipeline to test it since that's what we built!
-    // `--no-fo4` skips the experimental Fallout 4 extractor.
+    // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).
     use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
-    if !std::env::args().any(|a| a == "--no-fo4") {
-        game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, vec!["Fallout4.esm".to_string()], "Commonwealth")));
-    }
+    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
 
     // Recursively find all JSON files in input/manual
     fn find_manual_files(dir: &Path, files: &mut Vec<String>) -> std::io::Result<()> {

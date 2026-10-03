@@ -12,11 +12,12 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 |--------|--------|-------------------|-------|
 | Fallout 1 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
-| Fallout 3 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
-| Fallout: New Vegas | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
-| Fallout 4 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
-| Fallout 76 | 🔧 Planned | Can detect Steam install | Extraction not yet implemented |
-| Fallout Tactics | 🔧 Planned | - | Detection/extraction not yet implemented |
+| Fallout 3 | 🔧 Planned | Mutagen (C# helper) | Same path as New Vegas; not yet wired |
+| Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave (WastelandNV), all DLC loaded; DLC worldspaces later |
+| Fallout 4 | 🔧 Planned | Mutagen (C# helper) | To be redone on the Mutagen path |
+| Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |
+| Fallout Tactics | ✅ Supported | Automatic (Steam) | World map and towns |
+| Van Buren (tech demo) | ✅ Supported | Automatic | World map art and markers |
 | Fallout TV Series (2024) | ✅ Supported | Manual JSON definitions | Locations manually defined |
 | Fallout: Wasteland Warfare (Board Game) | ✅ Supported | Manual JSON definitions | Locations manually defined |
 
@@ -35,6 +36,7 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 ### Prerequisites
 
 - Rust (edition 2024)
+- .NET 9 SDK, for the Mutagen helper in `tools/mutagen_dump` (`build.rs` uses `$DOTNET_ROOT/dotnet` if set)
 - Fallout game installations (automatically detected via Steam)
 
 ### Building

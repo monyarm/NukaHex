@@ -10,6 +10,8 @@ const CACHE_FILE: &str = ".cache/geocode_cache.json";
 
 lazy_static::lazy_static! {
     static ref GEOCODE_CACHE: Mutex<HashMap<String, (f32, f32)>> = Mutex::new(load_cache());
+    /// Time of the last Nominatim request: its usage policy allows at most one request per second.
+    static ref LAST_REQUEST: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 }
 
 fn load_cache() -> HashMap<String, (f32, f32)> {
@@ -51,6 +53,15 @@ pub fn geocode(query: &str) -> Result<(f32, f32), String> {
         }
     }
     
+    // Held across the request so concurrent callers queue up one second apart.
+    let mut last = LAST_REQUEST.lock().unwrap();
+    if let Some(&coords) = GEOCODE_CACHE.lock().unwrap().get(query) {
+        return Ok(coords); // resolved by another caller while this one waited
+    }
+    if let Some(t) = *last {
+        std::thread::sleep(std::time::Duration::from_millis(1100).saturating_sub(t.elapsed()));
+    }
+    *last = Some(std::time::Instant::now());
     info!("Geocoding '{}' via Nominatim API...", query);
     
     // Call Nominatim API

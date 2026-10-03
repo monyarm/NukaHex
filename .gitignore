@@ -3,7 +3,6 @@
 *.log
 .cache
 /input/games
-fo76utils_clone
 
 # Rust
 **/*.rs.bk
@@ -19,3 +18,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+# .NET (tools/mutagen_dump)
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/

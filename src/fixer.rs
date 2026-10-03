@@ -32,30 +32,56 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("New Reno", "39.5294665,-119.89379880000001"),
     ("Broken Hills", "39.5380233,-118.9489428"),
     // Van Buren (real places on its world map; the rest are fictional and placed by the warp)
-    ("Denver", "39.7392,-104.9903"),
-    ("Boulder", "40.0150,-105.2705"),
-    ("Hoover Dam", "36.0160,-114.7377"),
-    ("Grand Canyon", "36.0544,-112.1401"), // Grand Canyon Village, South Rim
-    ("Mesa Verde", "37.1838,-108.4887"),   // Mesa Verde NP, Chapin Mesa
+    ("Denver", "Denver, Colorado"),
+    ("Boulder", "Boulder, Colorado"),
+    ("Hoover Dam", "Hoover Dam"),
+    ("Grand Canyon", "Grand Canyon Village, Arizona"), // South Rim
+    ("Mesa Verde", "Spruce Tree House, Colorado"), // Chapin Mesa, Mesa Verde NP
     // Fallout Tactics (keys are the game's spellings; values the real towns). Not anchored:
     // Newton and Canyon City, whose in-game positions are 170-210 mi from their namesakes
     // (Canyon City sits in western Kansas); the warp places them.
-    ("Freeport", "42.2967,-89.6212"),
-    ("Rock Falls", "41.7795,-89.6887"),
-    ("Macomb", "40.4592,-90.6718"),
-    ("Preoria", "40.6936,-89.5890"),          // Peoria, IL
-    ("Quincy", "39.9356,-91.4099"),
-    ("Springfield", "39.7817,-89.6501"),
-    ("St.Louis", "38.6270,-90.1994"),
-    ("Jefferson", "38.5767,-92.1735"),        // Jefferson City, MO
-    ("Kansas City", "39.0997,-94.5786"),
-    ("Osceolla", "38.0467,-93.7044"),         // Osceola, MO
-    ("Junction City", "39.0286,-96.8314"),
-    ("Great Bend", "38.3645,-98.7648"),
-    ("Coldwater", "37.2689,-99.3268"),
-    ("Scott City", "38.4825,-100.9071"),
-    ("Beuna Vista", "38.8422,-106.1311"),     // Buena Vista, CO
-    ("Cheyenne Mountain", "38.7445,-104.8463"),
+    ("Freeport", "Freeport, Illinois"),
+    ("Rock Falls", "Rock Falls, Illinois"),
+    ("Macomb", "Macomb, Illinois"),
+    ("Preoria", "Peoria, Illinois"),
+    ("Quincy", "Quincy, Illinois"),
+    ("Springfield", "Springfield, Illinois"),
+    ("St.Louis", "St. Louis, Missouri"),
+    ("Jefferson", "Jefferson City, Missouri"),
+    ("Kansas City", "Kansas City, Missouri"),
+    ("Osceolla", "Osceola, Missouri"),
+    ("Junction City", "Junction City, Kansas"),
+    ("Great Bend", "Great Bend, Kansas"),
+    ("Coldwater", "Coldwater, Kansas"),
+    ("Scott City", "Scott City, Kansas"),
+    ("Beuna Vista", "Buena Vista, Colorado"),
+    ("Cheyenne Mountain", "Cheyenne Mountain Complex"),
+    // Fallout: New Vegas (keys are the game's marker names; values the real places they depict).
+    // Not anchored: fictional sites (Novac, Freeside, HELIOS One...) and sites whose real counterpart is
+    // ambiguous (Jacobstown, Hidden Valley) or too close to another anchor (Techatticup Mine/Nelson).
+    ("New Vegas", "Las Vegas Strip"),
+    ("Goodsprings", "Goodsprings, Nevada"),
+    ("Primm", "Primm, Nevada"),
+    ("Nipton", "Nipton, California"),
+    ("Jean Sky Diving", "Jean, Nevada"),
+    ("Sloan", "Sloan, Nevada"),
+    ("Ivanpah Dry Lake", "Ivanpah Lake, California"),
+    ("Camp Searchlight", "Searchlight, Nevada"),
+    ("Searchlight Airport", "Searchlight Airport, Nevada"),
+    ("Cottonwood Cove", "Cottonwood Cove, Nevada"),
+    ("Nelson", "Nelson, Nevada"),
+    ("El Dorado Dry Lake", "Eldorado Dry Lake, Nevada"),
+    ("Boulder City", "Boulder City, Nevada"),
+    ("Black Mountain", "Black Mountain, Clark County, Nevada"),
+    ("Boulder Beach Campground", "Boulder Beach, Lake Mead"),
+    ("The Fort", "Fortification Hill, Arizona"),
+    ("Lake Las Vegas", "Lake Las Vegas, Nevada"),
+    ("Callville Bay", "Callville Bay, Nevada"),
+    ("Camp McCarran", "Harry Reid International Airport"),
+    ("Nellis Air Force Base", "Nellis Air Force Base"),
+    ("Red Rock Canyon", "Red Rock Canyon Visitor Center, Nevada"),
+    ("Bonnie Springs", "Bonnie Springs, Nevada"),
+    ("Spring Mt. Ranch State Park", "Spring Mountain Ranch State Park"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -117,10 +143,18 @@ pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
     (lat as f32, lon as f32)
 }
 
-/// Region of a tile for border drawing: only real land tiles get one, so borders never run
-/// through water or past the mapped area.
+/// Vote multiplier of a terrain type when a hex picks its winner. Radiation is a hazard worth showing:
+/// at 4 to 1 it takes a hex once it covers about a fifth of it, so a zone such as Camp Searchlight
+/// survives on the overview scales.
+fn salience(tile_type: &str) -> f32 {
+    if tile_type == "Radiation" { 4.0 } else { 1.0 }
+}
+
+/// Region of a tile for border drawing: every tile with data inside a real-world region. Lakes and
+/// rivers lie inside the regions, so borders cross them (the Colorado is the Nevada-Arizona line);
+/// the sea lies outside every region, so borders stop at the coast; no-data tiles get none.
 fn tile_region(tile_type: &str, lat: f32, lon: f32) -> Option<u16> {
-    if tile_type == "unknown" || tile_type == "Water" { return None; }
+    if tile_type == "unknown" { return None; }
     crate::borders::region_at(lat, lon)
 }
 
@@ -300,7 +334,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                     warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name));
                     continue;
                 };
-                all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type));
+                all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type, priority_weight(cluster.priority), false));
             }
 
             // Apply offset to all tiles
@@ -320,7 +354,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                 warnings.push(format!("Manual marker '{}' has no lat/lon; not placed", loc.name));
                 continue;
             };
-            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type));
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), true));
         }
         for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
@@ -330,12 +364,12 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     }
     for manual in manual_maps.iter().filter(|m| m.coordinate_system == crate::schema::CoordinateSystem::Relative) {
         let placed: HashMap<String, (f32, f32)> = all_fixed_locations.iter()
-            .map(|(n, lat, lon, _)| (n.to_lowercase(), (*lat, *lon))).collect();
+            .map(|(n, lat, lon, ..)| (n.to_lowercase(), (*lat, *lon))).collect();
         let Some(transform) = relative_placement(manual, &placed, &mut warnings) else { continue };
         for loc in &manual.locations {
             if placed.contains_key(&loc.name.to_lowercase()) { continue; } // anchors are already placed
             let (lat, lon) = transform(loc.x, loc.y);
-            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type));
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), false));
         }
         for tile in &manual.tiles {
             let (lat, lon) = transform(tile.x as f32, tile.y as f32);
@@ -343,10 +377,37 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
     }
 
+    // Merge rule (as within a cluster): a place found in several sources is one marker. A manual
+    // absolute position wins; otherwise the priority-weighted mean, with disagreement over 1 mi reported.
+    let mut merged: Vec<(String, f32, f32, crate::schema::IconType)> = Vec::new();
+    let mut by_name: HashMap<String, Vec<(f32, f32, crate::schema::IconType, f32, bool)>> = HashMap::new();
+    for (name, lat, lon, icon, w, manual) in all_fixed_locations {
+        let key = name.to_lowercase();
+        if !by_name.contains_key(&key) { merged.push((name, 0.0, 0.0, icon)); }
+        by_name.entry(key).or_default().push((lat, lon, icon, w, manual));
+    }
+    for m in &mut merged {
+        let all = &by_name[&m.0.to_lowercase()];
+        let ps: Vec<_> = if all.iter().any(|p| p.4) { all.iter().filter(|p| p.4).collect() } else { all.iter().collect() };
+        let wsum: f32 = ps.iter().map(|p| p.3).sum();
+        let (lat, lon) = (ps.iter().map(|p| p.0 * p.3).sum::<f32>() / wsum, ps.iter().map(|p| p.1 * p.3).sum::<f32>() / wsum);
+        let spread = all.iter().map(|p| {
+            let (dy, dx) = ((p.0 - lat) * MILES_PER_DEGREE_LAT, (p.1 - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos());
+            dx.hypot(dy)
+        }).fold(0.0, f32::max);
+        if spread > 1.0 {
+            let msg = format!("Sources disagree on '{}' by up to {:.1} mi from the merged position", m.0, spread);
+            warn!("{}", msg);
+            warnings.push(msg);
+        }
+        let top = ps.iter().max_by(|a, b| a.3.total_cmp(&b.3)).unwrap();
+        *m = (m.0.clone(), lat, lon, top.2);
+    }
+
     // Now convert these absolute (Lat, Lon) points into the final grid
     let mut grid_locations = Vec::new();
 
-    for (name, lat, lon, icon) in all_fixed_locations {
+    for (name, lat, lon, icon) in merged {
         let (gx, gy) = to_grid(lat, lon, resolution);
         grid_locations.push(FixedLocation {
             name, x: gx, y: gy, icon_type: icon,
@@ -364,7 +425,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         *votes.entry((gx.round() as i32, gy.round() as i32)).or_default().entry(t_type).or_insert(0.0) += w;
     }
     let grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
-        let best = v.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0))).unwrap().0;
+        let best = v.into_iter().max_by(|a, b| (a.1 * salience(&a.0)).total_cmp(&(b.1 * salience(&b.0))).then_with(|| b.0.cmp(&a.0))).unwrap().0;
         (k, best)
     }).collect();
 
@@ -867,6 +928,29 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
 
     let cell_latlon = |x: u32, y: u32| from_grid((min_col + x as i32) as f32, (min_row + y as i32) as f32, miles_per_hex);
 
+    // Points with lat/lon, by the hex they fall in.
+    let mut hex_points: HashMap<(i32, i32), Vec<&ManualPoint>> = HashMap::new();
+    for p in manual_points_bins.values().flatten() {
+        let (c, r) = to_grid(p.lat, p.lon, miles_per_hex);
+        hex_points.entry((c.round() as i32, r.round() as i32)).or_default().push(p);
+    }
+
+    // Game tiles smaller than a hex vote by area: each tile centre is warped to the hex it falls in.
+    // Per game and hex: (tile count, summed tile weight per type); used where a hex holds two or more
+    // of the game's tiles, otherwise the tile under the hex centre votes (below).
+    let game_area_votes: Vec<HashMap<(i32, i32), (usize, HashMap<String, f32>)>> = game_sheets.par_iter().enumerate().map(|(game_idx, sheet_opt)| {
+        let mut bins: HashMap<(i32, i32), (usize, HashMap<String, f32>)> = HashMap::new();
+        let Some((sheet, s)) = sheet_opt else { return bins };
+        for (&(tx, ty), (tile_type, weight)) in &game_tile_maps[game_idx] {
+            let (lat, lon) = sheet.transform((tx as f32 + 0.5) * s, (ty as f32 + 0.5) * s);
+            let (c, r) = to_grid(lat, lon, miles_per_hex);
+            let bin = bins.entry((c.round() as i32, r.round() as i32)).or_default();
+            bin.0 += 1;
+            *bin.1.entry(tile_type.clone()).or_default() += weight;
+        }
+        bins
+    }).collect();
+
     info!("Stable Grid ({:.1} mi/hex): {}x{} hexes anchored at {:?}",
              miles_per_hex, grid_width, grid_height, cell_latlon(0, 0));
 
@@ -878,8 +962,13 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             
             let mut type_votes: HashMap<String, f32> = HashMap::new();
 
-            // A) Manual Data
-            if !manual_points_bins.is_empty() {
+            // A) Points with lat/lon (manual maps and already-fixed clusters). Points inside this hex share
+            // its vote by area, like game tiles; only a hex with none blends nearby points.
+            if let Some(ps) = hex_points.get(&(min_col + x as i32, min_row + y as i32)) {
+                for p in ps {
+                    *type_votes.entry(p.tile_type.clone()).or_insert(0.0) += 100.0 * p.weight / ps.len() as f32;
+                }
+            } else if !manual_points_bins.is_empty() {
                 let (bin_y, bin_x) = bin_of(lat, lon);
 
                 for by in (bin_y - 8)..=(bin_y + 8) {
@@ -903,7 +992,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             // B) Game Data
             for (game_idx, sheet_opt) in game_sheets.iter().enumerate() {
                 if let Some((sheet, terrain_scale)) = sheet_opt {
-                    if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
+                    if let Some((n, counts)) = game_area_votes[game_idx].get(&(min_col + x as i32, min_row + y as i32)).filter(|b| b.0 >= 2) {
+                        // Several tiles in this hex: they share the game's vote by area (the mean of their votes).
+                        for (tile_type, w) in counts {
+                            *type_votes.entry(tile_type.clone()).or_insert(0.0) += 100.0 * w / *n as f32;
+                        }
+                    } else if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
                         // Each game contributes the square that contains this point: game squares
                         // are discrete, so no blending with neighbours (that erodes narrow features).
                         // Square i covers game units [i*s, (i+1)*s).
@@ -918,7 +1012,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
             
             type_votes.remove("unknown"); // no-data never counts as a vote, whatever its source
             let best_type = type_votes.iter()
-                .max_by(|a, b| a.1.total_cmp(b.1).then_with(|| b.0.cmp(a.0))) // ties: by name, not hash order
+                .max_by(|a, b| (a.1 * salience(a.0)).total_cmp(&(b.1 * salience(b.0))).then_with(|| b.0.cmp(a.0))) // ties: by name, not hash order
                 .map(|(t, _)| t.clone());
             
             row_tiles.push(FixedTile { 

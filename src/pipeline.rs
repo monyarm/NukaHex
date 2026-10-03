@@ -88,58 +88,17 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
 
     // --- STAGE 2: CLUSTERING (Game Data Only) ---
-    let mut parent: Vec<usize> = (0..game_results.len()).collect();
-    fn find(i: usize, parent: &mut Vec<usize>) -> usize {
-        if parent[i] == i { i }
-        else {
-            parent[i] = find(parent[i], parent);
-            parent[i]
-        }
-    }
-    fn union(i: usize, j: usize, parent: &mut Vec<usize>) {
-        let root_i = find(i, parent);
-        let root_j = find(j, parent);
-        if root_i != root_j {
-            parent[root_i] = root_j;
-        }
-    }
-
-    let mut loc_to_extractors: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
-    for (idx, (_, _, _, links)) in game_results.iter().enumerate() {
-        for link in links {
-            loc_to_extractors.entry(link.clone()).or_default().push(idx);
-        }
-    }
-
-    for extractors_for_loc in loc_to_extractors.values() {
-        if extractors_for_loc.len() > 1 {
-            let first = extractors_for_loc[0];
-            for &other in &extractors_for_loc[1..] {
-                union(first, other, &mut parent);
-            }
-        }
-    }
-
+    // Each extractor names its cluster map (e.g. FO1 and FO2 share "interplay"); games are combined
+    // across clusters only in the overview maps.
+    let cluster_ids: Vec<String> = game_extractors.iter().map(|e| e.get_cluster_id()).collect();
     let mut clusters: std::collections::HashMap<usize, Vec<(RawMapData, String, String)>> = std::collections::HashMap::new();
     let mut cluster_members: std::collections::HashMap<usize, Vec<String>> = std::collections::HashMap::new();
-    
+    let mut cluster_names: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
     for (idx, (data, hash, id, _)) in game_results.into_iter().enumerate() {
-        let root = find(idx, &mut parent);
+        let root = cluster_ids.iter().position(|c| *c == cluster_ids[idx]).unwrap();
         clusters.entry(root).or_default().push((data, hash, id.clone()));
         cluster_members.entry(root).or_default().push(id);
-    }
-
-    // Determine cluster names
-    let mut cluster_names: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
-    for (&root, members) in &cluster_members {
-        let name = if members.contains(&"fallout1".to_string()) && members.contains(&"fallout2".to_string()) {
-            "interplay".to_string()
-        } else if members.len() == 1 {
-            members[0].clone()
-        } else {
-            format!("cluster_{}", root)
-        };
-        cluster_names.insert(root, name);
+        cluster_names.insert(root, cluster_ids[idx].clone());
     }
 
     if let Some(target) = &target_cluster {
@@ -472,8 +431,18 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
          }
      }
 
+    // City maps from earlier runs whose area or name changed would linger and mislead: a full run
+    // removes every city map it did not produce.
+    let renders = renders.into_inner().unwrap();
+    let produced: std::collections::HashSet<&Path> = renders.iter().flat_map(|(t, p)| [t.as_path(), p.as_path()]).collect();
+    for path in fs::read_dir(&cities_dir).into_iter().flatten().flatten().map(|e| e.path()) {
+        if matches!(path.extension().and_then(|e| e.to_str()), Some("tmj" | "png")) && !produced.contains(path.as_path()) {
+            let _ = fs::remove_file(&path);
+        }
+    }
+
     // --- STAGE 4: RASTERIZER ---
-    timed("render", || render_outputs(renders.into_inner().unwrap(), &intermediate_dir));
+    timed("render", || render_outputs(renders, &intermediate_dir));
 
     info!("Done! All outputs stored in {}", output_dir.display());
 }

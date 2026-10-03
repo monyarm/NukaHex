@@ -224,6 +224,8 @@ impl RubberSheet {
 const MILES_PER_DEGREE: f64 = 69.0;
 // ponytail: fixed clearance (fraction of |AB|) past the line; raise if folds remain near moved anchors.
 const CROSSING_MARGIN: f64 = 0.02;
+/// Fractions of the way across the line that are tried for each candidate move, smallest first.
+const MOVE_FRACTIONS: [f64; 4] = [0.125, 0.25, 0.5, 1.0];
 
 /// Signed doubled area of triangle (a, b, c); > 0 and < 0 are opposite windings.
 fn orient(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
@@ -264,9 +266,10 @@ impl RubberSheet {
     ///
     /// An exact warp must fold where the game and the real world wind an anchor triangle
     /// differently. Only conflicts that actually produce a fold are resolved: among flipped
-    /// triangles containing a fold, one corner is moved just across the line through the other
-    /// two, onto the game's side (its position along the line stays real-world). The smallest
-    /// such move is applied, the warp rebuilt, and this repeats until no fold remains.
+    /// triangles containing a fold, one corner is moved toward the line through the other two
+    /// (part of the way, or just across it onto the game's side; its position along the line stays
+    /// real-world). The smallest move that removes some folds is applied (if none does, the
+    /// smallest full crossing), the warp rebuilt, and this repeats until no fold remains.
     /// Returns the warp and one report line per moved anchor (plus one if folds remain).
     pub fn new_fold_free(mut cps: Vec<ControlPoint>, area: FoldCheckArea) -> (Self, Vec<String>) {
         let n = cps.len();
@@ -280,25 +283,47 @@ impl RubberSheet {
         let mut real = original.clone();
 
         let mut folds = sheet.folds(area);
+        let with = |cps: &[ControlPoint], r: usize, p: (f64, f64)| {
+            let mut moved = cps.to_vec();
+            moved[r].real_lon = (p.0 / kx) as f32;
+            moved[r].real_lat = (-p.1 / MILES_PER_DEGREE) as f32;
+            moved
+        };
         for _ in 0..(4 * n) {
             if folds.is_empty() { break; }
-            let mut best: Option<(f64, usize, (f64, f64))> = None;
+            // Candidate moves: a corner of a flipped triangle containing a fold, part or all of the way
+            // across the line through the other two (a fold is often cured well before the crossing).
+            let mut candidates: Vec<(f64, usize, (f64, f64), f64)> = Vec::new();
             for a in 0..n { for b in a + 1..n { for c in b + 1..n {
                 let og = orient(game[a], game[b], game[c]);
                 if og * orient(real[a], real[b], real[c]) >= 0.0 { continue; }
                 if !folds.iter().any(|&f| in_triangle(f, game[a], game[b], game[c])) { continue; }
                 for (p, q, r) in [(a, b, c), (b, c, a), (c, a, b)] {
-                    let new = across(real[p], real[q], real[r], og.signum());
-                    let d = ((new.0 - real[r].0).powi(2) + (new.1 - real[r].1).powi(2)).sqrt();
-                    if best.map_or(true, |(bd, ..)| d < bd) { best = Some((d, r, new)); }
+                    let full = across(real[p], real[q], real[r], og.signum());
+                    for f in MOVE_FRACTIONS {
+                        let to = (real[r].0 + (full.0 - real[r].0) * f, real[r].1 + (full.1 - real[r].1) * f);
+                        candidates.push((((to.0 - real[r].0).powi(2) + (to.1 - real[r].1).powi(2)).sqrt(), r, to, f));
+                    }
                 }
             }}}
-            let Some((_, r, new)) = best else { break }; // folds not explained by a flipped triangle
-            real[r] = new;
-            cps[r].real_lon = (new.0 / kx) as f32;
-            cps[r].real_lat = (-new.1 / MILES_PER_DEGREE) as f32;
-            sheet = RubberSheet::new(cps.clone());
-            folds = sheet.folds(area);
+            if candidates.is_empty() { break } // folds not explained by a flipped triangle
+            candidates.sort_by(|x, y| x.0.total_cmp(&y.0));
+            // The smallest move that removes some folds; if none does, the smallest full crossing.
+            let accepted = candidates.iter().find_map(|&(_, r, to, _)| {
+                let trial = RubberSheet::new(with(&cps, r, to));
+                let left = trial.folds(area);
+                (left.len() < folds.len()).then_some((r, to, trial, left))
+            });
+            let (r, to, next, left) = accepted.unwrap_or_else(|| {
+                let &(_, r, to, _) = candidates.iter().find(|c| c.3 == 1.0).unwrap();
+                let trial = RubberSheet::new(with(&cps, r, to));
+                let left = trial.folds(area);
+                (r, to, trial, left)
+            });
+            real[r] = to;
+            cps = with(&cps, r, to);
+            sheet = next;
+            folds = left;
         }
 
         let mut report = Vec::new();
