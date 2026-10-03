@@ -5,14 +5,22 @@ use crate::caching::CachedStep;
 use crate::extractors::Extractor;
 use crate::schema::RawMapData;
 use crate::{map_gen, fixer};
-use std::process::Command;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use log::{info, warn, error};
 
 /// Every source whose logic shapes fixed (warped/merged) data; cached fixer outputs depend on all.
 const FIXER_SOURCES: &[&str] = &["src/fixer.rs", "src/rubbersheeting.rs", "src/geocoding.rs", "src/schema.rs"];
 
-// ... imports
+/// Runs `f`, logging how long it took under `[timing]`.
+fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
+    let start = Instant::now();
+    let out = f();
+    info!("[timing] {:<28} {:>8.2}s", label, start.elapsed().as_secs_f64());
+    out
+}
 
 pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors: Vec<Box<dyn Extractor>>, output_dir: &Path, target_cluster: Option<String>) {
     let intermediate_dir = output_dir.join("intermediate");
@@ -22,16 +30,19 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
     // --- STAGE 1: EXTRACTION ---
     // 1a. Extract Game Data (parallel)
-    let game_results: Vec<(RawMapData, String, String, Vec<String>)> = game_extractors.par_iter().map(|extractor| {
-        let (data, hash, id, links) = extract_one(extractor, &intermediate_dir);
-        (data, hash, id, links)
-    }).collect();
+    let game_results: Vec<(RawMapData, String, String, Vec<String>)> = timed("extract games", ||
+        game_extractors.par_iter().map(|extractor| extract_one(extractor, &intermediate_dir)).collect());
 
     // 1b. Extract Manual Data (parallel)
-    let manual_results: Vec<(RawMapData, String, String)> = manual_extractors.par_iter().map(|extractor| {
-        let (data, hash, id, _) = extract_one(extractor, &intermediate_dir);
-        (data, hash, id)
-    }).collect();
+    let manual_results: Vec<(RawMapData, String, String)> = timed("extract manual", ||
+        manual_extractors.par_iter().map(|extractor| {
+            let (data, hash, id, _) = extract_one(extractor, &intermediate_dir);
+            (data, hash, id)
+        }).collect());
+
+    // Every (tmj, png) this run produces; rendered once at the end (never stale files).
+    let renders: Mutex<Vec<(PathBuf, PathBuf)>> = Mutex::new(Vec::new());
+    let add_render = |tmj: PathBuf, png: PathBuf| renders.lock().unwrap().push((tmj, png));
 
     // Collect marker sources for granular caching
     let mut marker_to_hashes: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
@@ -60,6 +71,8 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             if !id.contains(target) && !target.contains(id) { continue; }
         }
         if data.has_grid {
+            let tmj = raw_dir.join(format!("raw_manual_{}.tmj", id));
+            add_render(tmj.clone(), tmj.with_extension("png"));
             let step_id = format!("raw_debug_{}", id);
             let step = CachedStep::new(&step_id, &intermediate_dir)
                 .add_dependency_hash(hash)
@@ -146,17 +159,28 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
 
     // --- STAGE 2.5: CLUSTER FIXING ---
-    let mut clustered_raw_maps = Vec::new();
-    let mut cluster_hashes = Vec::new();
-
-    for (root_id, maps) in clusters {
-        let cluster_name = &cluster_names[&root_id];
+    // Clusters are independent: fix them in parallel, in a fixed (name) order.
+    let mut clusters: Vec<_> = clusters.into_iter().collect();
+    clusters.sort_by(|a, b| cluster_names[&a.0].cmp(&cluster_names[&b.0]));
+    for (root_id, maps) in &clusters {
+        for (data, _, id) in maps {
+            let is_manual = id != "fallout1" && id != "fallout2" && id != "fallout_bos";
+            if is_manual && !data.has_grid { continue; }
+            let prefix = if is_manual { "raw_manual" } else { "raw_extracted" };
+            let tmj = raw_dir.join(format!("{}_{}.tmj", prefix, id));
+            add_render(tmj.clone(), tmj.with_extension("png"));
+        }
+        let tmj = output_dir.join(format!("cluster_{}.tmj", cluster_names[root_id]));
+        add_render(tmj.clone(), tmj.with_extension("png"));
+    }
+    let fixed_clusters: Vec<(RawMapData, String)> = timed("fix clusters", || clusters.par_iter().map(|(root_id, maps)| {
+        let cluster_name = &cluster_names[root_id];
         let step_id = format!("cluster_{}", cluster_name);
         let mut cluster_step = CachedStep::new(&step_id, &intermediate_dir)
             .add_dependency_files(FIXER_SOURCES)
             .add_dependency_file("src/map_gen.rs");
 
-        for (_, hash, _) in &maps {
+        for (_, hash, _) in maps {
             cluster_step = cluster_step.add_dependency_hash(hash);
         }
 
@@ -166,7 +190,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             
             // Generate debug views for raw maps in this cluster
             let gid_map = map_gen::generate_tsj(output_dir).expect("Failed to generate TSJ");
-            for (data, _, id) in &maps {
+            for (data, _, id) in maps {
                 // RULE: Only non-manual OR manual with explicit grid
                 let is_manual = id != "fallout1" && id != "fallout2" && id != "fallout_bos";
                 if is_manual && !data.has_grid { continue; }
@@ -209,15 +233,14 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             let _ = fs::write(&log_file, log_content);
         }
 
-        clustered_raw_maps.push(cluster_data);
-        cluster_hashes.push(cluster_hash);
-    }
+        (cluster_data, cluster_hash)
+    }).collect());
+    let (clustered_raw_maps, cluster_hashes): (Vec<RawMapData>, Vec<String>) = fixed_clusters.into_iter().unzip();
 
     // --- STAGE 3: GLOBAL FIXER ---
     if let Some(target) = &target_cluster {
         info!("Skipping global fixing for single-cluster run: {}", target);
-        render_all_in_dir(output_dir, Some(target));
-        render_all_in_dir(&raw_dir, Some(target));
+        timed("render", || render_outputs(renders.into_inner().unwrap(), &intermediate_dir));
         info!("Done! Cluster outputs stored in {}", output_dir.display());
         return;
     }
@@ -235,9 +258,9 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
     
     let manual_raw_maps: Vec<RawMapData> = manual_results.iter().map(|(d, _, _)| d.clone()).collect();
-    let (final_fixed_data, combined_global_hash) = global_step.run_with_hash(|| {
-         fixer::fix(clustered_raw_maps.clone(), manual_raw_maps.clone(), None, None) 
-    });
+    let (final_fixed_data, combined_global_hash) = timed("fix global", || global_step.run_with_hash(|| {
+         fixer::fix(clustered_raw_maps.clone(), manual_raw_maps.clone(), None, None)
+    }));
 
     // --- STAGE 4: BUILDER ---
     let builder_source = "src/map_gen.rs";
@@ -247,6 +270,8 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         .add_dependency_file(builder_source)
         .add_dependency_hash(&combined_global_hash);
 
+    add_render(output_dir.join("map_all.tmj"), output_dir.join("rendered_map_all.png"));
+    add_render(output_dir.join("map.tmj"), output_dir.join("rendered_map.png"));
     step.run(|| {
         info!("[Builder] Running...");
         // Call map generator with FixedMapData
@@ -280,8 +305,19 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
         let city_clusters = crate::clustering::cluster_locations(&city_targets, 30.0);
         info!("Found {} city/vault/landmark targets, grouped into {} clusters.", city_targets.len(), city_clusters.len());
 
+        // One 1 mi fix over the union of all city areas, computed only if some city map is stale.
+        // Every grid sits on the shared `fixer::to_grid` lattice, so cropping it equals a per-city fix.
+        let union = city_clusters.iter().flatten().fold(None, |acc: Option<fixer::BoundingBox>, l| {
+            let (lat, lon) = (l.real_lat.unwrap_or(0.0), l.real_lon.unwrap_or(0.0));
+            let b = acc.unwrap_or(fixer::BoundingBox { min_lat: lat, max_lat: lat, min_lon: lon, max_lon: lon });
+            Some(fixer::BoundingBox { min_lat: b.min_lat.min(lat), max_lat: b.max_lat.max(lat), min_lon: b.min_lon.min(lon), max_lon: b.max_lon.max(lon) })
+        }).map(|b| fixer::BoundingBox { min_lat: b.min_lat - 0.3, max_lat: b.max_lat + 0.3, min_lon: b.min_lon - 0.3, max_lon: b.max_lon + 0.3 });
+        let high_res: OnceLock<crate::schema::FixedMapData> = OnceLock::new();
+        let high_res_data = || high_res.get_or_init(|| timed("fix city area (1 mi)", ||
+            fixer::fix(clustered_raw_maps.clone(), manual_raw_maps.clone(), Some(1.0), union)));
+
         // 3. Generate Maps for Clusters (Parallelized & Granularly Cached)
-        city_clusters.par_iter().for_each(|cluster| {
+        timed("city maps", || city_clusters.par_iter().for_each(|cluster| {
             // A) Naming: Use the most significant location names to build a safe filename
             let mut sorted_locs = cluster.clone();
             sorted_locs.sort_by(|a, b| {
@@ -340,20 +376,16 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             
             for h in cluster_dep_hashes { city_cached_step = city_cached_step.add_dependency_hash(&h); }
 
+            let tmj = cities_dir.join(format!("city_{}.tmj", safe_name));
+            add_render(tmj.clone(), cities_dir.join(format!("{}.png", safe_name)));
+
             // C) Run Cached Generation
             city_cached_step.run(|| {
                 info!("Generating city map for cluster '{}' ({} locations)...", safe_name, cluster.len());
                 let gid_map_hr = map_gen::generate_tsj(output_dir).unwrap();
 
-                // D) Use Bounds-Limited Fixer (Fast Reconstruction)
-                let min_lat = cluster.iter().map(|l| l.real_lat.unwrap_or(0.0)).fold(f32::INFINITY, |a, b| a.min(b)) - 0.3;
-                let max_lat = cluster.iter().map(|l| l.real_lat.unwrap_or(0.0)).fold(f32::NEG_INFINITY, |a, b| a.max(b)) + 0.3;
-                let min_lon = cluster.iter().map(|l| l.real_lon.unwrap_or(0.0)).fold(f32::INFINITY, |a, b| a.min(b)) - 0.3;
-                let max_lon = cluster.iter().map(|l| l.real_lon.unwrap_or(0.0)).fold(f32::NEG_INFINITY, |a, b| a.max(b)) + 0.3;
-                
-                let bounds = fixer::BoundingBox { min_lat, max_lat, min_lon, max_lon };
-                let manual_raw_maps: Vec<RawMapData> = manual_results.iter().map(|(d, _, _)| d.clone()).collect();
-                let high_res_data = fixer::fix(clustered_raw_maps.clone(), manual_raw_maps, Some(1.0), Some(bounds));
+                // D) Crop from the shared high-res fix
+                let high_res_data = high_res_data();
 
                 // E) Crop and Export
                 let hr_locs: Vec<&crate::schema::FixedLocation> = high_res_data.locations.iter()
@@ -397,9 +429,8 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
                 let filename = format!("city_{}.tmj", safe_name);
                 map_gen::generate_tmj(&cities_dir, &filename, &cropped_map, &gid_map_hr, None, "../generic.tsj").unwrap();
-                let _ = Command::new("tmxrasterizer").arg(cities_dir.join(&filename)).arg(cities_dir.join(format!("{}.png", safe_name))).status();
             });
-        });
+        }));
     }
 
     // --- STAGE 3.5: MARKER EXPORT ---
@@ -419,26 +450,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
      }
 
     // --- STAGE 4: RASTERIZER ---
-    info!("[Rasterizer] Running global render pass...");
-    
-    let render_targets = vec![
-        (output_dir, "map.tmj", "rendered_map.png"),
-        (output_dir, "map_all.tmj", "rendered_map_all.png"),
-    ];
-
-    for (dir, tmj, png) in render_targets {
-        let tmj_path = dir.join(tmj);
-        let png_path = dir.join(png);
-        if tmj_path.exists() {
-            let _ = Command::new("tmxrasterizer")
-                .arg(&tmj_path)
-                .arg(&png_path)
-                .status();
-        }
-    }
-
-    render_all_in_dir(output_dir, target_cluster.as_ref());
-    render_all_in_dir(&raw_dir, target_cluster.as_ref());
+    timed("render", || render_outputs(renders.into_inner().unwrap(), &intermediate_dir));
 
     info!("Done! All outputs stored in {}", output_dir.display());
 }
@@ -484,27 +496,20 @@ fn export_markers(data: &RawMapData, id: &str, raw_dir: &Path) {
     }
 }
 
-fn render_all_in_dir(dir: &Path, target_cluster: Option<&String>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "tmj" {
-                    let name = path.file_name().unwrap().to_string_lossy();
-                    if let Some(target) = target_cluster {
-                        if !name.contains(target) && !target.contains(&name.to_string()) { continue; }
-                    }
-
-                    if name.starts_with("cluster_") || name.starts_with("raw_extracted_") || name.starts_with("raw_manual_") {
-                        let png_path = path.with_extension("png");
-                        info!("[Rasterizer] Rendering debug/cluster map: {}", name);
-                        let _ = Command::new("tmxrasterizer")
-                            .arg(&path)
-                            .arg(&png_path)
-                            .status();
-                    }
-                }
-            }
+/// Renders each (tmj, png) in parallel, skipping those whose TMJ and renderer are unchanged
+/// since the PNG was last written.
+fn render_outputs(mut targets: Vec<(PathBuf, PathBuf)>, intermediate_dir: &Path) {
+    targets.sort();
+    targets.dedup();
+    let renderer_hash = crate::caching::compute_source_hash("src/render.rs");
+    targets.par_iter().for_each(|(tmj, png)| {
+        if !tmj.exists() { return; }
+        let hash = format!("{}{}", crate::caching::compute_source_hash(&tmj.to_string_lossy()), renderer_hash);
+        let stamp = intermediate_dir.join(format!("render_{}.hash", png.to_string_lossy().replace(['/', '\\'], "_")));
+        if png.exists() && fs::read_to_string(&stamp).is_ok_and(|h| h == hash) { return; }
+        match crate::render::render_tmj(tmj, png) {
+            Ok(()) => { let _ = fs::write(&stamp, hash); info!("[Render] {}", png.display()); }
+            Err(e) => warn!("[Render] {} failed: {}", tmj.display(), e),
         }
-    }
+    });
 }

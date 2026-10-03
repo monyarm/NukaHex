@@ -102,7 +102,7 @@ where
         info!("[Cache: {}] Miss. Running generation...", self.id);
         let data = generator();
 
-        if let Ok(json) = serde_json::to_string_pretty(&data) {
+        if let Ok(json) = serde_json::to_vec(&data) {
             let _ = fs::write(&cache_file, json);
             let _ = fs::write(&hash_file, final_hash.clone());
         }
