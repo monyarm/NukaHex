@@ -307,14 +307,26 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
 
         // One 1 mi fix over the union of all city areas, computed only if some city map is stale.
         // Every grid sits on the shared `fixer::to_grid` lattice, so cropping it equals a per-city fix.
-        let union = city_clusters.iter().flatten().fold(None, |acc: Option<fixer::BoundingBox>, l| {
+        // City areas (padded bounding boxes), merged where they overlap; each merged area gets one
+        // 1 mi fix, computed only if some city map in it is stale. Every grid sits on the shared
+        // `fixer::to_grid` lattice, so cropping an area's fix equals a per-city fix.
+        let bbox = |c: &Vec<&crate::schema::FixedLocation>| c.iter().fold(None, |acc: Option<fixer::BoundingBox>, l| {
             let (lat, lon) = (l.real_lat.unwrap_or(0.0), l.real_lon.unwrap_or(0.0));
             let b = acc.unwrap_or(fixer::BoundingBox { min_lat: lat, max_lat: lat, min_lon: lon, max_lon: lon });
             Some(fixer::BoundingBox { min_lat: b.min_lat.min(lat), max_lat: b.max_lat.max(lat), min_lon: b.min_lon.min(lon), max_lon: b.max_lon.max(lon) })
-        }).map(|b| fixer::BoundingBox { min_lat: b.min_lat - 0.3, max_lat: b.max_lat + 0.3, min_lon: b.min_lon - 0.3, max_lon: b.max_lon + 0.3 });
-        let high_res: OnceLock<crate::schema::FixedMapData> = OnceLock::new();
-        let high_res_data = || high_res.get_or_init(|| timed("fix city area (1 mi)", ||
-            fixer::fix(clustered_raw_maps.clone(), manual_raw_maps.clone(), Some(1.0), union)));
+        }).map(|b| fixer::BoundingBox { min_lat: b.min_lat - 0.3, max_lat: b.max_lat + 0.3, min_lon: b.min_lon - 0.3, max_lon: b.max_lon + 0.3 }).unwrap();
+        let overlaps = |a: &fixer::BoundingBox, b: &fixer::BoundingBox| a.min_lat <= b.max_lat && b.min_lat <= a.max_lat && a.min_lon <= b.max_lon && b.min_lon <= a.max_lon;
+        let mut areas: Vec<fixer::BoundingBox> = city_clusters.iter().map(bbox).collect();
+        loop {
+            let pair = (0..areas.len()).flat_map(|i| (i + 1..areas.len()).map(move |j| (i, j))).find(|&(i, j)| overlaps(&areas[i], &areas[j]));
+            let Some((i, j)) = pair else { break };
+            let (a, b) = (areas[i], areas.remove(j));
+            areas[i] = fixer::BoundingBox { min_lat: a.min_lat.min(b.min_lat), max_lat: a.max_lat.max(b.max_lat), min_lon: a.min_lon.min(b.min_lon), max_lon: a.max_lon.max(b.max_lon) };
+        }
+        let area_of = |c: &Vec<&crate::schema::FixedLocation>| { let b = bbox(c); areas.iter().position(|a| overlaps(a, &b)).unwrap() };
+        let fixes: Vec<OnceLock<crate::schema::FixedMapData>> = areas.iter().map(|_| OnceLock::new()).collect();
+        let high_res_for = |area: usize| fixes[area].get_or_init(||
+            fixer::fix(clustered_raw_maps.clone(), manual_raw_maps.clone(), Some(1.0), Some(areas[area])));
 
         // 3. Generate Maps for Clusters (Parallelized & Granularly Cached)
         timed("city maps", || city_clusters.par_iter().for_each(|cluster| {
@@ -385,7 +397,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                 let gid_map_hr = map_gen::generate_tsj(output_dir).unwrap();
 
                 // D) Crop from the shared high-res fix
-                let high_res_data = high_res_data();
+                let high_res_data = high_res_for(area_of(cluster));
 
                 // E) Crop and Export
                 let hr_locs: Vec<&crate::schema::FixedLocation> = high_res_data.locations.iter()

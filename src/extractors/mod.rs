@@ -12,3 +12,4 @@ pub mod interplay;
 pub mod manual;
 pub mod bethesda;
 pub mod van_buren;
+pub mod tactics;

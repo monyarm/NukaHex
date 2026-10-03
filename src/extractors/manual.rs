@@ -271,10 +271,13 @@ impl ManualExtractor {
                     return vec![];
                 };
 
-                let hex_step_deg_lat = self.miles_per_hex / 69.0;
-                let hex_step_deg_lon = self.miles_per_hex / 56.5; 
+                // Sample at half the hex spacing: a lattice as coarse as the hex grid leaves cells with
+                // no sample point (hex rows are only sqrt(3)/2 of a hex apart), i.e. holes.
+                let step_miles = self.miles_per_hex / 2.0;
+                let hex_step_deg_lat = step_miles / 69.0;
+                let hex_step_deg_lon = step_miles / (69.0 * lat.to_radians().cos());
                 let resolution_scale = 1.0 / self.miles_per_hex;
-                let effective_radius = (*radius_hexes as f32 * resolution_scale).round() as u32;
+                let effective_radius = (*radius_hexes as f32 * resolution_scale).round() as u32 * 2;
 
                 self.generate_circle_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, effective_radius, terrain_type)
             }
@@ -294,7 +297,7 @@ impl ManualExtractor {
                 };
 
                 let hex_step_deg_lat = self.miles_per_hex / 69.0;
-                let hex_step_deg_lon = self.miles_per_hex / 56.5;
+                let hex_step_deg_lon = self.miles_per_hex / (69.0 * lat.to_radians().cos());
                 self.generate_grid_terrain(lat, lon, hex_step_deg_lat, hex_step_deg_lon, tiles)
             }
         }

@@ -13,6 +13,7 @@ mod clustering; // Added clustering module
 mod utils;
 mod frm;
 mod raster;
+mod zar;
 mod render;
 
 use std::path::Path;
@@ -60,6 +61,7 @@ fn main() -> std::io::Result<()> {
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
         Box::new(crate::extractors::van_buren::VanBurenExtractor),
+        Box::new(crate::extractors::tactics::TacticsExtractor),
     ];
 
     // To prevent long runs parsing huge 4/76 grids on every test, we usually control via CLI args.

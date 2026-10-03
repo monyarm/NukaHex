@@ -37,6 +37,25 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Hoover Dam", "36.0160,-114.7377"),
     ("Grand Canyon", "36.0544,-112.1401"), // Grand Canyon Village, South Rim
     ("Mesa Verde", "37.1838,-108.4887"),   // Mesa Verde NP, Chapin Mesa
+    // Fallout Tactics (keys are the game's spellings; values the real towns). Not anchored:
+    // Newton and Canyon City, whose in-game positions are 170-210 mi from their namesakes
+    // (Canyon City sits in western Kansas); the warp places them.
+    ("Freeport", "42.2967,-89.6212"),
+    ("Rock Falls", "41.7795,-89.6887"),
+    ("Macomb", "40.4592,-90.6718"),
+    ("Preoria", "40.6936,-89.5890"),          // Peoria, IL
+    ("Quincy", "39.9356,-91.4099"),
+    ("Springfield", "39.7817,-89.6501"),
+    ("St.Louis", "38.6270,-90.1994"),
+    ("Jefferson", "38.5767,-92.1735"),        // Jefferson City, MO
+    ("Kansas City", "39.0997,-94.5786"),
+    ("Osceolla", "38.0467,-93.7044"),         // Osceola, MO
+    ("Junction City", "39.0286,-96.8314"),
+    ("Great Bend", "38.3645,-98.7648"),
+    ("Coldwater", "37.2689,-99.3268"),
+    ("Scott City", "38.4825,-100.9071"),
+    ("Beuna Vista", "38.8422,-106.1311"),     // Buena Vista, CO
+    ("Cheyenne Mountain", "38.7445,-104.8463"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -47,25 +66,55 @@ const REAL_COORDS: &[(&str, &str)] = &[
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
-// ponytail: one longitude scale (35N) for the whole grid; east-west distances are off by up to
-// ~8% at 33N/42N. Switch to a real projection when maps beyond California/Nevada need it.
-const MILES_PER_DEGREE_LON_AT_35N: f32 = 56.5;
 
-const UNIVERSE_ORIGIN_LAT: f32 = 50.0;
-const UNIVERSE_ORIGIN_LON: f32 = -130.0;
+/// Hex rows (stagger on y) are sqrt(3)/2 of a column step apart, so a hex's neighbours are all
+/// `miles_per_hex` away.
+const HEX_ROW_FRACTION: f32 = 0.866_025_4;
+
+/// Lambert conformal conic projection for the continental US (standard parallels 33N/45N, origin
+/// 39N 96W): scale stays within ~1-2% of true across the mapped region and local shapes are kept.
+mod lcc {
+    const R_MILES: f64 = 3958.8;
+    const PHI1: f64 = 33.0;
+    const PHI2: f64 = 45.0;
+    const PHI0: f64 = 39.0;
+    const LAMBDA0: f64 = -96.0;
+    fn t(phi_deg: f64) -> f64 { (std::f64::consts::FRAC_PI_4 + phi_deg.to_radians() / 2.0).tan() }
+    fn consts() -> (f64, f64, f64) {
+        let n = (PHI1.to_radians().cos() / PHI2.to_radians().cos()).ln() / (t(PHI2) / t(PHI1)).ln();
+        let f = PHI1.to_radians().cos() * t(PHI1).powf(n) / n;
+        (n, f, R_MILES * f / t(PHI0).powf(n))
+    }
+    /// (lat, lon) degrees -> (x east, y north) miles.
+    pub fn forward(lat: f64, lon: f64) -> (f64, f64) {
+        let (n, f, rho0) = consts();
+        let rho = R_MILES * f / t(lat).powf(n);
+        let theta = n * (lon - LAMBDA0).to_radians();
+        (rho * theta.sin(), rho0 - rho * theta.cos())
+    }
+    /// (x, y) miles -> (lat, lon) degrees.
+    pub fn inverse(x: f64, y: f64) -> (f64, f64) {
+        let (n, f, rho0) = consts();
+        let rho = n.signum() * (x * x + (rho0 - y).powi(2)).sqrt();
+        let theta = (x / rho).atan2((rho0 - y) / rho);
+        let lat = 2.0 * (R_MILES * f / rho).powf(1.0 / n).atan() - std::f64::consts::FRAC_PI_2;
+        (lat.to_degrees(), LAMBDA0 + (theta / n).to_degrees())
+    }
+}
 
 /// The output-grid convention, used by every stage: continuous (col, row) of a lat/lon on the
-/// world grid at `miles_per_hex`. Rows grow south; integer indices are cell centres.
-/// (Each game's own coordinate scale is separate: see `RawMapData::coordinate_scale`.)
+/// world grid at `miles_per_hex` (centre-to-centre distance between neighbouring hexes), via the
+/// `lcc` projection. Rows grow south; integer indices are cell centres. (Each game's own
+/// coordinate scale is separate: see `RawMapData::coordinate_scale`.)
 pub fn to_grid(lat: f32, lon: f32, miles_per_hex: f32) -> (f32, f32) {
-    ((lon - UNIVERSE_ORIGIN_LON) / (miles_per_hex / MILES_PER_DEGREE_LON_AT_35N),
-     (UNIVERSE_ORIGIN_LAT - lat) / (miles_per_hex / MILES_PER_DEGREE_LAT))
+    let (x, y) = lcc::forward(lat as f64, lon as f64);
+    ((x / miles_per_hex as f64) as f32, (-y / (miles_per_hex * HEX_ROW_FRACTION) as f64) as f32)
 }
 
 /// Inverse of `to_grid`: (lat, lon) at grid position (col, row).
 pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
-    (UNIVERSE_ORIGIN_LAT - row * (miles_per_hex / MILES_PER_DEGREE_LAT),
-     UNIVERSE_ORIGIN_LON + col * (miles_per_hex / MILES_PER_DEGREE_LON_AT_35N))
+    let (lat, lon) = lcc::inverse(col as f64 * miles_per_hex as f64, -(row as f64) * (miles_per_hex * HEX_ROW_FRACTION) as f64);
+    (lat as f32, lon as f32)
 }
 
 /// Key of the 1-mile bin holding (lat, lon), for neighbour lookups of manual points.
@@ -74,8 +123,6 @@ fn bin_of(lat: f32, lon: f32) -> (i32, i32) {
     (r.round() as i32, c.round() as i32)
 }
 
-// const LAT_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LAT;
-// const LON_STEP: f32 = MILES_PER_HEX / MILES_PER_DEGREE_LON_AT_35N;
 
 use rayon::prelude::*;
 
@@ -488,8 +535,6 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     // 0. Build a Manual Points Bin for sub-grid interpolation
     // We use a fixed ~6-mile grid for binning to ensure consistent lookup regardless of rendering resolution
     
-    let bin_lat_step = 1.0 / MILES_PER_DEGREE_LAT;
-    let bin_lon_step = 1.0 / MILES_PER_DEGREE_LON_AT_35N;
     
     #[derive(Clone)]
     struct ManualPoint {
@@ -798,10 +843,14 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     }
 
     // North-west and south-east corners on the shared grid.
-    let (nw_col, nw_row) = to_grid(max_lat_raw, min_lon_raw, miles_per_hex);
-    let (se_col, se_row) = to_grid(min_lat_raw, max_lon_raw, miles_per_hex);
-    let (min_col, min_row) = (nw_col.floor() as i32, nw_row.floor() as i32);
-    let (max_col, max_row) = (se_col.ceil() as i32, se_row.ceil() as i32);
+    // Grid extent of the lat/lon box: on the conic projection the extreme columns/rows can come
+    // from any corner, so check all four.
+    let corners = [(max_lat_raw, min_lon_raw), (max_lat_raw, max_lon_raw), (min_lat_raw, min_lon_raw), (min_lat_raw, max_lon_raw)]
+        .map(|(la, lo)| to_grid(la, lo, miles_per_hex));
+    let min_col = corners.iter().map(|c| c.0).fold(f32::INFINITY, f32::min).floor() as i32;
+    let max_col = corners.iter().map(|c| c.0).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
+    let min_row = corners.iter().map(|c| c.1).fold(f32::INFINITY, f32::min).floor() as i32;
+    let max_row = corners.iter().map(|c| c.1).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
 
     let grid_height = (max_row - min_row + 1) as u32;
     let grid_width = (max_col - min_col + 1) as u32;
@@ -827,8 +876,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
                     for bx in (bin_x - 8)..=(bin_x + 8) {
                         if let Some(points) = manual_points_bins.get(&(by, bx)) {
                             for p in points {
-                                let d_lat_game = ((p.lat - lat) / bin_lat_step) / 6.0;
-                                let d_lon_game = ((p.lon - lon) / bin_lon_step) / 6.0;
+                                // Distance in units of 6 mi.
+                                let d_lat_game = (p.lat - lat) * MILES_PER_DEGREE_LAT / 6.0;
+                                let d_lon_game = (p.lon - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos() / 6.0;
                                 let dist_sq = d_lat_game*d_lat_game + d_lon_game*d_lon_game;
                                 if dist_sq < 4.0 {
                                     let weight = (1.0 / (dist_sq + 0.01)) * p.weight;
@@ -1143,121 +1193,6 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, miles_per_hex: f3
     }
 }
 
-#[allow(dead_code)]
-fn fix_with_rubbersheeting(raw_maps: Vec<RawMapData>) -> FixedMapData {
-    // Step 1: Collect all locations from extractor (with game coordinates)
-    let mut all_locations = Vec::new();
-    for map in &raw_maps {
-        all_locations.extend(map.locations.clone());
-    }
-    
-    // Step 2: Build control points by matching names
-    let mut control_points = Vec::new();
-    let mut real_world_locations = Vec::new(); // For final placement
-    
-    // Create local game_coords map
-    let mut game_coords: HashMap<String, (f32, f32)> = HashMap::new();
-    for loc in &all_locations {
-        game_coords.insert(loc.name.to_lowercase(), (loc.x, loc.y));
-    }
-
-
-    for (name, coords_str) in REAL_COORDS {
-        if let Ok((lat, lon)) = geocoding::parse_coords(coords_str) {
-            if let Some((gx, gy)) = game_coords.get(&name.to_lowercase()) {
-                control_points.push(ControlPoint {
-                    name: name.to_string(),
-                    game_x: *gx,
-                    game_y: *gy,
-                    real_lat: lat,
-                    real_lon: lon,
-                });
-                // Also store for looking up icon type later
-                 if let Some(loc_data) = all_locations.iter().find(|l| l.name.eq_ignore_ascii_case(name)) {
-                    real_world_locations.push((name.to_string(), lat, lon, loc_data.icon_type));
-                }
-            }
-        }
-    }
-    
-    info!("Built RubberSheet with {} control points", control_points.len());
-    let _sheet = RubberSheet::new(control_points); // Unused in legacy mode for markers but kept for consistency
-
-    // 3. Define OUTPUT GRID Bounds
-    // We strictly use the bounds of the Real World Locations (plus small buffer)
-    let buffer = 0.1; // 0.1 degree ~ 7 miles
-    
-    let all_lats: Vec<f32> = real_world_locations.iter().map(|(_, lat, _, _)| *lat).collect();
-    let all_lons: Vec<f32> = real_world_locations.iter().map(|(_, _, lon, _)| *lon).collect();
-    
-    if all_lats.is_empty() { return fix_legacy_pass_through(raw_maps); }
-
-    let min_lat = all_lats.iter().fold(f32::INFINITY, |a, &b| a.min(b)) - buffer;
-    let max_lat = all_lats.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)) + buffer;
-    let min_lon = all_lons.iter().fold(f32::INFINITY, |a, &b| a.min(b)) - buffer;
-    let max_lon = all_lons.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b)) + buffer;
-    
-    let lat_range = max_lat - min_lat;
-    let lon_range = max_lon - min_lon;
-    
-    // Hex sizes in degrees
-    // Hex sizes in degrees (Legacy constant 6.0)
-    let hex_height_deg = 6.0 / MILES_PER_DEGREE_LAT; // ~0.087
-    let hex_width_deg = 6.0 / MILES_PER_DEGREE_LON_AT_35N; // ~0.106
-    
-    let grid_height = (lat_range / hex_height_deg).ceil() as u32;
-    let grid_width = (lon_range / hex_width_deg).ceil() as u32;
-    
-    info!("Inverse Warping Grid: {}x{} hexes (spanning {:.2} deg lat, {:.2} deg lon)", 
-             grid_width, grid_height, lat_range, lon_range);
-
-    // 4. Generate Placeholder Terrain (Sand)
-    let mut fixed_tiles = Vec::new();
-    
-    for y in 0..grid_height {
-        for x in 0..grid_width {
-            // Check if within map bounds (optional, or just fill rectangle)
-             fixed_tiles.push(FixedTile {
-                x: x as i32,
-                y: y as i32,
-                tile_type: "Sand".to_string(),
-                real_lat: None,
-                real_lon: None,
-                anchor: None,
-            });
-        }
-    }
-    
-    info!("Generated {} Sand tiles for marker-only map", fixed_tiles.len());
-    
-    // 5. Place Locations
-    let final_locations: Vec<FixedLocation> = real_world_locations.iter().map(|(name, lat, lon, icon_type)| {
-        let u = (lon - min_lon) / lon_range;
-        let v = (max_lat - lat) / lat_range; // Inverted Y logic matches loop
-        
-        FixedLocation {
-            name: name.clone(),
-            x: u * grid_width as f32,
-            y: v * grid_height as f32,
-            icon_type: *icon_type,
-            real_lat: Some(*lat),
-            real_lon: Some(*lon),
-            anchor: None,
-        }
-    }).collect();
-
-    FixedMapData {
-        tiles: fixed_tiles,
-        locations: final_locations,
-        width: grid_width,
-        height: grid_height,
-        global_offset_x: 0,
-        global_offset_y: 0,
-        warnings: vec![],
-        world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
-    }
-}
-
 #[cfg(test)]
 mod invariant_tests {
     //! Logical-correctness invariants for the FO1/FO2 pipeline (see plan I1–I10).
@@ -1430,5 +1365,31 @@ mod invariant_tests {
             vec![src(1, vec![("Sand", 0.0)]), src(3, vec![("Water", 0.0), ("Water", 0.001)])], vec![], 6.0, None);
         let land: Vec<&str> = fixed.tiles.iter().map(|t| t.tile_type.as_str()).filter(|t| *t != "unknown").collect();
         assert_eq!(land, vec!["Sand"]);
+    }
+
+    /// Map scale: distances measured on the hex grid (column step = 1 hex, row step = sqrt(3)/2)
+    /// match real great-circle distances across the whole mapped region.
+    #[test]
+    fn grid_distances_match_real_distances() {
+        let haversine = |a: (f32, f32), b: (f32, f32)| {
+            let (la1, la2) = (a.0.to_radians() as f64, b.0.to_radians() as f64);
+            let (dla, dlo) = (la2 - la1, (b.1 - a.1).to_radians() as f64);
+            let h = (dla / 2.0).sin().powi(2) + la1.cos() * la2.cos() * (dlo / 2.0).sin().powi(2);
+            2.0 * 3958.8 * h.sqrt().asin()
+        };
+        let grid_miles = |a: (f32, f32), b: (f32, f32)| {
+            let (pa, pb) = (to_grid(a.0, a.1, 6.0), to_grid(b.0, b.1, 6.0));
+            (((pb.0 - pa.0) * 6.0).powi(2) + ((pb.1 - pa.1) * 6.0 * HEX_ROW_FRACTION).powi(2)).sqrt() as f64
+        };
+        let places = [("San Francisco", (37.79, -122.42)), ("Los Angeles", (34.05, -118.24)), ("Denver", (39.74, -104.99)),
+                      ("Salt Lake City", (40.76, -111.89)), ("St. Louis", (38.63, -90.20)), ("Chicago", (41.88, -87.63))];
+        for (i, (na, a)) in places.iter().enumerate() {
+            for (nb, b) in &places[i + 1..] {
+                let (real, map) = (haversine(*a, *b), grid_miles(*a, *b));
+                let err = (map - real) / real;
+                println!("{:<14} - {:<14} real {:6.0} mi  map {:6.0} mi  {:+.1}%", na, nb, real, map, err * 100.0);
+                assert!(err.abs() < 0.01, "{} - {}: {:+.1}%", na, nb, err * 100.0);
+            }
+        }
     }
 }
