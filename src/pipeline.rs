@@ -415,6 +415,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                     global_offset_x: 0, global_offset_y: 0,
                     warnings: high_res_data.warnings.clone(),
                     world_bounds: None,
+                    insets: Vec::new(),
                 };
 
                 let filename = format!("city_{}.tmj", safe_name);

@@ -31,7 +31,7 @@ impl Extractor for TacticsExtractor {
             Ok(data) => data,
             Err(e) => {
                 warn!("Fallout Tactics extraction failed: {}", e);
-                RawMapData { warnings: vec![format!("Fallout Tactics extraction failed: {}", e)], coordinate_scale: 75.0, priority: 3, ..Default::default() }
+                RawMapData { warnings: vec![format!("Fallout Tactics extraction failed: {}", e)], coordinate_scale: 75.0, priority: crate::schema::tier::SPIN_OFF, ..Default::default() }
             }
         }
     }
@@ -162,7 +162,7 @@ fn extract_campaign() -> io::Result<RawMapData> {
         locations, tiles,
         width: (w / block) as u32, height: (h / block) as u32,
         coordinate_scale: block as f32,
-        priority: 3,
+        priority: crate::schema::tier::SPIN_OFF,
         warnings,
         ..Default::default()
     })

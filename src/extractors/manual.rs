@@ -55,7 +55,7 @@ impl Extractor for ManualExtractor {
                     rows: None,
                     has_grid: false,
                     coordinate_scale: 1.0,
-            priority: 1,
+            priority: crate::schema::tier::MAIN,
                     reference_lon: None,
                     warnings: vec![],
                     terrain_data: None,
@@ -249,7 +249,7 @@ impl ManualExtractor {
             terrain_data: None,
             world_bounds: None,
             miles_per_unit: Some(self.miles_per_hex),
-            priority: 1,
+            priority: crate::schema::tier::MAIN,
             ..Default::default()
         })
     }

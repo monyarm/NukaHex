@@ -64,16 +64,29 @@ fn main() -> std::io::Result<()> {
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
         Box::new(crate::extractors::van_buren::VanBurenExtractor),
         Box::new(crate::extractors::tactics::TacticsExtractor),
-        // Fallout 2–engine total conversions (tier 5): terrain only, their markers anchor the warp.
+        // Fallout 2–engine total conversions (tier 6): terrain only, their markers anchor the warp.
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutNevada)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutSonora)),
     ];
 
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).
     use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
-    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout3, "Wasteland"))); // the Capital Wasteland
-    // Pittsburgh; its districts (Downtown, Uptown, the Steelyard) are child worlds on its coordinates.
-    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout3, "The Pitt", &["DLC01PittWorld"])));
+    // The Capital Wasteland, with the child worlds built on its coordinates that have map markers: DC's
+    // ruins, Megaton, Bailey's Crossroads (not its rooftop views, walled-off scenes or test worlds).
+    game_extractors.push(Box::new(BethesdaExtractor::parts(BethesdaGameVariant::Fallout3, &[
+        "Wasteland", "DCworld01", "DCworld03", "DCworld05", "DCworld06", "DCworld08", "DCworld09", "DCworld10",
+        "DCworld11", "DCworld12", "DCworld15", "DCworld17", "DCworld18", "MegatonWorld", "DLC02BaileysCrossroads",
+    ])));
+    // Pittsburgh, with its districts (the Steelyard, Downtown, Uptown): child worlds on its coordinates.
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout3, "The Pitt", &[
+        "DLC01PittWorld", "DLC01SteelMillExterior", "DLC01MarketSquare", "DLC01Haven",
+    ])));
+    // Operation Anchorage: a simulation of the 2077 Anchorage front, so weaker than Fallout 76. The battle
+    // with the Artillery Overlook and the Chinese HQ, built on its coordinates; not the Glacier (the
+    // opening cliff climb, other land on coordinates of its own).
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout3, "Operation Anchorage", &[
+        "DLC02AnchorageBattle", "DLC02Overlook", "DLC02ChineseHQ",
+    ]).with_tier(crate::schema::tier::PAST_SIMULATION)));
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout3, "Point Lookout", &[ // Maryland
         "DLC4Pointlookout", "DLC4Bog",
     ])));

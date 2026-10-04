@@ -54,7 +54,7 @@ impl Extractor for VanBurenExtractor {
             Ok(data) => data,
             Err(e) => {
                 warn!("Van Buren extraction failed: {}", e);
-                RawMapData { warnings: vec![format!("Van Buren extraction failed: {}", e)], coordinate_scale: BLOCK_PX as f32, priority: 3, ..Default::default() }
+                RawMapData { warnings: vec![format!("Van Buren extraction failed: {}", e)], coordinate_scale: BLOCK_PX as f32, priority: crate::schema::tier::SPIN_OFF, ..Default::default() }
             }
         }
     }
@@ -266,7 +266,7 @@ fn extract_world_map() -> io::Result<RawMapData> {
         locations, tiles,
         width: w / BLOCK_PX as u32, height: h / BLOCK_PX as u32,
         coordinate_scale: BLOCK_PX as f32,
-        priority: 3,
+        priority: crate::schema::tier::SPIN_OFF,
         control_points,
         warnings,
         ..Default::default()

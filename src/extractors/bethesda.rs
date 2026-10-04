@@ -103,6 +103,8 @@ pub struct BethesdaExtractor {
     /// name); its own markers appear only on the `_all` map.
     summarized: bool,
     summary_name: Option<&'static str>,
+    /// Source priority (`schema::tier`): the main games, unless set otherwise.
+    tier: u8,
 }
 
 impl BethesdaExtractor {
@@ -111,7 +113,7 @@ impl BethesdaExtractor {
     }
 
     fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
-        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None }
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
@@ -119,11 +121,22 @@ impl BethesdaExtractor {
         Self { summarized: true, ..Self::new(variant, worldspace) }
     }
 
+    /// A main map built from several worldspaces in one shared frame (a parent and the child worlds
+    /// built on its coordinates), named after the first.
+    pub fn parts(variant: BethesdaGameVariant, worldspaces: &[&'static str]) -> Self {
+        Self::group(variant, &worldspaces[0].to_lowercase(), worldspaces)
+    }
+
     /// A DLC place split over several exteriors, which the game builds in one shared frame:
     /// placed together and summarized by one marker called `name`.
     pub fn dlc_group(variant: BethesdaGameVariant, name: &'static str, worldspaces: &[&'static str]) -> Self {
         let id: String = name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
         Self { summarized: true, summary_name: Some(name), ..Self::group(variant, &id, worldspaces) }
+    }
+
+    /// A source of another priority tier (e.g. Operation Anchorage, a simulation of the past).
+    pub fn with_tier(self, tier: u8) -> Self {
+        Self { tier, ..self }
     }
 
     fn data_dir(&self) -> Option<PathBuf> {
@@ -174,32 +187,14 @@ impl Extractor for BethesdaExtractor {
     fn extract(&self) -> RawMapData {
         let failed = |msg: String| {
             warn!("[{}] {}", self.variant.name(), msg);
-            RawMapData { warnings: vec![msg], coordinate_scale: QUAD, priority: 1, ..Default::default() }
+            RawMapData { warnings: vec![msg], coordinate_scale: QUAD, priority: self.tier, ..Default::default() }
         };
         let Some(data_dir) = self.data_dir() else {
             return failed(format!("{} installation not found", self.variant.name()));
         };
-        let dumps: Result<Vec<Dump>, String> = (|| {
-            let mut dumps: Vec<Dump> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect::<Result<_, _>>()?;
-            // Children built on their parent's coordinates are part of its map (DC's ruins, the Pitt's
-            // districts): those with map markers of their own. The rest are rooftop views, walled-off scenes
-            // and test worlds (GNRroofWorld, WashMonTop, Oasis, TestQAWorld...).
-            if !self.variant.markers().child_map_offset {
-                let mut done: HashSet<String> = self.worldspaces.iter().map(|w| w.to_lowercase()).collect();
-                let mut i = 0;
-                while i < dumps.len() {
-                    let children: Vec<String> = dumps[i].children.iter().filter(|c| done.insert(c.to_lowercase())).cloned().collect();
-                    for c in children {
-                        let child = self.dump(&data_dir, &c)?;
-                        if !child.markers.is_empty() { dumps.push(child); }
-                    }
-                    i += 1;
-                }
-            }
-            Ok(dumps)
-        })();
+        let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
         match dumps {
-            Ok(dumps) => build(&dumps, self.variant, self.summarized.then(|| self.summary_name)),
+            Ok(dumps) => RawMapData { priority: self.tier, ..build(&dumps, self.variant, self.summarized.then(|| self.summary_name)) },
             Err(e) => failed(e),
         }
     }
@@ -213,9 +208,6 @@ struct Dump {
     markers: Vec<DumpMarker>,
     #[serde(default)]
     child_markers: Vec<DumpChildMarker>,
-    /// Editor IDs of the child worldspaces.
-    #[serde(default)]
-    children: Vec<String>,
     radiation: Vec<DumpRadiation>,
     #[serde(default)]
     statics: Vec<DumpStatic>,
@@ -368,10 +360,10 @@ struct MarkerLists {
     not_towns: &'static [&'static str],
     /// Notable landmarks.
     landmarks: &'static [&'static str],
-    /// Child worldspaces are separate places whose markers sit on the parent's map at position *
-    /// scale + offset (their ONAM data; New Vegas's Freeside). Otherwise they are parts of the parent
-    /// built on its coordinates, whatever their ONAM says (Fallout 3's DC worlds: their markers fit the
-    /// real places within 1-2 mi as they are; the Pitt's districts), and their land is the parent's too.
+    /// Child worldspaces' markers sit on the parent's map at position * scale + offset (their ONAM
+    /// data; New Vegas's Freeside), not at their own position. Fallout 3's child worlds are built on
+    /// their parent's coordinates whatever their ONAM says (DC's ruins: their markers fit the real
+    /// places within 1-2 mi as they are).
     child_map_offset: bool,
 }
 
@@ -481,13 +473,14 @@ fn quadrant_slope(h: &[i32], q: u8) -> f32 {
 }
 
 /// Terrain class with the largest share of the quadrant's ground cover (the default land texture is desert).
-fn cover_terrain(cover: &HashMap<Option<&str>, f32>, class: &HashMap<&str, &'static str>) -> &'static str {
+/// `bare`: the terrain of untextured ground (see `dump_terrain`).
+fn cover_terrain(cover: &HashMap<Option<&str>, f32>, class: &HashMap<&str, &'static str>, bare: &'static str) -> &'static str {
     let mut shares: HashMap<&'static str, f32> = HashMap::new();
     for (t, w) in cover {
-        let terrain = t.and_then(|t| class.get(t).copied()).unwrap_or("Sand");
+        let terrain = t.and_then(|t| class.get(t).copied()).unwrap_or(bare);
         *shares.entry(terrain).or_default() += w;
     }
-    shares.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or("Sand", |(t, _)| t)
+    shares.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or(bare, |(t, _)| t)
 }
 
 /// Ground that irradiates: radiation markers (circles of their radius) and Dead Money's Cloud (its
@@ -605,6 +598,15 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
     let class: HashMap<&str, &'static str> = dump.land_textures.iter()
         .map(|(k, t)| (k.as_str(), texture_terrain(t.edid.as_deref().unwrap_or(""), t.texture.as_deref().unwrap_or(""))))
         .collect();
+    // Untextured ground (beyond the playable area, its LOD baked flat gray) is taken to be the ground the
+    // worldspace's builders laid most: its most common base texture (the Mojave's and the Wasteland's dirt,
+    // Anchorage's snow, the Sierra Madre's and the Pitt's paving).
+    let mut bases: HashMap<&str, usize> = HashMap::new();
+    for l in dump.cells.iter().flat_map(|c| c.layers.iter().flatten()).filter(|l| l.alpha.is_none()) {
+        if let Some(t) = l.texture.as_deref() { *bases.entry(t).or_default() += 1; }
+    }
+    let bare = bases.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
+        .and_then(|(t, _)| class.get(t).copied()).unwrap_or("Sand");
 
     // Per quadrant tile: (wet, slope, ground cover terrain).
     let mut quads: HashMap<(i32, i32), (bool, Option<f32>, &'static str)> = HashMap::new();
@@ -616,7 +618,7 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
         for q in 0..4u8 {
             let in_quad: Vec<&DumpLayer> = layers.iter().filter(|l| l.quadrant == q).collect();
             let pos = ((cell.x - frame.x0) * 2 + (q & 1) as i32, (frame.y1 - cell.y) * 2 + 1 - (q >> 1) as i32);
-            quads.insert(pos, (wet.as_deref().is_some_and(|w| quadrant_wet(w, q)), h.map(|h| quadrant_slope(h, q)), cover_terrain(&quadrant_cover(&in_quad), &class)));
+            quads.insert(pos, (wet.as_deref().is_some_and(|w| quadrant_wet(w, q)), h.map(|h| quadrant_slope(h, q)), cover_terrain(&quadrant_cover(&in_quad), &class, bare)));
         }
     }
     // Footprint of buildings and lush plants per quadrant, as a share of its ground area.
@@ -671,7 +673,7 @@ const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Moun
 fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&str>>) -> RawMapData {
     let lists = variant.markers();
     let Some(frame) = Frame::of(dumps) else {
-        return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
+        return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, ..Default::default() };
     };
     // Worldspaces sharing a frame are different parts of one place built on the same coordinates, so
     // a quadrant shows the most notable thing any of them has there.
@@ -744,7 +746,6 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
         height,
         world_bounds: Some(MapBounds { min_x: 0, min_y: 0, max_x: width as i32 - 1, max_y: height as i32 - 1 }),
         coordinate_scale: QUAD,
-        priority: 1,
         miles_per_unit: summary.is_some().then_some(variant.miles_per_unit()),
         ..Default::default()
     }
@@ -822,9 +823,11 @@ mod tests {
     fn quadrant_rules() {
         let class: HashMap<&str, &'static str> = [("sand", "Sand"), ("city", "City")].into();
         let cover = |c: f32| -> HashMap<Option<&str>, f32> { [(Some("city"), c), (Some("sand"), 1.0 - c)].into() };
-        assert_eq!(cover_terrain(&cover(0.6), &class), "City");
-        assert_eq!(cover_terrain(&cover(0.3), &class), "Sand");
-        assert_eq!(cover_terrain(&[(None, 1.0)].into(), &class), "Sand");
+        assert_eq!(cover_terrain(&cover(0.6), &class, "Sand"), "City");
+        assert_eq!(cover_terrain(&cover(0.3), &class, "Sand"), "Sand");
+        assert_eq!(cover_terrain(&[(None, 1.0)].into(), &class, "Sand"), "Sand");
+        // Untextured ground is the worldspace's prevailing ground (Anchorage's snow).
+        assert_eq!(cover_terrain(&[(None, 1.0)].into(), &class, "Snow"), "Snow");
         // Flat cell at 100: dry under water level 50, wet under 200.
         let flat = vec![100; 33 * 33];
         let cell = DumpCell { x: 0, y: 0, water_height: None, heights: None, layers: None };
@@ -853,7 +856,6 @@ mod tests {
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
             child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
-            children: vec![],
             radiation: vec![],
             statics: vec![],
             water_planes: vec![],
@@ -887,7 +889,7 @@ mod tests {
         let ramp = |top: i32, bottom: i32| (0..33 * 33).map(|i| top + (bottom - top) * (i % 33) as i32 / 32).collect();
         let dump = |land: f32, water: f32, edge: Vec<i32>| Dump {
             worldspace: DumpWorld { name: None, edid: None, default_water_height: Some(water), default_land_height: Some(land), map_nw_cell: None, map_se_cell: None },
-            markers: vec![], child_markers: vec![], children: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
+            markers: vec![], child_markers: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
             land_textures: HashMap::new(),
             cells: vec![cell(0, flat(20000)), cell(1, edge), cell(2, flat(land as i32)), cell(3, flat(land as i32)), cell(4, flat(land as i32))],
         };

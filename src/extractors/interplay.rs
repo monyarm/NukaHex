@@ -21,7 +21,7 @@ const SUB_PX: usize = 10;
 pub enum GameVariant {
     Fallout1,
     Fallout2,
-    /// Fallout 2–engine total conversions (tier 5), fetched by `crate::mods`. Their markers only
+    /// Fallout 2–engine total conversions (tier 6), fetched by `crate::mods`. Their markers only
     /// anchor the warp; they place terrain, not markers.
     FalloutNevada,
     FalloutSonora,
@@ -93,7 +93,7 @@ impl Extractor for FalloutInterplayExtractor {
             Err(e) if self.variant.is_mod() => {
                 let msg = format!("{} skipped: {}", self.variant.name(), e);
                 warn!("{}", msg);
-                RawMapData { warnings: vec![msg], coordinate_scale: SQUARE_PX as f32, priority: 5, ..Default::default() }
+                RawMapData { warnings: vec![msg], coordinate_scale: SQUARE_PX as f32, priority: crate::schema::tier::MODS, ..Default::default() }
             }
             Err(e) => {
                 error!("Error extracting {} data: {}", self.variant.name(), e);
@@ -175,7 +175,7 @@ impl FalloutInterplayExtractor {
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
             coordinate_scale: scale, // pixels per tile; derived Default would give 0.0
-            priority: if self.variant.is_mod() { 5 } else { 1 },
+            priority: if self.variant.is_mod() { crate::schema::tier::MODS } else { crate::schema::tier::MAIN },
             anchor_only_markers: self.variant.is_mod(),
             world_bounds: None,
             warnings,

@@ -1,4 +1,4 @@
-//! Mod files (tier 5): fetched once from their hosts into `.cache/mods/<id>/`, verified against the
+//! Mod files (tier 6): fetched once from their hosts into `.cache/mods/<id>/`, verified against the
 //! hash recorded in `input/config/mods.json`, and unpacked (7z, or innoextract for Inno Setup
 //! installers; both external tools, like curl). The ModDB and Mediafire resolvers follow
 //! `~/.nix/lib/fetchers/{moddb,mediafire}.nix`.

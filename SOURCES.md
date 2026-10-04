@@ -1,8 +1,12 @@
 # Sources checklist
 
-Every Fallout game and add-on, and whether the map uses it. Tiers (vote weight and build order) are
-set in each extractor's `priority`: 1 main games and manual locations, 2 Fallout 76, 3 Tactics and
-Van Buren, 4 Brotherhood of Steel, 5 mods.
+Every Fallout game and add-on, and whether the map uses it. Tiers (vote weight and build order;
+`schema::tier`): 1 main games and manual locations, 2 Fallout 76, 3 simulations of the past
+(Operation Anchorage), 4 Tactics and Van Buren, 5 Brotherhood of Steel, 6 mods. Vote weights
+16/8/6/4/2/1.
+
+Places far from the contiguous US (Alaska) are drawn as framed insets in the overviews' south-west
+corner; their own cluster maps are at the real place.
 
 ✅ on the map · ⬜ to do · ⏸ deferred · ➖ nothing to place (no geography, or an interior/simulation)
 
@@ -12,20 +16,22 @@ Van Buren, 4 Brotherhood of Steel, 5 mods.
 ## Fallout 2 (1998) — tier 1
 - ✅ Northern California / Oregon / Nevada world map (`interplay.rs`)
 
-## Fallout Tactics: Brotherhood of Steel (2001) — tier 3
+## Fallout Tactics: Brotherhood of Steel (2001) — tier 4
 - ✅ Midwest world map, Illinois to Colorado (`tactics.rs`)
 
-## Van Buren (cancelled; 2007 tech demo) — tier 3
+## Van Buren (cancelled; 2007 tech demo) — tier 4
 - ✅ Colorado / Utah / Arizona world map (`van_buren.rs`)
 
-## Fallout: Brotherhood of Steel (2004, PS2/Xbox) — tier 4
+## Fallout: Brotherhood of Steel (2004, PS2/Xbox) — tier 5
 - ⏸ Carbon, Los (Dallas), the Vault — deferred: needs the engine's mesh/material format
   (`.claude/plans/fallout_bos.md`)
 - ➖ Fallout: Brotherhood of Steel 2 — cancelled
 
 ## Fallout 3 (2008) — tier 1 (Mutagen)
 - ✅ Capital Wasteland (`Wasteland`), incl. its LOD ring; DC's ruins contribute their map markers
-- ⬜ Operation: Anchorage — ➖ a simulation of Alaska, not a place to map
+- ✅ Operation: Anchorage — the simulated 2077 Anchorage front (tier 3): the battle, the Artillery
+  Overlook and the Chinese HQ, at Anchorage, Alaska; the Glacier (the opening cliff climb, other land)
+  is left out
 - ✅ The Pitt — Pittsburgh (the Pitt and its three districts, which share its frame; at Downtown
   Pittsburgh)
 - ⬜ Broken Steel — extends the Capital Wasteland (no new worldspace of note)
@@ -67,7 +73,7 @@ Van Buren, 4 Brotherhood of Steel, 5 mods.
 - ✅ Fallout: Wasteland Warfare — NCR map (manual JSON in `input/manual/tabletop`)
 - ➖ Fallout: The Roleplaying Game — checked, little usable map data (a long-shot source)
 
-## Mods — tier 5
+## Mods — tier 6
 Fetched by `src/mods.rs` from `input/config/mods.json` (ModDB, Mediafire; hash-checked). Their
 markers only anchor the warp; their terrain adds detail. Nexus files need Premium or a manual
 download (see TODO.md).

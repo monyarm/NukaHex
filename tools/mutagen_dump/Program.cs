@@ -225,7 +225,6 @@ var output = new Dictionary<string, object?>
     },
     ["markers"] = markers,
     ["child_markers"] = childMarkers,
-    ["children"] = children.Values.Select(w => w.EditorID).Where(e => e != null).OrderBy(e => e).ToArray(),
     ["doors"] = doors,
     ["statics"] = statics,
     ["water_planes"] = waterPlanes,

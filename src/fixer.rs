@@ -104,7 +104,7 @@ const REAL_COORDS: &[(&str, &str)] = &[
     // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
     // Desert meets the Grand Canyon, at Grand Canyon West.
     ("Sierra Madre", "Grand Canyon West, Arizona"),
-    // Fallout 2-engine mods (tier 5; keys are their in-game area names, map.msg 1500+). Their markers
+    // Fallout 2-engine mods (tier 6; keys are their in-game area names, map.msg 1500+). Their markers
     // only anchor the warp. Names shared with Fallout 2 (Vault City, New Reno) are the same places.
     // Fallout: Sonora. Dayglow is San Diego in canon.
     ("Flagstaff", "Flagstaff, Arizona"),
@@ -155,6 +155,8 @@ const REAL_COORDS: &[(&str, &str)] = &[
     // Bog): each placed by one real place at Fallout 3's scale.
     ("Pitt Downtown", "Downtown Pittsburgh"),
     ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
+    // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
+    ("Operation Anchorage", "Anchorage, Alaska"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -249,11 +251,11 @@ pub fn salience(tile_type: &str) -> f32 {
 /// Terrain types that are detail over plain ground: one source's detail beats another's Sand.
 const DETAILS: &[&str] = &["Water", "Grass", "Forest", "Snow", "Radiation", "City"];
 
-/// One source's votes in a hex: its tier (1 = primary .. 5 = mods) and its weighted votes by type.
+/// One source's votes in a hex: its tier (`schema::tier`) and its weighted votes by type.
 type SourceVotes = (u8, HashMap<String, f32>);
 
 /// Tier of a raw map (0, the default, counts as 1).
-fn tier(map: &RawMapData) -> u8 { map.priority.clamp(1, 5) }
+fn tier(map: &RawMapData) -> u8 { map.priority.clamp(crate::schema::tier::MAIN, crate::schema::tier::WEAKEST) }
 
 /// The winning type of a set of votes (salience-weighted; ties by name, not hash order).
 fn pick(votes: &HashMap<String, f32>) -> Option<&String> {
@@ -489,15 +491,28 @@ fn relative_placement<'a>(map: &'a RawMapData, placed: &HashMap<String, (f32, f3
 }
 
 /// New Global Aligner: Finds a single (dLat, dLon) offset per cluster based on an anchor.
+/// The main landmass of the overview maps (the contiguous US, with the Mexican borderlands): a
+/// cluster placed outside it is drawn as an inset instead (see `fix_translation_only`).
+const MAIN_LANDMASS: BoundingBox = BoundingBox { min_lat: 24.0, max_lat: 50.0, min_lon: -125.0, max_lon: -66.0 };
+/// Insets stack northwards from the south-west corner of the main map's extent (open Pacific: the
+/// map's west edge is the Oregon coast, its south edge Mexico), this far apart and from the corner.
+const INSET_GAP_MILES: f32 = 30.0;
+
 pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<RawMapData>, resolution: f32, _bounds: Option<BoundingBox>) -> FixedMapData {
     info!("Aligning {} game clusters and {} manual maps via translation...", game_clusters.len(), manual_maps.len());
     
     let mut all_fixed_locations = Vec::new();
     let mut all_fixed_tiles = Vec::new();
     let mut warnings = Vec::new();
+    // Insets: (cluster, region name), true positions of their markers, and the column's next free mile.
+    let mut insets: Vec<(usize, String)> = Vec::new();
+    let mut true_position: HashMap<String, (f32, f32)> = HashMap::new();
+    let mut inset_cursor = 0.0f32;
+    // Per cluster, after its alignment: markers (name, lat, lon, icon) and tiles (type, lat, lon).
+    let mut placed_clusters: Vec<(Vec<(String, f32, f32, crate::schema::IconType)>, Vec<(String, f32, f32)>)> = Vec::new();
 
     // We'll project everything to lat/lon first
-    for (cluster_idx, cluster) in game_clusters.iter().enumerate() {
+    for cluster in &game_clusters {
         warnings.extend(cluster.warnings.clone());
         // 1. Pick Anchor
         // User: "pick the first marker with proper lat/lon, or the first marker if there isn't one"
@@ -555,20 +570,60 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             (d_lat, d_lon)
         } };
 
-        // Apply offset to all markers
-        for loc in &cluster.locations {
-            let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
-                warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name));
-                continue;
-            };
-            all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type, priority_weight(cluster.priority), false));
-        }
+        let locs: Vec<_> = cluster.locations.iter().filter_map(|loc| match (loc.real_lat, loc.real_lon) {
+            (Some(lat), Some(lon)) => Some((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type)),
+            _ => { warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name)); None }
+        }).collect();
+        let tiles: Vec<_> = cluster.tiles.iter().filter_map(|t| Some((t.tile_type.clone(), t.real_lat? + d_lat, t.real_lon? + d_lon))).collect();
+        placed_clusters.push((locs, tiles));
+    }
 
-        // Apply offset to all tiles
-        for tile in &cluster.tiles {
-            if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon, priority_weight(cluster.priority), cluster_idx, tier(cluster)));
+    // A cluster placed outside the main landmass is drawn in the inset column when the map also shows the
+    // landmass, keeping its shape and scale (offsets from its centre in local miles); its markers keep
+    // their true positions.
+    let centres: Vec<Option<(f32, f32)>> = placed_clusters.iter().map(|(_, tiles)| {
+        let land: Vec<(f32, f32)> = tiles.iter().filter(|t| t.0 != "unknown").map(|t| (t.1, t.2)).collect();
+        let n = land.len() as f32;
+        (!land.is_empty()).then(|| (land.iter().map(|p| p.0).sum::<f32>() / n, land.iter().map(|p| p.1).sum::<f32>() / n))
+    }).collect();
+    let on_landmass = |(lat, lon): (f32, f32)| (MAIN_LANDMASS.min_lat..=MAIN_LANDMASS.max_lat).contains(&lat)
+        && (MAIN_LANDMASS.min_lon..=MAIN_LANDMASS.max_lon).contains(&lon);
+    let shows_landmass = centres.iter().flatten().any(|&c| on_landmass(c));
+    // The south-west corner of everything drawn at its real place (grid columns grow east, rows south).
+    let (min_col, max_row) = placed_clusters.iter().zip(&centres).filter(|(_, c)| c.is_some_and(on_landmass))
+        .flat_map(|((_, tiles), _)| tiles.iter().filter(|t| t.0 != "unknown").map(|t| to_grid(t.1, t.2, resolution)))
+        .fold((f32::MAX, f32::MIN), |a, (c, r)| (a.0.min(c), a.1.max(r)));
+    let corner = from_grid(min_col, max_row, resolution);
+    for (cluster_idx, (locs, tiles)) in placed_clusters.into_iter().enumerate() {
+        let cluster = &game_clusters[cluster_idx];
+        let far = shows_landmass && centres[cluster_idx].is_some_and(|c| !on_landmass(c));
+        let to_inset: Box<dyn Fn(f32, f32) -> (f32, f32)> = match centres[cluster_idx].filter(|_| far) {
+            None => Box::new(|lat, lon| (lat, lon)),
+            Some(centre) => {
+                let kx = MILES_PER_DEGREE_LAT * centre.0.to_radians().cos();
+                let miles = move |lat: f32, lon: f32| ((lon - centre.1) * kx, (lat - centre.0) * MILES_PER_DEGREE_LAT);
+                let land = tiles.iter().filter(|t| t.0 != "unknown").map(|t| miles(t.1, t.2));
+                let (west, north, south) = land.fold((f32::MAX, f32::MIN, f32::MAX), |a, m| (a.0.min(m.0), a.1.max(m.1), a.2.min(m.1)));
+                inset_cursor += INSET_GAP_MILES;
+                let slot_lat = corner.0 + (inset_cursor - south) / MILES_PER_DEGREE_LAT;
+                let slot_kx = MILES_PER_DEGREE_LAT * slot_lat.to_radians().cos();
+                let slot_lon = corner.1 + (INSET_GAP_MILES - west) / slot_kx;
+                inset_cursor += north - south;
+                let name = crate::borders::region_at(centre.0, centre.1)
+                    .map_or_else(|| format!("{:.1}, {:.1}", centre.0, centre.1), |r| crate::borders::REGIONS[r as usize].name.clone());
+                info!("Cluster {} lies outside the main landmass ({}): drawn as an inset", cluster_idx, name);
+                insets.push((cluster_idx, name));
+                Box::new(move |lat, lon| { let (e, n) = miles(lat, lon); (slot_lat + n / MILES_PER_DEGREE_LAT, slot_lon + e / slot_kx) })
             }
+        };
+        for (name, lat, lon, icon) in locs {
+            if far { true_position.insert(name.to_lowercase(), (lat, lon)); }
+            let (glat, glon) = to_inset(lat, lon);
+            all_fixed_locations.push((name, glat, glon, icon, priority_weight(cluster.priority), false));
+        }
+        for (t_type, lat, lon) in tiles {
+            let (glat, glon) = to_inset(lat, lon);
+            all_fixed_tiles.push((t_type, glat, glon, priority_weight(cluster.priority), cluster_idx, tier(cluster)));
         }
     }
 
@@ -638,9 +693,10 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
 
     for (name, lat, lon, icon) in merged {
         let (gx, gy) = to_grid(lat, lon, resolution);
+        let (real_lat, real_lon) = true_position.get(&name.to_lowercase()).copied().unwrap_or((lat, lon));
         grid_locations.push(FixedLocation {
             name, x: gx, y: gy, icon_type: icon,
-            real_lat: Some(lat), real_lon: Some(lon),
+            real_lat: Some(real_lat), real_lon: Some(real_lon),
             anchor: None, // We don't need to propagate anchors in the final grid
         });
     }
@@ -649,10 +705,15 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     // (ties broken by name, so the result does not depend on input order).
     let mut votes: HashMap<(i32, i32), HashMap<usize, SourceVotes>> = HashMap::new();
     let mut water: HashMap<(i32, i32), (i32, i32)> = HashMap::new(); // water: 1 mi hex -> output hex
+    let mut inset_cells: HashMap<usize, (i32, i32, i32, i32)> = HashMap::new(); // cluster -> grid box
     for (t_type, lat, lon, w, source, tier) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
         let cell = hex_at(gx, gy);
+        if insets.iter().any(|(c, _)| *c == source) {
+            let b = inset_cells.entry(source).or_insert((cell.0, cell.1, cell.0, cell.1));
+            *b = (b.0.min(cell.0), b.1.min(cell.1), b.2.max(cell.0), b.3.max(cell.1));
+        }
         if t_type == "Water" {
             let (fx, fy) = to_grid(lat, lon, 1.0);
             water.insert(hex_at(fx, fy), cell);
@@ -663,9 +724,11 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         .filter_map(|(k, v)| resolve_hex(&v).map(|best| (k, best))).collect();
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
 
-    // Every placed tile and every marker (a marker off the grid would be lost).
-    let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32));
-    let ys = grid_tiles_map.keys().map(|k| k.1).chain(grid_locations.iter().map(|l| l.y.round() as i32));
+    // Every placed tile and every marker (a marker off the grid would be lost), and room for each
+    // inset's frame (two hexes around it).
+    let frames = || inset_cells.values().flat_map(|&(x0, y0, x1, y1)| [(x0 - 2, y0 - 2), (x1 + 2, y1 + 2)]);
+    let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32)).chain(frames().map(|p| p.0));
+    let ys = grid_tiles_map.keys().map(|k| k.1).chain(grid_locations.iter().map(|l| l.y.round() as i32)).chain(frames().map(|p| p.1));
     let (min_x, max_x) = xs.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
     let (min_y, max_y) = ys.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
     // Grid bounds: exactly the placed tiles and markers (nothing that does not exist is drawn).
@@ -699,6 +762,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         l.y -= min_y as f32;
         l
     }).collect();
+    let insets = insets.into_iter().filter_map(|(c, name)| inset_cells.get(&c).map(|&(x0, y0, x1, y1)|
+        crate::schema::Inset { name, x0: x0 - min_x, y0: y0 - min_y, x1: x1 - min_x, y1: y1 - min_y })).collect();
 
     FixedMapData {
         tiles: final_tiles,
@@ -707,6 +772,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         global_offset_x: 0, global_offset_y: 0,
         warnings,
         world_bounds: game_clusters.first().and_then(|m| m.world_bounds),
+        insets,
     }
 }
 
@@ -821,6 +887,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
         global_offset_y: if min_y == i32::MAX { 0 } else { min_y },
         warnings: raw_maps.iter().flat_map(|m| m.warnings.clone()).collect(),
         world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
+        insets: Vec::new(),
     }
 }
 
@@ -836,7 +903,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
 
 /// `dense_maps`: how many of `raw_maps` (the first ones) are already-fixed cluster grids.
 fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize, miles_per_hex: f32, bounds_limit: Option<BoundingBox>) -> FixedMapData {
-    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![], world_bounds: None }; }
+    if raw_maps.is_empty() { return FixedMapData { tiles: vec![], locations: vec![], width: 0, height: 0, global_offset_x: 0, global_offset_y: 0, warnings: vec![], world_bounds: None, insets: Vec::new() }; }
     
     let mut warnings = Vec::new();
 
@@ -1154,6 +1221,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 global_offset_x: 0, global_offset_y: 0,
                 warnings: warnings,
                 world_bounds: None,
+                insets: Vec::new(),
                     };
         }
 
@@ -1173,6 +1241,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             global_offset_x: 0, global_offset_y: 0,
             warnings: warnings,
             world_bounds: None,
+            insets: Vec::new(),
             };
     }
 
@@ -1559,6 +1628,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
         global_offset_y: 0,
         warnings: final_warnings,
         world_bounds: raw_maps.first().and_then(|m| m.world_bounds),
+        insets: Vec::new(),
     }
 }
 

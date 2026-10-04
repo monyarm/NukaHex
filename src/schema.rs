@@ -111,7 +111,7 @@ pub struct RawMapData {
     pub world_bounds: Option<MapBounds>, // Official worldspace extents
     #[serde(default)]
     pub miles_per_unit: Option<f32>, // Relative maps: real miles per grid unit, if known
-    /// Source priority tier (1 = canon games and manual locations ... 5 = mods); sets vote weight.
+    /// Source priority tier (see `tier`); sets vote weight.
     #[serde(default)]
     pub priority: u8,
     /// The markers only anchor the warp (a mod placing terrain, not markers): they are not placed.
@@ -131,9 +131,25 @@ pub struct RawControlPoint {
     pub lon: f32,
 }
 
-/// Vote weight of a source priority tier: 16/8/4/2/1 for tiers 1..5 (0, the default, counts as 1).
+/// Source priority tiers, strongest first (see `priority_weight` for their vote weights).
+pub mod tier {
+    /// The main games (Fallout 1-4, New Vegas) and manual locations.
+    pub const MAIN: u8 = 1;
+    pub const FALLOUT_76: u8 = 2;
+    /// Simulations of the past, set before the games (Operation Anchorage's Alaska, 2077).
+    pub const PAST_SIMULATION: u8 = 3;
+    /// Fallout Tactics, Van Buren.
+    pub const SPIN_OFF: u8 = 4;
+    pub const BROTHERHOOD_OF_STEEL: u8 = 5;
+    pub const MODS: u8 = 6;
+    pub const WEAKEST: u8 = MODS;
+}
+
+/// Vote weight of a source priority tier: each tier counts double the next, except the simulation of
+/// the past, slightly under Fallout 76 (16/8/6/4/2/1 for tiers 1..6; 0, the default, counts as 1).
 pub fn priority_weight(priority: u8) -> f32 {
-    (1u32 << (5 - priority.clamp(1, 5))) as f32
+    const WEIGHTS: [f32; tier::WEAKEST as usize] = [16.0, 8.0, 6.0, 4.0, 2.0, 1.0];
+    WEIGHTS[(priority.clamp(tier::MAIN, tier::WEAKEST) - 1) as usize]
 }
 
 fn default_coordinate_scale() -> f32 {
@@ -188,6 +204,19 @@ pub struct FixedMapData {
     pub warnings: Vec<String>,
     #[serde(default)]
     pub world_bounds: Option<MapBounds>,
+    /// Places far from the main landmass drawn in a box off its coast (as US maps draw Alaska).
+    #[serde(default)]
+    pub insets: Vec<Inset>,
+}
+
+/// An inset: the grid box (inclusive) its hexes occupy, and the real region it shows.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Inset {
+    pub name: String,
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

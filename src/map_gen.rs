@@ -311,6 +311,29 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         y: 0,
     };
 
+    // Insets: a frame around each one's hexes (a hex's width outside them), labelled with its region.
+    let mut frames = Vec::new();
+    for inset in &map_data.insets {
+        let (x0, y0) = ((inset.x0 * 66 - 66) as f32, (inset.y0 * 57 - 57) as f32);
+        let (x1, y1) = ((inset.x1 * 66 + 66 + 33 + 66) as f32, (inset.y1 * 57 + 76 + 57) as f32);
+        frames.push(Object {
+            id: next_obj_id, name: format!("{} inset", inset.name), obj_type: "InsetFrame".into(),
+            width: 0.0, height: 0.0, rotation: 0.0, gid: None, visible: true, x: x0, y: y0, point: None, text: None,
+            polyline: Some([(0.0, 0.0), (x1 - x0, 0.0), (x1 - x0, y1 - y0), (0.0, y1 - y0), (0.0, 0.0)]
+                .into_iter().map(|(x, y)| PolyPoint { x, y }).collect()),
+        });
+        next_obj_id += 1;
+        label_objects.push(Object {
+            id: next_obj_id, name: format!("{}_inset_label", inset.name), obj_type: "Text".into(),
+            width: 500.0, height: 24.0, rotation: 0.0, gid: None, visible: true, x: x0, y: y0 - 28.0, point: Some(false),
+            text: Some(Text { text: inset.name.clone(), color: "#FFFFFF".into(), bold: Some(true), halign: "left".into(), valign: "bottom".into(), pixelsize: 18.0 }),
+            polyline: None,
+        });
+        next_obj_id += 1;
+    }
+    let mut borders = border_layer(&map_data.tiles, 4, &mut next_obj_id);
+    if let Layer::ObjectGroup { objects, .. } = &mut borders { objects.extend(frames); }
+
     let text_layer = Layer::ObjectGroup {
         id: 3,
         name: "Labels".to_string(),
@@ -326,7 +349,7 @@ pub fn generate_tmj(output_dir: &Path, filename: &str, map_data: &FixedMapData, 
         height,
         width,
         infinite: false,
-        layers: vec![tile_layer, border_layer(&map_data.tiles, 4, &mut next_obj_id), object_layer, text_layer],
+        layers: vec![tile_layer, borders, object_layer, text_layer],
         nextlayerid: 5,
         nextobjectid: next_obj_id,
         orientation: "hexagonal".to_string(),
