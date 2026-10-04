@@ -6,8 +6,9 @@ use std::process::Command;
 /// Mutagen 0.54 needs the .NET 9 SDK: `$DOTNET_ROOT/dotnet` is preferred over the `dotnet` on PATH.
 fn main() {
     let helper = Path::new("tools/mutagen_dump");
-    for f in ["Program.cs", "mutagen_dump.csproj"] {
-        println!("cargo:rerun-if-changed={}", helper.join(f).display());
+    println!("cargo:rerun-if-changed={}", helper.join("mutagen_dump.csproj").display());
+    for f in std::fs::read_dir(helper).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "cs")) {
+        println!("cargo:rerun-if-changed={}", f.display());
     }
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=DOTNET_ROOT");

@@ -157,13 +157,39 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
     // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
     ("Operation Anchorage", "Anchorage, Alaska"),
-    // Fallout 4
-    ("Diamond City", "42.346676,-71.097218"), // Fenway Park
-    ("Goodneighbor", "42.358433,-71.057530"), // Old State House
-    ("Boston Public Library", "42.349395,-71.076615"),
-    ("Bunker Hill", "42.376365,-71.060773"),
-    ("USS Constitution", "42.372439,-71.056586"),
-    ("Old North Church", "42.366367,-71.054378"),
+    // Fallout 4 (keys are the game's marker names; values the real places they depict). Not anchored:
+    // fictional places; downtown landmarks within a mile of these; Rocky Narrows Park (the game's is
+    // north-west of Boston, the real one in Sherborn to the south-west, ~13 mi off); Fort Strong (the
+    // game's is 5 mi north of Spectacle Island, the real one 1 mi south-east of it); and buildings standing
+    // for a town (Natick Banks, Milton General Hospital), which fold the warp against the real places beside.
+    ("Diamond City", "Fenway Park"),
+    ("Goodneighbor", "Old State House, Boston"),
+    ("Boston Common", "Boston Common"),
+    ("Bunker Hill", "Bunker Hill Monument"),
+    ("USS Constitution", "USS Constitution Museum"),
+    ("C.I.T. Ruins", "Massachusetts Institute of Technology"),
+    ("The Castle", "Castle Island, Boston"),
+    ("Boston Airport", "Boston Logan International Airport"),
+    ("Concord", "Concord, Massachusetts"),
+    ("Lexington", "Lexington, Massachusetts"),
+    ("Bedford Station", "Bedford, Massachusetts"),
+    ("Walden Pond", "Walden Pond"),
+    ("Salem", "Salem, Massachusetts"),
+    ("Lynn Woods", "Lynn Woods Reservation"),
+    ("Breakheart Banks", "Breakheart Reservation"),
+    ("Saugus Ironworks", "Saugus Iron Works National Historic Site"),
+    ("Lake Quannapowitt", "Lake Quannapowitt"),
+    ("Malden Center", "Malden, Massachusetts"),
+    ("Medford Memorial Hospital", "Medford, Massachusetts"),
+    ("Revere Beach Station", "Revere Beach"),
+    ("Nahant Wharf", "Nahant, Massachusetts"),
+    ("Spectacle Island", "Spectacle Island, Boston"),
+    ("Weston Water Treatment Plant", "Weston, Massachusetts"),
+    ("Lake Cochituate", "Lake Cochituate"),
+    ("Chestnut Hillock Reservoir", "Chestnut Hill Reservoir"),
+    ("Jamaica Plain", "Jamaica Plain, Boston"),
+    ("Hyde Park", "Hyde Park, Boston"),
+    ("Quincy Ruins", "Quincy, Massachusetts"),
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
@@ -933,32 +959,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     for (name, coords_str) in REAL_COORDS.iter() {
         if let Ok((lat, lon)) = geocoding::parse_coords(coords_str) {
             let canonical = name.to_string();
-            real_coords_map.insert(canonical.to_lowercase(), (lat, lon, canonical.clone()));
-            
-            // FO4 editor-ID aliases (FO1/FO2 aliases live in the Interplay extractor, per game).
-            // ponytail: belongs in the Bethesda extractor's name remap; move when FO4 is audited.
-            if name.to_lowercase() == "diamond city" {
-                real_coords_map.insert("diamondcity".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("diamond city".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("diamondcityref".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("diamondcitymarketref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "goodneighbor" || name.to_lowercase() == "good neighbor" {
-                real_coords_map.insert("goodneighbor".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("good neighbor".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("goodneighborref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "bunker hill" {
-                real_coords_map.insert("bunkerhillmonument".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("bunker hill".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("bunkerhillmonumentref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "uss constitution" {
-                real_coords_map.insert("ussconstitution".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("uss constitution".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("ussconstitutionref".to_string(), (lat, lon, canonical.clone()));
-            } else if name.to_lowercase() == "boston public library" {
-                real_coords_map.insert("bostonpubliclibrary".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("boston public library".to_string(), (lat, lon, canonical.clone()));
-                real_coords_map.insert("bostonpubliclibraryref".to_string(), (lat, lon, canonical.clone()));
-            }
+            real_coords_map.insert(canonical.to_lowercase(), (lat, lon, canonical));
         }
     }
 

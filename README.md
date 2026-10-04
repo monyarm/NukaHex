@@ -14,7 +14,7 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 | Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 3 | ✅ Supported | Automatic (Steam), via Mutagen | Capital Wasteland, The Pitt, Point Lookout and Operation Anchorage (an Alaska inset), all DLC loaded |
 | Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave and all four add-on areas (Sierra Madre, Zion, Big MT, the Divide) |
-| Fallout 4 | 🔧 Planned | Mutagen (C# helper) | To be redone on the Mutagen path |
+| Fallout 4 | ✅ Supported | Automatic (Steam), via Mutagen | The Commonwealth; Far Harbor and Nuka-World next |
 | Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |
 | Fallout Tactics | ✅ Supported | Automatic (Steam) | World map and towns |
 | Van Buren (tech demo) | ✅ Supported | Automatic | World map art and markers |

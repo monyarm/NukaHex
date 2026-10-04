@@ -11,5 +11,6 @@ pub trait Extractor: Sync + Send {
 pub mod interplay;
 pub mod manual;
 pub mod bethesda;
+pub mod lod;
 pub mod van_buren;
 pub mod tactics;

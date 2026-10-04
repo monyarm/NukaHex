@@ -91,6 +91,7 @@ fn main() -> std::io::Result<()> {
         "DLC4Pointlookout", "DLC4Bog",
     ])));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
+    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Commonwealth"))); // Boston
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC03BigMT"))); // Old World Blues
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::FalloutNV, "Sierra Madre", &[ // Dead Money

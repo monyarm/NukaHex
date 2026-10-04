@@ -49,12 +49,16 @@ corner; their own cluster maps are at the real place.
   and Dry Wells come through the Mojave's child links
 - ➖ Gun Runners' Arsenal, Courier's Stash packs — items only
 
-## Fallout 4 (2015) — tier 1 (Mutagen, `Mutagen.Bethesda.Fallout4`)
-- ⬜ The Commonwealth (Boston); the old fo76utils path was removed, to be redone
+## Fallout 4 (2015) — tier 1 (Mutagen, `Mutagen.Bethesda.Fallout4`; official plugins and the
+Creation Club plugins listed in Fallout4.ccc)
+- ✅ The Commonwealth (Boston), incl. its modelled land around; Diamond City and Goodneighbor
+  contribute their map markers; the Glowing Sea's ground reads as Radiation
 - ⬜ Far Harbor (Mount Desert Island, Maine)
 - ⬜ Nuka-World
 - ➖ Automatron, Wasteland Workshop, Contraptions Workshop, Vault-Tec Workshop — no new land
   (Vault 88 is an interior)
+- ➖ Creation Club / Creations — none of the installed ones adds a worldspace; their quests are set in
+  the Commonwealth (the Enclave Remnants' camps, Sea Scavengers in the Glowing Sea) and load with it
 
 ## Fallout Shelter (2015)
 - ➖ No geography
