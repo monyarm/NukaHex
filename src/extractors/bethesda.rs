@@ -15,15 +15,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const CELL: f32 = 4096.0;
-/// Real miles per game unit of the Mojave map (the mean scale of an affine fit to its 24 anchors:
-/// 0.280 and 0.258 along its axes, i.e. about 1.1 mi per cell). DLC worldspaces placed by a single
-/// canon or fan-theory location use it, so they keep their size relative to the Mojave.
-const NV_MILES_PER_UNIT: f32 = 0.000269;
 const QUAD: f32 = CELL / 2.0;
 const VERTEX_SPACING: f32 = CELL / 32.0;
-/// Built-up share (building footprint over ground area), averaged over a quadrant and its 8
-/// neighbours, above which ground is urban: Vegas and the denser towns, not lone shacks.
-const CITY_FOOTPRINT: f32 = 0.3;
 /// Architecture meshes that are not buildings or ruins (City also stands for rubble, so rubble and
 /// walls count): roads, street furniture, infrastructure, camps, craters and the dam.
 const NOT_BUILDINGS: &[&str] = &[
@@ -43,13 +36,15 @@ const NOT_LUSH: &[&str] = &[
     "sassafras", "tree",
 ];
 
-/// What a placed static's mesh contributes to the ground: City (buildings and ruins), Grass (lush
-/// plants), or nothing.
+/// What a placed static's mesh contributes to the ground: City (buildings, ruins and rubble wherever
+/// its mesh is filed, e.g. the Pitt's crater rubble or office rubble piles outside; rock debris is
+/// desert), Grass (lush plants), or nothing.
 fn static_terrain(model: &str) -> Option<&'static str> {
     let m = model.to_lowercase();
     if m.contains("architecture") {
-        return (!NOT_BUILDINGS.iter().any(|w| m.contains(w))).then_some("City");
+        return (!NOT_BUILDINGS.iter().any(|w| m.contains(w)) || m.contains("rubble")).then_some("City");
     }
+    if m.contains("rubble") && !m.contains("rock") { return Some("City"); }
     let plant = m.contains("landscape\\plants") || m.contains("landscape\\trees") || m.starts_with("trees\\")
         || m.ends_with(".spt") || m.contains("vault22");
     (plant && !NOT_LUSH.iter().any(|w| m.contains(w))).then_some("Grass")
@@ -83,6 +78,19 @@ impl BethesdaGameVariant {
     }
     fn markers(&self) -> &'static MarkerLists {
         match self { Self::Fallout3 => &FO3_MARKERS, Self::FalloutNV => &NV_MARKERS }
+    }
+    /// Real miles per game unit of the main map: the mean scale of an affine fit to its anchors (the
+    /// Mojave's 24: 0.280 and 0.258 along its axes, about 1.1 mi per cell; the Capital Wasteland's 16:
+    /// 0.217 and 0.104, its core squeezed and Raven Rock pulled out). DLC worldspaces placed by one
+    /// location use it, so they keep their size relative to their game's main map.
+    /// Built-up share (building, ruin and rubble footprint over ground area), averaged over a quadrant
+    /// and its 8 neighbours, from which ground is urban. New Vegas: Vegas and the denser towns, not lone
+    /// shacks. Fallout 3's capital is ruins throughout, its rubble spilling around them: half that.
+    fn city_footprint(&self) -> f32 {
+        match self { Self::Fallout3 => 0.15, Self::FalloutNV => 0.3 }
+    }
+    fn miles_per_unit(&self) -> f32 {
+        match self { Self::Fallout3 => 0.000161, Self::FalloutNV => 0.000269 }
     }
 }
 
@@ -171,9 +179,27 @@ impl Extractor for BethesdaExtractor {
         let Some(data_dir) = self.data_dir() else {
             return failed(format!("{} installation not found", self.variant.name()));
         };
-        let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
+        let dumps: Result<Vec<Dump>, String> = (|| {
+            let mut dumps: Vec<Dump> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect::<Result<_, _>>()?;
+            // Children built on their parent's coordinates are part of its map (DC's ruins, the Pitt's
+            // districts): those with map markers of their own. The rest are rooftop views, walled-off scenes
+            // and test worlds (GNRroofWorld, WashMonTop, Oasis, TestQAWorld...).
+            if !self.variant.markers().child_map_offset {
+                let mut done: HashSet<String> = self.worldspaces.iter().map(|w| w.to_lowercase()).collect();
+                let mut i = 0;
+                while i < dumps.len() {
+                    let children: Vec<String> = dumps[i].children.iter().filter(|c| done.insert(c.to_lowercase())).cloned().collect();
+                    for c in children {
+                        let child = self.dump(&data_dir, &c)?;
+                        if !child.markers.is_empty() { dumps.push(child); }
+                    }
+                    i += 1;
+                }
+            }
+            Ok(dumps)
+        })();
         match dumps {
-            Ok(dumps) => build(&dumps, self.variant.markers(), self.summarized.then(|| self.summary_name)),
+            Ok(dumps) => build(&dumps, self.variant, self.summarized.then(|| self.summary_name)),
             Err(e) => failed(e),
         }
     }
@@ -187,6 +213,9 @@ struct Dump {
     markers: Vec<DumpMarker>,
     #[serde(default)]
     child_markers: Vec<DumpChildMarker>,
+    /// Editor IDs of the child worldspaces.
+    #[serde(default)]
+    children: Vec<String>,
     radiation: Vec<DumpRadiation>,
     #[serde(default)]
     statics: Vec<DumpStatic>,
@@ -339,10 +368,10 @@ struct MarkerLists {
     not_towns: &'static [&'static str],
     /// Notable landmarks.
     landmarks: &'static [&'static str],
-    /// Child worldspaces' markers sit on the parent's map at position * scale + offset (their ONAM
-    /// data; New Vegas's Freeside), not at their own position. Fallout 3's DC worlds share the
-    /// Wasteland's coordinates whatever their ONAM says: their markers fit the real places within
-    /// 1-2 mi as they are.
+    /// Child worldspaces are separate places whose markers sit on the parent's map at position *
+    /// scale + offset (their ONAM data; New Vegas's Freeside). Otherwise they are parts of the parent
+    /// built on its coordinates, whatever their ONAM says (Fallout 3's DC worlds: their markers fit the
+    /// real places within 1-2 mi as they are; the Pitt's districts), and their land is the parent's too.
     child_map_offset: bool,
 }
 
@@ -509,20 +538,46 @@ impl DumpCell {
     }
 }
 
-/// The cells with landscape. A cell whose ground reaches the default land height ("no data") below its
-/// water level is the skirt the LOD terrain drops into at the worldspace's edge (Fallout 3's Wasteland:
-/// its outer four rings), not a sea, and so is a cell beside it that dips under water on the way down;
-/// ground at that height above water (the Sierra Madre's, the Divide's) is real.
+/// Mean slope, on median, of the cells around a patch of default-height ground under water above which
+/// the patch is the skirt the LOD terrain plunges into at the worldspace's edge (45 degrees; Fallout 3's
+/// Wasteland: 2.7, i.e. ~70 degrees), not a sea floor reached by a coast (Point Lookout's bay: under 0.4).
+const SKIRT_SLOPE: f32 = 1.0;
+
+/// The cells with landscape, without the LOD skirt: ground pulled down to the default land height
+/// ("no data") under the water level at the worldspace's edge, behind a cliff (see `SKIRT_SLOPE`), which
+/// would read as a moat around the map; plus the cells beside it that dip under water on the way down.
+/// Ground at the default height above water (the Sierra Madre's, the Divide's) and a real sea floor
+/// (Point Lookout's) stay.
 fn land_cells(dump: &Dump) -> impl Iterator<Item = &DumpCell> {
     let world = &dump.worldspace;
+    let by_pos: HashMap<(i32, i32), &DumpCell> = dump.cells.iter().filter(|c| c.heights.is_some()).map(|c| ((c.x, c.y), c)).collect();
+    let around = |(x, y): (i32, i32)| (-1..=1).flat_map(move |dy| (-1..=1).map(move |dx| (x + dx, y + dy)));
     let submerged = |c: &DumpCell| c.heights.as_ref().is_some_and(|h| h.iter().any(|&v| (v as f32) < c.water_level(world)));
-    let seeds: HashSet<(i32, i32)> = dump.cells.iter().filter(|c| {
-        let skirt = world.default_land_height.filter(|&h| h < c.water_level(world)).map(|h| h as i32);
-        skirt.is_some_and(|s| c.heights.as_ref().is_some_and(|h| h.contains(&s)))
+    let floor: HashSet<(i32, i32)> = by_pos.values().filter(|c| {
+        let at = world.default_land_height.filter(|&h| h < c.water_level(world)).map(|h| h as i32);
+        at.is_some_and(|d| c.heights.as_ref().is_some_and(|h| h.contains(&d)))
     }).map(|c| (c.x, c.y)).collect();
-    let beside = |c: &DumpCell| (-1..=1).any(|dy| (-1..=1).any(|dx| seeds.contains(&(c.x + dx, c.y + dy))));
-    let skirt: HashSet<(i32, i32)> = dump.cells.iter().filter(|c| seeds.contains(&(c.x, c.y)) || (beside(c) && submerged(c)))
-        .map(|c| (c.x, c.y)).collect();
+    let slope = |c: &DumpCell| c.heights.as_ref().map_or(0.0, |h| (0..4).map(|q| quadrant_slope(h, q)).sum::<f32>() / 4.0);
+
+    // Each connected patch of floor is skirt if the ground around it is a cliff.
+    let mut skirt: HashSet<(i32, i32)> = HashSet::new();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    for &start in &floor {
+        if !seen.insert(start) { continue; }
+        let (mut patch, mut stack) = (vec![start], vec![start]);
+        while let Some(p) = stack.pop() {
+            for q in around(p) {
+                if floor.contains(&q) && seen.insert(q) { patch.push(q); stack.push(q); }
+            }
+        }
+        let rim: HashSet<(i32, i32)> = patch.iter().flat_map(|&p| around(p)).filter(|q| !floor.contains(q) && by_pos.contains_key(q)).collect();
+        let mut slopes: Vec<f32> = rim.iter().map(|q| slope(by_pos[q])).collect();
+        slopes.sort_by(f32::total_cmp);
+        if slopes.get(slopes.len() / 2).is_some_and(|&m| m > SKIRT_SLOPE) {
+            skirt.extend(rim.iter().filter(|q| submerged(by_pos[q])));
+            skirt.extend(patch);
+        }
+    }
     dump.cells.iter()
         .filter(|c| c.heights.is_some() || c.layers.is_some())
         .filter(move |c| !skirt.contains(&(c.x, c.y)))
@@ -546,7 +601,7 @@ impl Frame {
 }
 
 /// Terrain of every landscape quadrant of one worldspace, in `frame`.
-fn dump_terrain(dump: &Dump, frame: Frame) -> HashMap<(i32, i32), &'static str> {
+fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32, i32), &'static str> {
     let class: HashMap<&str, &'static str> = dump.land_textures.iter()
         .map(|(k, t)| (k.as_str(), texture_terrain(t.edid.as_deref().unwrap_or(""), t.texture.as_deref().unwrap_or(""))))
         .collect();
@@ -580,7 +635,7 @@ fn dump_terrain(dump: &Dump, frame: Frame) -> HashMap<(i32, i32), &'static str> 
         let share = |kind| around().map(|p| footprint.get(&(kind, p)).copied().unwrap_or(0.0)).sum::<f32>() / 9.0;
         // Overgrowth shows even on a hillside, such as Vault 22's.
         let t = if wet { "Water" } else if share("Grass") >= VEGETATION_FOOTPRINT { "Grass" } else if steep { "Mountain" }
-            else if share("City") >= CITY_FOOTPRINT { "City" } else { ground };
+            else if share("City") >= city_footprint { "City" } else { ground };
         ((x, y), t)
     }).collect();
 
@@ -613,7 +668,8 @@ const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Moun
 /// One map from one or more worldspaces sharing a frame (see `GROUP_PRECEDENCE`). `summary`: None for a worldspace
 /// shown in full; Some(name) for a summarized DLC place, shown on the main maps as one landmark
 /// (called `name`, else the worldspace's own name) at the centre of its map, its markers as details.
-fn build(dumps: &[Dump], lists: &MarkerLists, summary: Option<Option<&str>>) -> RawMapData {
+fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&str>>) -> RawMapData {
+    let lists = variant.markers();
     let Some(frame) = Frame::of(dumps) else {
         return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
     };
@@ -622,7 +678,7 @@ fn build(dumps: &[Dump], lists: &MarkerLists, summary: Option<Option<&str>>) -> 
     let rank = |t: &str| GROUP_PRECEDENCE.iter().position(|&p| p == t).unwrap_or(GROUP_PRECEDENCE.len());
     let mut best: HashMap<(i32, i32), &'static str> = HashMap::new();
     for dump in dumps {
-        for (pos, t) in dump_terrain(dump, frame) {
+        for (pos, t) in dump_terrain(dump, frame, variant.city_footprint()) {
             let e = best.entry(pos).or_insert(t);
             if rank(t) < rank(e) { *e = t; }
         }
@@ -689,7 +745,7 @@ fn build(dumps: &[Dump], lists: &MarkerLists, summary: Option<Option<&str>>) -> 
         world_bounds: Some(MapBounds { min_x: 0, min_y: 0, max_x: width as i32 - 1, max_y: height as i32 - 1 }),
         coordinate_scale: QUAD,
         priority: 1,
-        miles_per_unit: summary.is_some().then_some(NV_MILES_PER_UNIT),
+        miles_per_unit: summary.is_some().then_some(variant.miles_per_unit()),
         ..Default::default()
     }
 }
@@ -722,6 +778,9 @@ mod tests {
         assert_eq!(static_terrain("Landscape\\Plants\\NVFicus01.NIF"), Some("Grass"));
         assert_eq!(static_terrain("Landscape\\Plants\\YuccaANV.NIF"), None);
         assert_eq!(static_terrain("Landscape\\Rocks\\NV_Rock01.NIF"), None);
+        assert_eq!(static_terrain("DLCPitt\\Landscape\\DLCPittWastelandCraterRubble01.NIF"), Some("City"));
+        assert_eq!(static_terrain("Dungeons\\Office\\RubblePiles\\OffRublPileA01.NIF"), Some("City"));
+        assert_eq!(static_terrain("Landscape\\Rocks\\RockCanyonRubble01.NIF"), None);
     }
 
     #[test]
@@ -794,6 +853,7 @@ mod tests {
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
             child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
+            children: vec![],
             radiation: vec![],
             statics: vec![],
             water_planes: vec![],
@@ -802,7 +862,7 @@ mod tests {
             cells: vec![DumpCell { x: 0, y: 0, water_height: None, heights: None, layers: Some((0..4).map(tex).collect()) }],
         };
         let dump = [dump];
-        let map = build(&dump, &NV_MARKERS, None);
+        let map = build(&dump, BethesdaGameVariant::FalloutNV, None);
         assert_eq!((map.width, map.height), (2, 2));
         let mut pos: Vec<(i32, i32)> = map.tiles.iter().map(|t| (t.x, t.y)).collect();
         pos.sort();
@@ -811,7 +871,7 @@ mod tests {
         assert_eq!((map.locations[0].x, map.locations[0].y), (1000.0, 1096.0));
         assert_eq!((map.locations[1].x, map.locations[1].y), (2050.0, 2996.0));
         // Summarized: every marker is a full-map detail, plus one landmark named after the world.
-        let map = build(&dump, &NV_MARKERS, Some(None));
+        let map = build(&dump, BethesdaGameVariant::FalloutNV, Some(None));
         assert!(map.locations[..2].iter().all(|l| matches!(l.icon_type, IconType::Detail)));
         let w = &map.locations[2];
         assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));
@@ -820,20 +880,24 @@ mod tests {
 
     #[test]
     fn lod_skirt_is_not_land() {
-        let cell = |x, h: i32| DumpCell { x, y: 0, water_height: None, heights: Some(vec![h; 33 * 33]), layers: None };
-        let dump = |land, water| Dump {
+        // A row of cells: land at x 0-1, then the skirt or sea floor at x 2-3 (with a cell at x 4 in it).
+        let cell = |x, heights: Vec<i32>| DumpCell { x, y: 0, water_height: None, heights: Some(heights), layers: None };
+        let flat = |h: i32| vec![h; 33 * 33];
+        // Ground falling west to east from `top` to `bottom` across one cell.
+        let ramp = |top: i32, bottom: i32| (0..33 * 33).map(|i| top + (bottom - top) * (i % 33) as i32 / 32).collect();
+        let dump = |land: f32, water: f32, edge: Vec<i32>| Dump {
             worldspace: DumpWorld { name: None, edid: None, default_water_height: Some(water), default_land_height: Some(land), map_nw_cell: None, map_se_cell: None },
-            markers: vec![], child_markers: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
+            markers: vec![], child_markers: vec![], children: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
             land_textures: HashMap::new(),
-            cells: vec![cell(0, 12000), cell(1, land as i32), cell(2, 9000), cell(4, 9000)],
+            cells: vec![cell(0, flat(20000)), cell(1, edge), cell(2, flat(land as i32)), cell(3, flat(land as i32)), cell(4, flat(land as i32))],
         };
-        // Fallout 3: the edge drops to the default land height, under the default water.
-        let fo3 = dump(-2048.0, 10500.0);
-        // ...and the cell beside it dipping under water on the way down goes too; a lake further in stays.
-        assert_eq!(land_cells(&fo3).map(|c| c.x).collect::<Vec<_>>(), vec![0, 4]);
-        // The Sierra Madre: ground at the default land height, above water, is real.
-        let sm = dump(1024.0, 0.0);
-        assert_eq!(land_cells(&sm).map(|c| c.x).collect::<Vec<_>>(), vec![0, 1, 2, 4]);
+        let kept = |d: &Dump| land_cells(d).map(|c| c.x).collect::<Vec<_>>();
+        // Fallout 3: a cliff plunging to the default height under the water: a moat, dropped with its cliff.
+        assert_eq!(kept(&dump(-2048.0, 10500.0, ramp(20000, -2000))), vec![0]);
+        // Point Lookout: a gentle coast down to a sea floor at the default height: real sea.
+        assert_eq!(kept(&dump(-2048.0, -1700.0, ramp(-1000, -2000))), vec![0, 1, 2, 3, 4]);
+        // The Sierra Madre: ground at the default height above water is real.
+        assert_eq!(kept(&dump(1024.0, 0.0, ramp(20000, 1024))), vec![0, 1, 2, 3, 4]);
     }
 
     #[test]

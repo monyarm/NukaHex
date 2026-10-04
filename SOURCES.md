@@ -26,9 +26,10 @@ Van Buren, 4 Brotherhood of Steel, 5 mods.
 ## Fallout 3 (2008) — tier 1 (Mutagen)
 - ✅ Capital Wasteland (`Wasteland`), incl. its LOD ring; DC's ruins contribute their map markers
 - ⬜ Operation: Anchorage — ➖ a simulation of Alaska, not a place to map
-- ⬜ The Pitt (Pittsburgh)
+- ✅ The Pitt — Pittsburgh (the Pitt and its three districts, which share its frame; at Downtown
+  Pittsburgh)
 - ⬜ Broken Steel — extends the Capital Wasteland (no new worldspace of note)
-- ⬜ Point Lookout (Maryland)
+- ✅ Point Lookout — Maryland (with the Sacred Bog; its lighthouse at the real one)
 - ➖ Mothership Zeta — in orbit
 
 ## Fallout: New Vegas (2010) — tier 1 (Mutagen)

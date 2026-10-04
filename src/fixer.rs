@@ -151,6 +151,10 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Fairfax Ruins", "Fairfax, Virginia"),
     ("Alexandria Arms", "Alexandria, Virginia"),
     ("Raven Rock", "Raven Rock Mountain Complex"),
+    // The Pitt (its districts are child worlds sharing its frame) and Point Lookout (with the Sacred
+    // Bog): each placed by one real place at Fallout 3's scale.
+    ("Pitt Downtown", "Downtown Pittsburgh"),
+    ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
