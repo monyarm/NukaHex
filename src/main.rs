@@ -92,6 +92,9 @@ fn main() -> std::io::Result<()> {
     ])));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Commonwealth"))); // Boston
+    // Far Harbor: the Island, Mount Desert Island in Maine (not the DLC03VRWorldspace simulation).
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout4, "The Island", &["DLC03FarHarbor"])));
+    game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::Fallout4, "NukaWorld"))); // Nuka-World
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC03BigMT"))); // Old World Blues
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::FalloutNV, "Sierra Madre", &[ // Dead Money

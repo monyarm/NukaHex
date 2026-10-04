@@ -53,8 +53,11 @@ corner; their own cluster maps are at the real place.
 Creation Club plugins listed in Fallout4.ccc)
 - ✅ The Commonwealth (Boston), incl. its modelled land around; Diamond City and Goodneighbor
   contribute their map markers; the Glowing Sea's ground reads as Radiation
-- ⬜ Far Harbor (Mount Desert Island, Maine)
-- ⬜ Nuka-World
+- ✅ Far Harbor — the Island, at Mount Desert Island, Maine (six anchors: the town of Far Harbor is
+  Bar Harbor; Acadia, Echo Lake, Southwest Harbor, Cranberry Island, the park visitor center); not
+  the DiMA memory simulation
+- ✅ Nuka-World — no canon location; at Six Flags New England (Agawam, MA), south of Springfield
+  on the Connecticut River, per fan research matching its map
 - ➖ Automatron, Wasteland Workshop, Contraptions Workshop, Vault-Tec Workshop — no new land
   (Vault 88 is an interior)
 - ➖ Creation Club / Creations — none of the installed ones adds a worldspace; their quests are set in

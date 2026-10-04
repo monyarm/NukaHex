@@ -244,6 +244,9 @@ struct DumpWorld {
 #[derive(Deserialize)]
 struct DumpMarker {
     name: Option<String>,
+    /// Editor ID of the marker's reference.
+    #[serde(default)]
+    edid: Option<String>,
     #[serde(rename = "type")]
     kind: Option<String>,
     /// Faction reputation tied to the place (New Vegas).
@@ -367,7 +370,8 @@ struct MarkerLists {
     /// Places the map shows by their gates, as one marker at the gates' mean position.
     places: &'static [(&'static str, &'static [&'static str])],
     /// Markers the game never shows (zone markers) or that repeat a place in another state.
-    hidden: fn(&str) -> bool,
+    /// (By display name and reference editor ID.)
+    hidden: fn(&str, &str) -> bool,
     /// Towns the reputation rule misses (every game's towns, when it has no reputations).
     towns: &'static [&'static str],
     /// Settlement-type markers tied to a reputation that are camps, farms, businesses or facilities.
@@ -388,7 +392,7 @@ const NV_MARKERS: MarkerLists = MarkerLists {
         ("Freeside", &["Freeside's East Gate", "Freeside's North Gate"]),
         ("New Vegas", &["The Strip North Gate"]),
     ],
-    hidden: |_| false,
+    hidden: |_, _| false,
     towns: &["Primm", "Nipton", "Jacobstown", "Camp Searchlight", "Nelson", "New Vegas"],
     not_towns: &[
         "Powder Ganger Camp North", "Powder Ganger Camp East", "Powder Ganger Camp South", "Powder Ganger Camp West",
@@ -407,7 +411,7 @@ const FO3_MARKERS: MarkerLists = MarkerLists {
     places: &[],
     // The DC ruins' zone markers ("DC01a"...; initially disabled, never enabled) and Megaton after
     // its destruction.
-    hidden: |name| name == "Megaton Ruins"
+    hidden: |name, _| name == "Megaton Ruins"
         || name.strip_prefix("DC").is_some_and(|r| r.len() == 3 && r[..2].bytes().all(|b| b.is_ascii_digit())),
     towns: &[
         "Megaton", "Rivet City", "Tenpenny Tower", "Big Town", "Canterbury Commons", "Arefu", "Little Lamplight",
@@ -425,8 +429,11 @@ const FO3_MARKERS: MarkerLists = MarkerLists {
 /// real towns its map is built around.
 const FO4_MARKERS: MarkerLists = MarkerLists {
     places: &[],
-    // Fast-travel stand-ins for the add-on lands (mapped as their own worldspaces).
-    hidden: |name| matches!(name, "Far Harbor" | "Nuka-World"),
+    // Fast-travel stand-ins for the other lands (each mapped as its own worldspace), and markers whose
+    // name in the data is wrong: Atom's Spring is called "Far Harbor", Nuka-World's junkyard
+    // "ERROR: <<NO REF LOCATION>>".
+    hidden: |_, edid| matches!(edid, "DLC03ToFarHarborMapMarker" | "DLC03ToCommonwealthMapMarkerREF"
+        | "DLC04NukaWorldMapMarker" | "DLC04CommonwealthMapMarker" | "AtomsSpringMapMarker" | "NukaworldJunkyardMapMarkerRef"),
     towns: &[
         "Diamond City", "Goodneighbor", "Bunker Hill", "Covenant", "Sanctuary", "The Slog", "Graygarden",
         "Concord", "Lexington", "Salem", "Quincy Ruins", "Malden Center", "Hyde Park", "Jamaica Plain",
@@ -598,7 +605,10 @@ fn land_cells(dump: &Dump) -> impl Iterator<Item = &DumpCell> {
         .filter(|c| c.heights.as_ref().is_some_and(|h| h.iter().all(|&v| (v as f32) < c.water_level(world)))).map(|c| (c.x, c.y)).collect();
     let mut sea: HashMap<(i32, i32), bool> = HashMap::new();
     let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
-    for &p in by_pos.keys().filter(|p| !unsculpted.contains(p) && around(**p).any(|q| unsculpted.contains(&q))) {
+    // (Seeds in a fixed order: where a sea and a land edge are equally near, the result must not vary.)
+    let mut edges: Vec<(i32, i32)> = by_pos.keys().copied().filter(|p| !unsculpted.contains(p) && around(*p).any(|q| unsculpted.contains(&q))).collect();
+    edges.sort();
+    for p in edges {
         let near_seabed = (-SEABED_REACH..=SEABED_REACH).any(|dy| (-SEABED_REACH..=SEABED_REACH).any(|dx| seabed.contains(&(p.0 + dx, p.1 + dy))));
         if seabed.contains(&p) || !near_seabed { sea.insert(p, seabed.contains(&p)); queue.push_back(p); }
     }
@@ -791,7 +801,7 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
         });
         for (m, wx, wy) in dump.markers.iter().map(|m| (m, m.x, m.y)).chain(child) {
             let Some(name) = m.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
-            if (lists.hidden)(name) { continue; }
+            if (lists.hidden)(name, m.edid.as_deref().unwrap_or("")) { continue; }
             let name = lists.places.iter().find(|(_, gates)| gates.contains(&name)).map_or(name, |(place, _)| place);
             let (x, y) = frame.to_frame(wx, wy);
             let icon_type = marker_icon(lists, name, m.kind.as_deref().unwrap_or("None"), m.reputation.is_some());
@@ -941,7 +951,7 @@ mod tests {
     fn quadrant_tiles_and_marker_frame() {
         // One cell at (0, 0) with base texture per quadrant; the frame's origin is its north-west corner.
         let tex = |q| layer(q, 0, "t", None);
-        let marker = |name: &str, x, y| DumpMarker { name: Some(name.into()), kind: Some("Encampment".into()), reputation: None, x, y };
+        let marker = |name: &str, x, y| DumpMarker { name: Some(name.into()), edid: None, kind: Some("Encampment".into()), reputation: None, x, y };
         let dump = Dump {
             worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None },
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
@@ -1002,8 +1012,8 @@ mod tests {
 
     #[test]
     fn fo3_hidden_markers() {
-        for name in ["DC01a", "DC15b", "Megaton Ruins"] { assert!((FO3_MARKERS.hidden)(name), "{}", name); }
-        for name in ["Megaton", "DC Ruins", "Dickerson Tabernacle Chapel"] { assert!(!(FO3_MARKERS.hidden)(name), "{}", name); }
+        for name in ["DC01a", "DC15b", "Megaton Ruins"] { assert!((FO3_MARKERS.hidden)(name, ""), "{}", name); }
+        for name in ["Megaton", "DC Ruins", "Dickerson Tabernacle Chapel"] { assert!(!(FO3_MARKERS.hidden)(name, ""), "{}", name); }
         assert!(matches!(marker_icon(&FO3_MARKERS, "Rivet City", "Encampment", false), IconType::City));
         assert!(matches!(marker_icon(&FO3_MARKERS, "Grisly Diner", "Encampment", false), IconType::Other));
     }

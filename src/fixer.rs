@@ -190,6 +190,18 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Jamaica Plain", "Jamaica Plain, Boston"),
     ("Hyde Park", "Hyde Park, Boston"),
     ("Quincy Ruins", "Quincy, Massachusetts"),
+    // Far Harbor: the Island is Mount Desert Island, Maine, its places at their real counterparts (the town of
+    // Far Harbor is Bar Harbor; Acadia's observatory is on the island's central summit). Not anchored:
+    // Brooke's Head Lighthouse, whose real counterpart would be a guess.
+    ("Far Harbor", "Bar Harbor, Maine"),
+    ("Southwest Harbor", "Southwest Harbor, Maine"),
+    ("Echo Lake Lumber", "44.3197,-68.3375"),                   // Echo Lake (Wikipedia); its name geocodes elsewhere
+    ("Cranberry Island Docks", "Great Cranberry Island"),
+    ("National Park Visitor's Center", "Hulls Cove Visitor Center"),
+    ("Acadia", "Cadillac Mountain"),
+    // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
+    // at the real theme park there (its map has the river with an island and a north-south interstate).
+    ("Nuka-World", "Six Flags New England"),
 ];
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;

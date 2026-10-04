@@ -169,7 +169,8 @@ static class Fallout4Dump
                 var dominant = scol.Parts
                     .Select(p => (Static: p.Static.TryResolve<IStaticGetter>(lc, out var st) ? st : null, Placements: p.Placements))
                     .Where(p => p.Static?.ObjectBounds is { } && !string.IsNullOrEmpty(p.Static.Model?.File))
-                    .MaxBy(p => p.Placements.Sum(pl => Math.Abs(p.Static!.ObjectBounds.Second.X - p.Static.ObjectBounds.First.X)
+                    .DefaultIfEmpty()
+                    .MaxBy(p => p.Placements == null ? 0f : p.Placements.Sum(pl => Math.Abs(p.Static!.ObjectBounds.Second.X - p.Static.ObjectBounds.First.X)
                         * Math.Abs(p.Static.ObjectBounds.Second.Y - p.Static.ObjectBounds.First.Y) * pl.Scale * pl.Scale));
                 shape = (scol.ObjectBounds, dominant.Static?.Model?.File ?? scol.Model?.File);
             }
