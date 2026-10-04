@@ -73,8 +73,12 @@ Creation Club plugins listed in Fallout4.ccc)
 - ✅ Skyline Valley (Shenandoah, Virginia; 2024) — part of Appalachia, along its south edge; not
   anchored (the game moves it ~100 mi from the real Shenandoah)
 - ✅ Burning Springs (southern Ohio; 2025) — part of Appalachia, west of the Ohio River
-- ⬜ Atlantic City (New Jersey; 2024) — an expedition worldspace
-- ⬜ The Pitt (Pittsburgh; 2022) — an expedition worldspace (`EXM1PittWorldspace`)
+- ✅ The Pitt (Pittsburgh; 2022) — an expedition: interior zones dressed as outdoors (Industrial, Trench,
+  Foundry, Sanctum, Steel Tower), each at its real counterpart, terrain only; Fallout 3's Pitt carries
+  the marker and the two vote together (`EXM1PittWorldspace` is an empty placeholder)
+- ✅ Atlantic City (New Jersey; 2024) — an expedition: seven interior zones (Boardwalk, Showman's Pier,
+  Aquarium, Casino Quarter, City Hall, Community Center, the flooded downtown), one "Atlantic City" marker
+- ⏸ Raven Rock (2027) — announced, not yet in the game files
 
 ## Fallout (TV series)
 - ✅ Season 1 locations (manual JSON in `input/manual/tv`)

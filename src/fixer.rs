@@ -153,7 +153,7 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Raven Rock", "Raven Rock Mountain Complex"),
     // The Pitt (its districts are child worlds sharing its frame) and Point Lookout (with the Sacred
     // Bog): each placed by one real place at Fallout 3's scale.
-    ("Pitt Downtown", "Downtown Pittsburgh"),
+    ("The Pitt", "Downtown Pittsburgh"),                  // the game's Pitt Downtown
     ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
     // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
     ("Operation Anchorage", "Anchorage, Alaska"),
@@ -228,6 +228,20 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Tyler County Fairgrounds", "Middlebourne, West Virginia"),
     ("Athens", "Athens, Ohio"),                          // Burning Springs
     ("Albany", "Albany, Ohio"),
+    // Fallout 76's expeditions: each zone at its real counterpart; zones with none (the Pitt's districts,
+    // the flooded downtown, marked as the city, and its community center) at their city's centre.
+    ("The Pitt - Industrial", "Pittsburgh, Pennsylvania"),
+    ("The Foundry", "Pittsburgh, Pennsylvania"),
+    ("The Pitt - Trench", "Pittsburgh, Pennsylvania"),
+    ("Sanctum", "Pittsburgh, Pennsylvania"),
+    ("Steel Tower", "U.S. Steel Tower"),
+    ("The Boardwalk", "Boardwalk Hall, Atlantic City"),
+    ("Showman's Pier", "Steel Pier, Atlantic City"),
+    ("Aquarium of the Atlantic", "Atlantic City Aquarium"),
+    ("Casino Quarter", "Caesars Atlantic City"),
+    ("Atlantic City Hall", "1301 Bacharach Boulevard, Atlantic City"),
+    ("Atlantic City", "Atlantic City, New Jersey"),
+    ("Atlantic City Community Center", "Atlantic City, New Jersey"),
     // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
     // at the real theme park there (its map has the river with an island and a north-south interstate).
     ("Nuka-World", "Six Flags New England"),
@@ -323,6 +337,10 @@ type SourceVotes = (u8, HashMap<String, f32>);
 
 /// Tier of a raw map (0, the default, counts as 1).
 fn tier(map: &RawMapData) -> u8 { map.priority.clamp(crate::schema::tier::MAIN, crate::schema::tier::WEAKEST) }
+
+/// Markers of one name within this distance of each other are one place (see the merge rule in
+/// `fix_translation_only`); farther apart they are different places sharing a name.
+const SAME_PLACE_MILES: f32 = 25.0;
 
 /// Marks a source's LOD land (`RawTile::lod`) as a source of its own (see `resolve_hex`).
 const LOD_SOURCE: usize = 1 << (usize::BITS - 1);
@@ -750,29 +768,34 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
 
     // Merge rule (as within a cluster): a place found in several sources is one marker. A manual
     // absolute position wins; otherwise the priority-weighted mean, with disagreement over 1 mi reported.
-    let mut merged: Vec<(String, f32, f32, crate::schema::IconType)> = Vec::new();
-    let mut by_name: HashMap<String, Vec<(f32, f32, crate::schema::IconType, f32, bool)>> = HashMap::new();
+    // Markers of one name far apart are different places that share it (chain stores such as the Super
+    // Duper Mart, in Washington, Boston and Appalachia): one place per group within `SAME_PLACE_MILES`.
+    let miles_apart = |a: (f32, f32), b: (f32, f32)| {
+        let (dy, dx) = ((a.0 - b.0) * MILES_PER_DEGREE_LAT, (a.1 - b.1) * MILES_PER_DEGREE_LAT * a.0.to_radians().cos());
+        dx.hypot(dy)
+    };
+    type Sighting = (f32, f32, crate::schema::IconType, f32, bool); // lat, lon, icon, weight, manual
+    let mut places: Vec<(String, Vec<Sighting>)> = Vec::new(); // in first-seen order
     for (name, lat, lon, icon, w, manual) in all_fixed_locations {
-        let key = name.to_lowercase();
-        if !by_name.contains_key(&key) { merged.push((name, 0.0, 0.0, icon)); }
-        by_name.entry(key).or_default().push((lat, lon, icon, w, manual));
+        let near = places.iter_mut().find(|(n, ps)| n.eq_ignore_ascii_case(&name) && ps.iter().any(|p| miles_apart((p.0, p.1), (lat, lon)) <= SAME_PLACE_MILES));
+        match near {
+            Some((_, ps)) => ps.push((lat, lon, icon, w, manual)),
+            None => places.push((name, vec![(lat, lon, icon, w, manual)])),
+        }
     }
-    for m in &mut merged {
-        let all = &by_name[&m.0.to_lowercase()];
+    let mut merged: Vec<(String, f32, f32, crate::schema::IconType)> = Vec::new();
+    for (name, all) in places {
         let ps: Vec<_> = if all.iter().any(|p| p.4) { all.iter().filter(|p| p.4).collect() } else { all.iter().collect() };
         let wsum: f32 = ps.iter().map(|p| p.3).sum();
         let (lat, lon) = (ps.iter().map(|p| p.0 * p.3).sum::<f32>() / wsum, ps.iter().map(|p| p.1 * p.3).sum::<f32>() / wsum);
-        let spread = all.iter().map(|p| {
-            let (dy, dx) = ((p.0 - lat) * MILES_PER_DEGREE_LAT, (p.1 - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos());
-            dx.hypot(dy)
-        }).fold(0.0, f32::max);
+        let spread = all.iter().map(|p| miles_apart((p.0, p.1), (lat, lon))).fold(0.0, f32::max);
         if spread > 1.0 {
-            let msg = format!("Sources disagree on '{}' by up to {:.1} mi from the merged position", m.0, spread);
+            let msg = format!("Sources disagree on '{}' by up to {:.1} mi from the merged position", name, spread);
             warn!("{}", msg);
             warnings.push(msg);
         }
         let top = ps.iter().max_by(|a, b| a.3.total_cmp(&b.3)).unwrap();
-        *m = (m.0.clone(), lat, lon, top.2);
+        merged.push((name, lat, lon, top.2));
     }
 
     // Now convert these absolute (Lat, Lon) points into the final grid

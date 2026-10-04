@@ -123,7 +123,16 @@ pub struct BethesdaExtractor {
     summary_name: Option<&'static str>,
     /// Source priority (`schema::tier`): the main games, unless set otherwise.
     tier: u8,
+    /// An interior zone dressed as outdoors (Fallout 76's expeditions), not a worldspace: the terrain of
+    /// its ground (see `fo76::zone`).
+    interior: Option<&'static str>,
+    /// Its marker only anchors its terrain (an expedition zone other than the one marking its city).
+    anchor_only: bool,
 }
+
+/// Miles per game unit at the size things are built (a unit is about 1.43 cm), for places the game does
+/// not shrink to fit a map: Fallout 76's expedition zones, each a few city blocks.
+const TRUE_MILES_PER_UNIT: f32 = 0.014287 / 1609.344;
 
 impl BethesdaExtractor {
     pub fn new(variant: BethesdaGameVariant, worldspace: &'static str) -> Self {
@@ -131,7 +140,7 @@ impl BethesdaExtractor {
     }
 
     fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
-        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN }
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
@@ -152,6 +161,13 @@ impl BethesdaExtractor {
         Self { summarized: true, summary_name: Some(name), ..Self::group(variant, &id, worldspaces) }
     }
 
+    /// A Fallout 76 expedition zone (an interior cell, by editor ID) whose ground is `ground` (City; Water
+    /// for a flooded one), placed by one marker called `name`. An expedition's city shows one marker
+    /// (`shown`, on one zone); its other zones add terrain only.
+    pub fn zone(name: &'static str, cell: &'static str, ground: &'static str, shown: bool) -> Self {
+        Self { interior: Some(ground), anchor_only: !shown, ..Self::dlc_group(BethesdaGameVariant::Fallout76, name, &[cell]) }
+    }
+
     /// A source of another priority tier (e.g. Operation Anchorage, a simulation of the past).
     pub fn with_tier(self, tier: u8) -> Self {
         Self { tier, ..self }
@@ -166,7 +182,7 @@ impl BethesdaExtractor {
 
     fn dump(&self, data_dir: &Path, worldspace: &str) -> Result<Dump, String> {
         if self.variant == BethesdaGameVariant::Fallout76 {
-            let dump = fo76::dump(data_dir, worldspace)?;
+            let dump = match self.interior { Some(ground) => fo76::zone(data_dir, worldspace, ground)?, None => fo76::dump(data_dir, worldspace)? };
             info!("[{}] {}: {} markers, {} cells, {} land textures, {} hazards", self.variant.name(), worldspace,
                 dump.markers.len(), dump.cells.len(), dump.land_textures.len(), dump.radiation.len());
             return Ok(dump);
@@ -232,7 +248,7 @@ impl Extractor for BethesdaExtractor {
         };
         let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
         match dumps {
-            Ok(dumps) => RawMapData { priority: self.tier, ..build(&dumps, self.variant, self.summarized.then(|| self.summary_name)) },
+            Ok(dumps) => RawMapData { priority: self.tier, anchor_only_markers: self.anchor_only, ..build(&dumps, self.variant, self.summarized.then(|| self.summary_name), if self.interior.is_some() { TRUE_MILES_PER_UNIT } else { self.variant.miles_per_unit() }) },
             Err(e) => failed(e),
         }
     }
@@ -270,6 +286,9 @@ struct DumpWorld {
     /// The in-game map's north-west and south-east cells.
     map_nw_cell: Option<[i32; 2]>,
     map_se_cell: Option<[i32; 2]>,
+    /// Terrain of ground with no texture, when the worldspace says (else its most common ground).
+    #[serde(default)]
+    default_ground: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -439,7 +458,8 @@ const NV_MARKERS: MarkerLists = MarkerLists {
 
 /// Fallout 3 has no faction reputations, so its towns are listed.
 const FO3_MARKERS: MarkerLists = MarkerLists {
-    places: &[],
+    // The Pitt is marked by its downtown.
+    places: &[("The Pitt", &["Pitt Downtown"])],
     // The DC ruins' zone markers ("DC01a"...; initially disabled, never enabled) and Megaton after
     // its destruction.
     hidden: |name, _| name == "Megaton Ruins"
@@ -575,8 +595,8 @@ fn cover_terrain(cover: &HashMap<Option<&str>, f32>, class: &HashMap<&str, &'sta
     shares.into_iter().max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(a.0))).map_or(bare, |(t, _)| t)
 }
 
-/// Ground that irradiates: radiation markers (circles of their radius) and Dead Money's Cloud (its
-/// damage-trigger boxes and its cloud meshes, as circles of the mesh's footprint).
+/// Ground that irradiates: radiation markers (circles of their radius), radiation and toxin trigger boxes,
+/// and Dead Money's Cloud (its damage-trigger boxes and its cloud meshes, as circles of the mesh's footprint).
 enum Hazard {
     Circle((f32, f32), f32),
     Box((f32, f32), f32, (f32, f32)),
@@ -606,8 +626,13 @@ fn hazards(dump: &Dump) -> Vec<Placed> {
     let cloud = |s: &str| s.to_lowercase().contains("toxiccloud");
     let irradiates = |r: &&DumpRadiation| r.effect.as_deref().is_none_or(|e| e.to_lowercase().contains("radiation"));
     let markers = dump.radiation.iter().filter(irradiates).filter_map(|r| r.radius.filter(|&v| v > 0.0).map(|v| (Hazard::Circle((r.x, r.y), v), false)));
-    let triggers = dump.volumes.iter().filter(|v| v.base.as_deref().is_some_and(cloud))
-        .map(|v| (Hazard::Box((v.x, v.y), v.rotation, (v.half_x, v.half_y)), true));
+    // Hazard trigger volumes: radiation and toxins (Fallout 76's Pitt: its toxic pools and the Trench's
+    // radiation).
+    let hazard_trigger = |s: &str| { let s = s.to_lowercase(); s.contains("trigger") && (s.contains("radiationhazard") || s.contains("toxichazard")) };
+    let triggers = dump.volumes.iter().filter_map(|v| {
+        let base = v.base.as_deref()?;
+        (cloud(base) || hazard_trigger(base)).then(|| (Hazard::Box((v.x, v.y), v.rotation, (v.half_x, v.half_y)), cloud(base)))
+    });
     let meshes = dump.statics.iter().filter(|o| cloud(&o.model))
         .map(|o| (Hazard::Circle((o.x, o.y), (o.area / std::f32::consts::PI).sqrt()), true));
     markers.chain(triggers).chain(meshes).collect()
@@ -730,6 +755,7 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
     }
     let bare = bases.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0)))
         .and_then(|(t, _)| class.get(t).copied()).unwrap_or("Sand");
+    let bare = dump.worldspace.default_ground.as_deref().map_or(bare, crate::tile_gen::canonical_terrain);
 
     // Per quadrant tile: (wet, slope, ground cover terrain).
     let mut quads: HashMap<(i32, i32), (bool, Option<f32>, &'static str)> = HashMap::new();
@@ -829,7 +855,7 @@ const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Moun
 /// One map from one or more worldspaces sharing a frame (see `GROUP_PRECEDENCE`). `summary`: None for a worldspace
 /// shown in full; Some(name) for a summarized DLC place, shown on the main maps as one landmark
 /// (called `name`, else the worldspace's own name) at the centre of its map, its markers as details.
-fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&str>>) -> RawMapData {
+fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&str>>, miles_per_unit: f32) -> RawMapData {
     let lists = variant.markers();
     let Some(frame) = Frame::of(dumps) else {
         return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, ..Default::default() };
@@ -889,19 +915,22 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
         }
     }
 
-    // A summarized place: one landmark at the centre of its in-game map, clipped to its landscape
-    // (Dead Money's exteriors carry the Mojave's map rectangle); its own markers on the full map only.
+    // A summarized place: one landmark, its own marker of that name if it has one (the Pitt's downtown),
+    // else at the centre of its in-game map, clipped to its landscape (Dead Money's exteriors carry the
+    // Mojave's map rectangle); its other markers on the full map only.
     if let Some(name) = summary {
-        for l in &mut locations { l.icon_type = IconType::Detail; }
         let w = &dumps[0].worldspace;
+        let name = name.map(str::to_string).or_else(|| w.name.clone()).or_else(|| w.edid.clone()).unwrap_or_default();
+        for l in &mut locations { l.icon_type = if l.name == name { IconType::Landmark } else { IconType::Detail }; }
         let (mut nx, mut ny, mut sx, mut sy) = (frame.x0, frame.y1, frame.x1, frame.y0);
         if let (Some([mnx, mny]), Some([msx, msy])) = (w.map_nw_cell, w.map_se_cell) {
             (nx, ny, sx, sy) = (mnx.max(frame.x0), mny.min(frame.y1), msx.min(frame.x1), msy.max(frame.y0));
             if nx > sx || sy > ny { (nx, ny, sx, sy) = (frame.x0, frame.y1, frame.x1, frame.y0); }
         }
         let (x, y) = frame.to_frame((nx + sx + 1) as f32 * CELL / 2.0, (ny + sy + 1) as f32 * CELL / 2.0);
-        let name = name.map(str::to_string).or_else(|| w.name.clone()).or_else(|| w.edid.clone()).unwrap_or_default();
-        locations.push(RawLocation { name, x, y, icon_type: IconType::Landmark, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
+        if !locations.iter().any(|l| l.name == name) {
+            locations.push(RawLocation { name, x, y, icon_type: IconType::Landmark, real_lat: None, real_lon: None, terrain_override: None, anchor: None });
+        }
     }
 
     let (width, height) = (((frame.x1 - frame.x0 + 1) * 2) as u32, ((frame.y1 - frame.y0 + 1) * 2) as u32);
@@ -916,7 +945,7 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
         height,
         world_bounds: Some(MapBounds { min_x: 0, min_y: 0, max_x: width as i32 - 1, max_y: height as i32 - 1 }),
         coordinate_scale: QUAD,
-        miles_per_unit: summary.is_some().then_some(variant.miles_per_unit()),
+        miles_per_unit: summary.is_some().then_some(miles_per_unit),
         ..Default::default()
     }
 }
@@ -1026,7 +1055,7 @@ mod tests {
         let tex = |q| layer(q, 0, "t", None);
         let marker = |name: &str, x, y| DumpMarker { name: Some(name.into()), edid: None, kind: Some("Encampment".into()), reputation: None, x, y };
         let dump = Dump {
-            worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None },
+            worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None, default_ground: None },
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
             child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
@@ -1039,7 +1068,7 @@ mod tests {
             lod: None,
         };
         let dump = [dump];
-        let map = build(&dump, BethesdaGameVariant::FalloutNV, None);
+        let map = build(&dump, BethesdaGameVariant::FalloutNV, None, 0.0);
         assert_eq!((map.width, map.height), (2, 2));
         let mut pos: Vec<(i32, i32)> = map.tiles.iter().map(|t| (t.x, t.y)).collect();
         pos.sort();
@@ -1048,7 +1077,7 @@ mod tests {
         assert_eq!((map.locations[0].x, map.locations[0].y), (1000.0, 1096.0));
         assert_eq!((map.locations[1].x, map.locations[1].y), (2050.0, 2996.0));
         // Summarized: every marker is a full-map detail, plus one landmark named after the world.
-        let map = build(&dump, BethesdaGameVariant::FalloutNV, Some(None));
+        let map = build(&dump, BethesdaGameVariant::FalloutNV, Some(None), BethesdaGameVariant::FalloutNV.miles_per_unit());
         assert!(map.locations[..2].iter().all(|l| matches!(l.icon_type, IconType::Detail)));
         let w = &map.locations[2];
         assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));
@@ -1063,7 +1092,7 @@ mod tests {
         // Ground falling west to east from `top` to `bottom` across one cell.
         let ramp = |top: i32, bottom: i32| (0..33 * 33).map(|i| top + (bottom - top) * (i % 33) as i32 / 32).collect::<Vec<i32>>();
         let dump = |land: f32, water: f32, edge: Vec<i32>, floor: Vec<i32>| Dump {
-            worldspace: DumpWorld { name: None, edid: None, default_water_height: Some(water), default_land_height: Some(land), map_nw_cell: None, map_se_cell: None },
+            worldspace: DumpWorld { name: None, edid: None, default_water_height: Some(water), default_land_height: Some(land), map_nw_cell: None, map_se_cell: None, default_ground: None },
             markers: vec![], child_markers: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
             land_textures: HashMap::new(),
             cells: vec![cell(0, flat(20000)), cell(1, edge), cell(2, floor.clone()), cell(3, floor.clone()), cell(4, floor)],

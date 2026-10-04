@@ -97,6 +97,23 @@ fn main() -> std::io::Result<()> {
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::Fallout4, "NukaWorld"))); // Nuka-World
     // Fallout 76: Appalachia (West Virginia, with Skyline Valley and Burning Springs).
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout76, "APPALACHIA").with_tier(crate::schema::tier::FALLOUT_76)));
+    // Fallout 76's expeditions: interior zones dressed as outdoors, each placed at its real counterpart by its
+    // name (not the Daily Ops copies, nor the zones' buildings within: the Casino and the Night Club). Each
+    // city shows one marker; its other zones add terrain only.
+    for (name, cell, ground, shown) in [
+        // The Pitt (Pittsburgh), marked by Fallout 3's; the Pitt's own worldspace is an empty placeholder.
+        ("The Pitt - Industrial", "XPDPitt01Industrial", "City", false), ("The Foundry", "XPDPitt01Foundry", "City", false),
+        ("The Pitt - Trench", "XPDPitt02Trench", "City", false), ("Sanctum", "XPDPitt02Sanctum", "City", false),
+        ("Steel Tower", "XPDRttP01SteelTower", "City", false),
+        // Atlantic City (New Jersey; the game's region location), marked on its flooded downtown (under
+        // water but for its buildings); generic zone names carry the city's.
+        ("Atlantic City", "XPDAC03FloodedCityCenter", "Water", true), ("The Boardwalk", "XPDAC02Boardwalk", "City", false),
+        ("Showman's Pier", "XPDAC02Pier", "City", false), ("Aquarium of the Atlantic", "XPDAC02Aquarium", "City", false),
+        ("Casino Quarter", "XPDAC01EntertainmentDistrict", "City", false), ("Atlantic City Hall", "XPDAC03CityHall", "City", false),
+        ("Atlantic City Community Center", "XPDAC03CommunityCenter", "City", false),
+    ] {
+        game_extractors.push(Box::new(BethesdaExtractor::zone(name, cell, ground, shown).with_tier(crate::schema::tier::FALLOUT_76)));
+    }
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC03BigMT"))); // Old World Blues
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::FalloutNV, "Sierra Madre", &[ // Dead Money
