@@ -63,6 +63,13 @@ fn solve(mut a: Vec<Vec<f64>>, mut b: Vec<[f64; 2]>) -> Option<Vec<[f64; 2]>> {
 
 impl RubberSheet {
     pub fn new(control_points: Vec<ControlPoint>) -> Self {
+        Self::smoothed(control_points, 0.0)
+    }
+
+    /// A TPS that fits the anchors approximately: `smoothing` (lambda, in units of the normalized
+    /// kernel) trades exactness at the anchors for a gentler warp; 0 interpolates them exactly, and
+    /// as it grows the warp tends to the anchors' least-squares affine fit.
+    pub fn smoothed(control_points: Vec<ControlPoint>, smoothing: f64) -> Self {
         let n = control_points.len();
         let invalid = RubberSheet { pts: vec![], center: (0.0, 0.0), scale: 1.0, w: [vec![], vec![]], a: [[0.0; 3]; 2], valid: false, domain: None };
         if n < 3 { return invalid; }
@@ -84,7 +91,7 @@ impl RubberSheet {
         for i in 0..n {
             for j in 0..n {
                 let (dx, dy) = (pts[i].0 - pts[j].0, pts[i].1 - pts[j].1);
-                l[i][j] = kernel(dx * dx + dy * dy);
+                l[i][j] = kernel(dx * dx + dy * dy) + if i == j { smoothing } else { 0.0 };
             }
             let p = [1.0, pts[i].0, pts[i].1];
             for k in 0..3 { l[i][n + k] = p[k]; l[n + k][i] = p[k]; }
@@ -252,6 +259,10 @@ fn trend_corners(cps: &[ControlPoint], area: FoldCheckArea) -> Vec<ControlPoint>
 }
 
 const MILES_PER_DEGREE: f64 = 69.0;
+/// The loosest warp tried (see `RubberSheet::smoothed`), and how many halvings below it are tried first,
+/// tightest first.
+const LOOSEST: f64 = 10.0;
+const LOOSENING_STEPS: u32 = 20;
 // ponytail: fixed clearance (fraction of |AB|) past the line; raise if folds remain near moved anchors.
 const CROSSING_MARGIN: f64 = 0.02;
 /// Fractions of the way across the line that are tried for each candidate move, smallest first.
@@ -359,7 +370,33 @@ impl RubberSheet {
             folds = left;
         }
 
+        // A game whose map disagrees with the world beyond what moving anchors across lines fixes (Fallout
+        // 76's Appalachia rearranges West Virginia): the warp is loosened, as little as removes the folds, so
+        // conflicting anchors give a little (each drifts from its real place by what is reported).
+        let mut loosened = None;
+        if !folds.is_empty() {
+            for step in 0..LOOSENING_STEPS {
+                let smoothing = LOOSEST * 0.5f64.powi((LOOSENING_STEPS - 1 - step) as i32);
+                let trial = RubberSheet::smoothed(cps.clone(), smoothing);
+                let left = trial.folds(area);
+                if left.is_empty() || step == LOOSENING_STEPS - 1 {
+                    (sheet, folds, loosened) = (trial, left, Some(smoothing));
+                    break;
+                }
+            }
+        }
+
         let mut report = Vec::new();
+        if let Some(smoothing) = loosened {
+            let drift = |c: &ControlPoint| {
+                let (lat, lon) = sheet.transform(c.game_x, c.game_y);
+                ((lat - c.real_lat) as f64 * MILES_PER_DEGREE).hypot((lon - c.real_lon) as f64 * kx)
+            };
+            let worst = cps.iter().map(|c| (drift(c), c.name.as_str())).max_by(|a, b| a.0.total_cmp(&b.0));
+            if let Some((miles, name)) = worst {
+                report.push(format!("Warp loosened (smoothing {:.4}) to remove folds: anchors drift up to {:.1} mi ('{}')", smoothing, miles, name));
+            }
+        }
         for (i, cp) in cps.iter().enumerate() {
             let (de, ds) = (real[i].0 - original[i].0, real[i].1 - original[i].1);
             if de.abs() < 1e-6 && ds.abs() < 1e-6 { continue; }

@@ -550,6 +550,7 @@ impl FalloutInterplayExtractor {
                     real_lon: None,
                     weight: 1.0,
                     anchor: None,
+                    lod: false,
                 });
             }
         }
@@ -760,7 +761,7 @@ fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]
             out.push(RawTile {
                 x: sx * k as i32 + bx as i32, y: sy * k as i32 + by as i32,
                 tile_type,
-                real_lat: None, real_lon: None, weight: sq.weight, anchor: None,
+                real_lat: None, real_lon: None, weight: sq.weight, anchor: None, lod: false,
             });
         }}
     }

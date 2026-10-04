@@ -205,7 +205,7 @@ fn classify_terrain(art: &[[u8; 3]], w: usize, h: usize) -> (Vec<RawTile>, usize
             *votes.entry(class((by * BLOCK + y) * w + bx * BLOCK + x)).or_default() += 1;
         }}
         let t = votes.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(a.0))).unwrap().0;
-        RawTile { x: bx as i32, y: by as i32, tile_type: t.into(), real_lat: None, real_lon: None, weight: 1.0, anchor: None }
+        RawTile { x: bx as i32, y: by as i32, tile_type: t.into(), real_lat: None, real_lon: None, weight: 1.0, anchor: None, lod: false }
     }).collect();
     (tiles, BLOCK)
 }

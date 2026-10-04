@@ -226,6 +226,7 @@ impl ManualExtractor {
                             real_lon: None,
                             weight: 1.0,
                             anchor: None,
+                            lod: false,
                         });
                     }
                 }
@@ -318,6 +319,7 @@ impl ManualExtractor {
                         real_lon: Some(center_lon + dx as f32 * step_lon),
                         weight: 1.0,
                         anchor: None,
+                        lod: false,
                     });
                 }
             }
@@ -355,6 +357,7 @@ impl ManualExtractor {
                         real_lon: Some(start_lon + col_idx as f32 * step_lon),
                         weight: 1.0,
                         anchor: None,
+                        lod: false,
                     });
                 }
             }

@@ -185,6 +185,10 @@ pub struct RawTile {
     pub weight: f32,
     #[serde(default)]
     pub anchor: Option<String>,
+    /// Land the game only shows from afar (its LOD terrain, beyond its own map): it votes under every
+    /// source's own land.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lod: bool,
 }
 
 fn default_weight() -> f32 { 1.0 }
@@ -247,4 +251,7 @@ pub struct FixedTile {
     /// Real-world region (index into `borders::REGIONS`) of a land tile, for drawing borders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<u16>,
+    /// Only LOD land voted here (see `RawTile::lod`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lod: bool,
 }

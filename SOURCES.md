@@ -3,7 +3,8 @@
 Every Fallout game and add-on, and whether the map uses it. Tiers (vote weight and build order;
 `schema::tier`): 1 main games and manual locations, 2 Fallout 76, 3 simulations of the past
 (Operation Anchorage), 4 Tactics and Van Buren, 5 Brotherhood of Steel, 6 mods. Vote weights
-16/8/6/4/2/1.
+16/8/6/4/2/1. A game's LOD land (what it shows beyond its own map) only fills where no source's own
+land is.
 
 Places far from the contiguous US (Alaska) are drawn as framed insets in the overviews' south-west
 corner; their own cluster maps are at the real place.
@@ -66,11 +67,14 @@ Creation Club plugins listed in Fallout4.ccc)
 ## Fallout Shelter (2015)
 - ➖ No geography
 
-## Fallout 76 (2018) — tier 2 (no Mutagen support; needs another reader)
-- ⬜ Appalachia (West Virginia) — Wastelanders, Steel Dawn/Reign and later updates add to it
-- ⬜ Skyline Valley (Shenandoah, Virginia; 2024)
-- ⬜ Atlantic City (New Jersey; 2024)
-- ⬜ Burning Springs (southern Ohio; 2025)
+## Fallout 76 (2018) — tier 2 (fo76utils, built locally by `build.rs`; Mutagen does not read it)
+- ✅ Appalachia (West Virginia), incl. its LOD ring (the terrain file runs ~30–50 cells beyond the
+  game's map); later updates' content is in the same worldspace
+- ✅ Skyline Valley (Shenandoah, Virginia; 2024) — part of Appalachia, along its south edge; not
+  anchored (the game moves it ~100 mi from the real Shenandoah)
+- ✅ Burning Springs (southern Ohio; 2025) — part of Appalachia, west of the Ohio River
+- ⬜ Atlantic City (New Jersey; 2024) — an expedition worldspace
+- ⬜ The Pitt (Pittsburgh; 2022) — an expedition worldspace (`EXM1PittWorldspace`)
 
 ## Fallout (TV series)
 - ✅ Season 1 locations (manual JSON in `input/manual/tv`)

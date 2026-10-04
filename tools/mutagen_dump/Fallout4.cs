@@ -223,7 +223,7 @@ static class Fallout4Dump
                 ["base"] = hazard.EditorID,
                 ["effect"] = hazard.Effect.TryResolve(lc)?.EditorID,
                 ["radiation"] = null,
-                ["radius"] = hazard.Radius * (h.Scale ?? 1f),
+                ["radius"] = hazard.Radius * 64f / 3f * (h.Scale ?? 1f), // in feet; a foot is 64/3 units
                 ["x"] = h.Position.X,
                 ["y"] = h.Position.Y,
             });

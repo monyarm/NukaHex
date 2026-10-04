@@ -199,6 +199,35 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Cranberry Island Docks", "Great Cranberry Island"),
     ("National Park Visitor's Center", "Hulls Cove Visitor Center"),
     ("Acadia", "Cadillac Mountain"),
+    // Fallout 76: Appalachia rearranges West Virginia (it puts Grafton, Clarksburg, Philippi and Prickett's
+    // Fort north of Morgantown, and its Cranberry Bog east of Harpers Ferry), so its warp is loosened until it
+    // does not fold and these anchors drift a little (see `RubberSheet::new_fold_free`). Not anchored:
+    // Skyline Valley (Shenandoah: Rapidan Camp, Old Rag, Stony Man), which the game adds along the south of
+    // its map while the real one lies north-east of the Cranberry Glades, a move rather than drift; and lesser
+    // sites the game sets against these towns, which would only add drift (Grafton itself, Monongah,
+    // Philippi, Huntersville, Sugar Grove, Green Bank, Spruce Knob, Organ Cave, the New River Gorge Bridge,
+    // Big Bend Tunnel, Fort Steuben, Dolly Sods, Logan).
+    ("Morgantown", "Morgantown, West Virginia"),
+    ("Flatwoods", "Flatwoods, West Virginia"),
+    ("Point Pleasant", "Point Pleasant, West Virginia"),
+    ("Welch", "Welch, West Virginia"),
+    ("Beckley", "Beckley, West Virginia"),
+    ("Berkeley Springs", "Berkeley Springs, West Virginia"),
+    ("The Whitespring Resort", "The Greenbrier"),
+    ("Cranberry Glade", "Cranberry Glades Botanical Area"),  // the Cranberry Bog
+    ("Charleston Capitol Building", "West Virginia State Capitol"),
+    ("Clarksburg", "Clarksburg, West Virginia"),
+    ("Grafton Dam", "Tygart Lake"),
+    ("Prickett's Fort", "39.5154,-80.0998"),             // Prickett's Fort State Park (Wikipedia)
+    ("Harpers Ferry", "Harpers Ferry, West Virginia"),
+    ("Lewisburg", "Lewisburg, West Virginia"),
+    ("Summersville Dam", "Summersville Dam"),
+    ("Sutton", "Sutton, West Virginia"),
+    ("Helvetia", "Helvetia, West Virginia"),
+    ("Seneca Rocks", "Seneca Rocks"),
+    ("Tyler County Fairgrounds", "Middlebourne, West Virginia"),
+    ("Athens", "Athens, Ohio"),                          // Burning Springs
+    ("Albany", "Albany, Ohio"),
     // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
     // at the real theme park there (its map has the river with an island and a north-south interstate).
     ("Nuka-World", "Six Flags New England"),
@@ -295,6 +324,18 @@ type SourceVotes = (u8, HashMap<String, f32>);
 /// Tier of a raw map (0, the default, counts as 1).
 fn tier(map: &RawMapData) -> u8 { map.priority.clamp(crate::schema::tier::MAIN, crate::schema::tier::WEAKEST) }
 
+/// Marks a source's LOD land (`RawTile::lod`) as a source of its own (see `resolve_hex`).
+const LOD_SOURCE: usize = 1 << (usize::BITS - 1);
+
+/// The source a tile votes as: its own, or its LOD land's.
+fn voter(source: usize, lod: bool) -> usize { if lod { source | LOD_SOURCE } else { source } }
+
+/// Whether only LOD land voted in a hex.
+fn lod_only(sources: &HashMap<usize, SourceVotes>) -> bool {
+    let mut voters = sources.iter().filter(|(_, (_, votes))| pick(votes).is_some()).map(|(s, _)| s).peekable();
+    voters.peek().is_some() && voters.all(|s| s & LOD_SOURCE != 0)
+}
+
 /// The winning type of a set of votes (salience-weighted; ties by name, not hash order).
 fn pick(votes: &HashMap<String, f32>) -> Option<&String> {
     votes.iter().filter(|(t, _)| *t != "unknown")
@@ -306,6 +347,11 @@ fn pick(votes: &HashMap<String, f32>) -> Option<&String> {
 /// detail (`DETAILS`) one source gives beats a plain Sand result, unless two or more sources of a
 /// higher tier than that source give Sand themselves. Among details, the highest tier wins.
 fn resolve_hex(sources: &HashMap<usize, SourceVotes>) -> Option<String> {
+    // LOD land (what a game shows beyond its map) is a fallback: it votes only where no source's own land does.
+    if !lod_only(sources) && sources.keys().any(|s| s & LOD_SOURCE != 0) {
+        let own: HashMap<usize, SourceVotes> = sources.iter().filter(|(s, _)| *s & LOD_SOURCE == 0).map(|(s, v)| (*s, v.clone())).collect();
+        return resolve_hex(&own);
+    }
     let mut total: HashMap<String, f32> = HashMap::new();
     for (_, votes) in sources.values() {
         for (t, w) in votes { *total.entry(t.clone()).or_default() += w; }
@@ -547,7 +593,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     let mut true_position: HashMap<String, (f32, f32)> = HashMap::new();
     let mut inset_cursor = 0.0f32;
     // Per cluster, after its alignment: markers (name, lat, lon, icon) and tiles (type, lat, lon).
-    let mut placed_clusters: Vec<(Vec<(String, f32, f32, crate::schema::IconType)>, Vec<(String, f32, f32)>)> = Vec::new();
+    let mut placed_clusters: Vec<(Vec<(String, f32, f32, crate::schema::IconType)>, Vec<(String, f32, f32, bool)>)> = Vec::new();
 
     // We'll project everything to lat/lon first
     for cluster in &game_clusters {
@@ -612,7 +658,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             (Some(lat), Some(lon)) => Some((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type)),
             _ => { warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name)); None }
         }).collect();
-        let tiles: Vec<_> = cluster.tiles.iter().filter_map(|t| Some((t.tile_type.clone(), t.real_lat? + d_lat, t.real_lon? + d_lon))).collect();
+        let tiles: Vec<_> = cluster.tiles.iter().filter_map(|t| Some((t.tile_type.clone(), t.real_lat? + d_lat, t.real_lon? + d_lon, t.lod))).collect();
         placed_clusters.push((locs, tiles));
     }
 
@@ -659,9 +705,10 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             let (glat, glon) = to_inset(lat, lon);
             all_fixed_locations.push((name, glat, glon, icon, priority_weight(cluster.priority), false));
         }
-        for (t_type, lat, lon) in tiles {
+        for (t_type, lat, lon, lod) in tiles {
             let (glat, glon) = to_inset(lat, lon);
-            all_fixed_tiles.push((t_type, glat, glon, priority_weight(cluster.priority), cluster_idx, tier(cluster)));
+            let (source, tier) = (voter(cluster_idx, lod), tier(cluster));
+            all_fixed_tiles.push((t_type, glat, glon, priority_weight(cluster.priority), source, tier));
         }
     }
 
@@ -679,7 +726,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon, priority_weight(manual.priority), manual_idx, tier(manual)));
+                let (source, tier) = (voter(manual_idx, tile.lod), tier(manual));
+                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon, priority_weight(manual.priority), source, tier));
             }
         }
     }
@@ -695,7 +743,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             let (lat, lon) = transform(tile.x as f32, tile.y as f32);
-            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon, priority_weight(manual.priority), manual_idx, tier(manual)));
+            let (source, tier) = (voter(manual_idx, tile.lod), tier(manual));
+            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon, priority_weight(manual.priority), source, tier));
         }
     }
 
@@ -742,22 +791,24 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     // Downsample: each output cell takes the majority type of the finer cells landing in it
     // (ties broken by name, so the result does not depend on input order).
     let mut votes: HashMap<(i32, i32), HashMap<usize, SourceVotes>> = HashMap::new();
-    let mut water: HashMap<(i32, i32), (i32, i32)> = HashMap::new(); // water: 1 mi hex -> output hex
+    let mut water: HashMap<(i32, i32), ((i32, i32), bool)> = HashMap::new(); // water: 1 mi hex -> (output hex, LOD)
     let mut inset_cells: HashMap<usize, (i32, i32, i32, i32)> = HashMap::new(); // cluster -> grid box
     for (t_type, lat, lon, w, source, tier) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
         let cell = hex_at(gx, gy);
-        if insets.iter().any(|(c, _)| *c == source) {
-            let b = inset_cells.entry(source).or_insert((cell.0, cell.1, cell.0, cell.1));
+        if insets.iter().any(|(c, _)| *c == source & !LOD_SOURCE) {
+            let b = inset_cells.entry(source & !LOD_SOURCE).or_insert((cell.0, cell.1, cell.0, cell.1));
             *b = (b.0.min(cell.0), b.1.min(cell.1), b.2.max(cell.0), b.3.max(cell.1));
         }
         if t_type == "Water" {
             let (fx, fy) = to_grid(lat, lon, 1.0);
-            water.insert(hex_at(fx, fy), cell);
+            water.insert(hex_at(fx, fy), (cell, source & LOD_SOURCE != 0));
         }
         *votes.entry(cell).or_default().entry(source).or_insert_with(|| (tier, HashMap::new())).1.entry(t_type).or_insert(0.0) += w;
     }
+    // (LOD water is kept only where no source's own land is.)
+    let water: HashMap<(i32, i32), (i32, i32)> = water.into_iter().filter(|(_, (cell, lod))| !lod || lod_only(&votes[cell])).map(|(k, (cell, _))| (k, cell)).collect();
     let mut grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter()
         .filter_map(|(k, v)| resolve_hex(&v).map(|best| (k, best))).collect();
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
@@ -791,6 +842,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                 tile_type: t_type,
                 real_lat: None, real_lon: None,
                 anchor: None,
+                lod: false,
             });
         }
     }
@@ -857,6 +909,7 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
             real_lon: t.real_lon,
             weight: 1.0,
             anchor: t.anchor,
+            lod: t.lod,
         }).collect(),
         width: fixed.width,
         height: fixed.height,
@@ -894,6 +947,7 @@ fn fix_legacy_pass_through(raw_maps: Vec<RawMapData>) -> FixedMapData {
                 real_lon: tile.real_lon,
                 anchor: tile.anchor.clone(),
                 region: None,
+                lod: tile.lod,
             });
             if (tile.x as i32) < min_x { min_x = tile.x as i32; }
             if (tile.y as i32) < min_y { min_y = tile.y as i32; }
@@ -988,11 +1042,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 if let (Some(lat), Some(lon)) = (tile.real_lat, tile.real_lon) {
                     let (bin_y, bin_x) = bin_of(lat, lon);
                     
+                    let (source, tier) = (voter(map_idx, tile.lod), tier(map));
                     manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                         lat, lon, tile_type: tile.tile_type.clone(),
                         weight: 2.0 * priority_weight(map.priority),
                         sparse: map_idx >= dense_maps,
-                        source: map_idx, tier: tier(map),
+                        source, tier,
                     });
                     manual_projected_lats.push(lat);
                     manual_projected_lons.push(lon);
@@ -1015,7 +1070,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     let mut game_placements: HashMap<String, (String, crate::schema::IconType, Option<String>, Vec<(usize, f32, f32, f32)>)> = HashMap::new();
     let mut placement_order: Vec<String> = Vec::new();
     let mut game_sheets: Vec<Option<(RubberSheet, f32)>> = Vec::new();
-    let mut game_tile_maps: Vec<HashMap<(i32, i32), (String, f32)>> = Vec::new();
+    let mut game_tile_maps: Vec<HashMap<(i32, i32), (String, f32, bool)>> = Vec::new(); // (type, weight, LOD)
 
     for (game_idx, map) in raw_maps.iter().enumerate() {
         // Skip manual data in the rubbersheeting loop
@@ -1092,7 +1147,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
 
         game_sheets.push(sheet_opt);
 
-        let mut tile_map: HashMap<(i32, i32), (String, f32)> = HashMap::new();
+        let mut tile_map: HashMap<(i32, i32), (String, f32, bool)> = HashMap::new();
         for tile in &map.tiles {
             // Speed up: intern common types to avoid excessive allocations
             let interned_type = match tile.tile_type.as_str() {
@@ -1106,7 +1161,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 "Misc" => "Misc",
                 _ => &tile.tile_type,
             };
-            tile_map.insert((tile.x, tile.y), (interned_type.to_string(), tile.weight * priority_weight(map.priority)));
+            tile_map.insert((tile.x, tile.y), (interned_type.to_string(), tile.weight * priority_weight(map.priority), tile.lod));
         }
         game_tile_maps.push(tile_map);
     }
@@ -1160,11 +1215,12 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 let (lat, lon) = transform(tile.x as f32, tile.y as f32);
                 let (bin_y, bin_x) = bin_of(lat, lon);
                 
+                let (source, tier) = (voter(map_idx, tile.lod), tier(map));
                 manual_points_bins.entry((bin_y, bin_x)).or_default().push(ManualPoint {
                     lat, lon, tile_type: tile.tile_type.clone(),
                     weight: 2.0 * priority_weight(map.priority),
                     sparse: true,
-                    source: map_idx, tier: tier(map),
+                    source, tier,
                 });
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
@@ -1287,15 +1343,16 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     // Game tiles smaller than a hex vote by area: each tile centre is warped to the hex it falls in.
     // Per game and hex: (tile count, summed tile weight per type); used where a hex holds two or more
     // of the game's tiles, otherwise the tile under the hex centre votes (below).
-    let game_area_votes: Vec<HashMap<(i32, i32), (usize, HashMap<String, f32>)>> = game_sheets.par_iter().enumerate().map(|(game_idx, sheet_opt)| {
-        let mut bins: HashMap<(i32, i32), (usize, HashMap<String, f32>)> = HashMap::new();
+    // (Types are keyed with whether the tile is LOD land.)
+    let game_area_votes: Vec<HashMap<(i32, i32), (usize, HashMap<(String, bool), f32>)>> = game_sheets.par_iter().enumerate().map(|(game_idx, sheet_opt)| {
+        let mut bins: HashMap<(i32, i32), (usize, HashMap<(String, bool), f32>)> = HashMap::new();
         let Some((sheet, s)) = sheet_opt else { return bins };
-        for (&(tx, ty), (tile_type, weight)) in &game_tile_maps[game_idx] {
+        for (&(tx, ty), (tile_type, weight, lod)) in &game_tile_maps[game_idx] {
             let (lat, lon) = sheet.transform((tx as f32 + 0.5) * s, (ty as f32 + 0.5) * s);
             let (c, r) = to_grid(lat, lon, miles_per_hex);
             let bin = bins.entry(hex_at(c, r)).or_default();
             bin.0 += 1;
-            *bin.1.entry(tile_type.clone()).or_default() += weight;
+            *bin.1.entry((tile_type.clone(), *lod)).or_default() += weight;
         }
         bins
     }).collect();
@@ -1346,17 +1403,19 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 if let Some((sheet, terrain_scale)) = sheet_opt {
                     if let Some((n, counts)) = game_area_votes[game_idx].get(&(min_col + x as i32, min_row + y as i32)).filter(|b| b.0 >= 2) {
                         // Several tiles in this hex: they share the game's vote by area (the mean of their votes).
-                        for (tile_type, w) in counts {
-                            vote(game_idx, tier(&raw_maps[game_idx]), tile_type, 100.0 * w / *n as f32);
+                        for ((tile_type, lod), w) in counts {
+                            let (source, tier) = (voter(game_idx, *lod), tier(&raw_maps[game_idx]));
+                            vote(source, tier, tile_type, 100.0 * w / *n as f32);
                         }
                     } else if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
                         // Each game contributes the square that contains this point: game squares
                         // are discrete, so no blending with neighbours (that erodes narrow features).
                         // Square i covers game units [i*s, (i+1)*s).
                         let sq = ((gx / terrain_scale).floor() as i32, (gy / terrain_scale).floor() as i32);
-                        if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&sq) {
+                        if let Some((tile_type, base_weight, lod)) = game_tile_maps[game_idx].get(&sq) {
                             // Same strength a manual point has at its own location (1 / 0.01).
-                            vote(game_idx, tier(&raw_maps[game_idx]), tile_type, 100.0 * base_weight);
+                            let (source, tier) = (voter(game_idx, *lod), tier(&raw_maps[game_idx]));
+                            vote(source, tier, tile_type, 100.0 * base_weight);
                         }
                     }
                 }
@@ -1372,6 +1431,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                 real_lon: Some(lon),
                 anchor: None, // Inverse warping doesn't have anchors per tile
                 region: None, // assigned after cleanup and trimming
+                lod: lod_only(&by_source),
             });
         }
         row_tiles
@@ -1610,6 +1670,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             real_lat: t.real_lat,
             real_lon: t.real_lon,
             anchor: t.anchor,
+            lod: t.lod,
         })
         .collect();
 
@@ -1753,6 +1814,19 @@ mod invariant_tests {
         assert_eq!(resolve_hex(&hex(vec![src(1, "Sand", 16.0), src(1, "Water", 4.0)])).as_deref(), Some("Water"));
         // No data is not a vote.
         assert_eq!(resolve_hex(&hex(vec![src(1, "unknown", 16.0)])), None);
+    }
+
+    /// LOD land is a fallback: a tier-1 game's LOD detail loses to a mod's own Sand, but decides a hex
+    /// no source's own land reaches (and one whose own source has no data).
+    #[test]
+    fn lod_land_is_a_fallback() {
+        let src = |tier: u8, t: &str, w: f32| -> SourceVotes { (tier, [(t.to_string(), w)].into()) };
+        let lod_water = (voter(0, true), src(1, "Water", 16.0));
+        let hex = |list: Vec<(usize, SourceVotes)>| -> HashMap<usize, SourceVotes> { list.into_iter().collect() };
+        assert_eq!(resolve_hex(&hex(vec![lod_water.clone(), (voter(1, false), src(6, "Sand", 1.0))])).as_deref(), Some("Sand"));
+        assert_eq!(resolve_hex(&hex(vec![lod_water.clone(), (voter(1, true), src(6, "Sand", 1.0))])).as_deref(), Some("Water"));
+        assert_eq!(resolve_hex(&hex(vec![lod_water.clone(), (voter(1, false), src(6, "unknown", 1.0))])).as_deref(), Some("Water"));
+        assert!(lod_only(&hex(vec![lod_water])));
     }
 
     /// Hex centres follow the staggered layout: all six neighbours are one hex apart, and every
@@ -1930,7 +2004,7 @@ mod invariant_tests {
                 icon_type: crate::schema::IconType::Other, real_lat: Some(37.0), real_lon: Some(-118.0),
                 terrain_override: None, anchor: None }],
             tiles: tiles.into_iter().map(|(t, dlon)| crate::schema::RawTile { x: 0, y: 0, tile_type: t.into(),
-                real_lat: Some(37.0), real_lon: Some(-118.0 + dlon), weight: 1.0, anchor: None }).collect(),
+                real_lat: Some(37.0), real_lon: Some(-118.0 + dlon), weight: 1.0, anchor: None, lod: false }).collect(),
             coordinate_scale: 1.0, priority, ..Default::default()
         };
         let fixed = fix_translation_only(

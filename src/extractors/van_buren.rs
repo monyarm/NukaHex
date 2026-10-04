@@ -328,7 +328,7 @@ fn classify_terrain(img: &RgbImage) -> Vec<RawTile> {
     (0..bw * bh).map(|i| RawTile {
         x: (i % bw) as i32, y: (i / bw) as i32,
         tile_type: if block_teal[i] > 0.4 { "Water" } else if block_relief[i] > threshold { "Mountain" } else { "Sand" }.to_string(),
-        real_lat: None, real_lon: None, weight: 1.0, anchor: None,
+        real_lat: None, real_lon: None, weight: 1.0, anchor: None, lod: false,
     }).collect()
 }
 

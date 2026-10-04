@@ -7,6 +7,9 @@
 //! out-of-bounds LOD cells: they are real terrain from the game files.
 
 use crate::extractors::Extractor;
+
+#[path = "fo76.rs"]
+mod fo76;
 use crate::schema::{IconType, MapBounds, RawLocation, RawMapData, RawTile};
 use log::{info, warn};
 use serde::Deserialize;
@@ -28,17 +31,26 @@ const NOT_BUILDINGS: &[&str] = &[
 /// Lush plant share (plant footprint over ground area), averaged over a quadrant and its 8 neighbours,
 /// above which ground is Grass: Vault 22's overgrowth, not desert scrub or scattered trees.
 const VEGETATION_FOOTPRINT: f32 = 0.1;
+/// Tree canopy share (canopy footprint over ground area), averaged over a quadrant and its 8 neighbours,
+/// from which ground is forest: the Commonwealth's and the Island's woods and Appalachia's Forest, not
+/// the Mojave's junipers or the Capital Wasteland's scattered dead trees (well under it).
+const FOREST_FOOTPRINT: f32 = 0.5;
+/// Living tree canopy share (as above) from which ground under too few trees for forest is still green
+/// (Grass): open woodland, such as the pines dotted over Appalachia's mountains.
+const WOODLAND_FOOTPRINT: f32 = 0.3;
+/// Trees that are dead wood: they make forest (the Commonwealth's blasted forests), not green woodland.
+const DEAD_TREES: &[&str] = &["dead", "blasted", "burnt", "destroyed", "withered", "stump", "log", "fallen", "branch", "roots", "driftwood"];
 /// Desert plants, trees and dead wood, which do not make ground lush: Mojave scrub, and the conifers and
 /// shade trees dotted over mountains and towns.
 const NOT_LUSH: &[&str] = &[
-    "shrub", "yucca", "sage", "gourd", "cactus", "agave", "withered", "dead", "stump", "burnt", "tumbleweed",
+    "shrub", "yucca", "sage", "gourd", "cactus", "agave", "withered", "dead", "stump", "burnt", "tumbleweed", "creosote",
     "joshua", "branchpile", "log0", "juniper", "redced", "cedar", "evergreen", "aspen", "birch", "oak", "pine",
     "sassafras", "tree",
 ];
 
 /// What a placed static's mesh contributes to the ground: City (buildings, ruins and rubble wherever
 /// its mesh is filed, e.g. the Pitt's crater rubble or office rubble piles outside; rock debris is
-/// desert), Grass (lush plants), or nothing.
+/// desert), Forest (trees), Grass (lush plants), or nothing.
 fn static_terrain(model: &str) -> Option<&'static str> {
     let m = model.to_lowercase();
     if m.contains("architecture") {
@@ -46,8 +58,10 @@ fn static_terrain(model: &str) -> Option<&'static str> {
     }
     if m.contains("rubble") && !m.contains("rock") { return Some("City"); }
     if m.contains("lod\\neighborhoods") { return Some("City"); } // Fallout 4's distant city blocks
-    let plant = m.contains("landscape\\plants") || m.contains("landscape\\trees") || m.starts_with("trees\\")
-        || m.ends_with(".spt") || m.contains("vault22");
+    // Trees, dead ones too (the Commonwealth's blasted forests): their canopy makes forest.
+    let tree = m.contains("landscape\\trees") || m.starts_with("trees\\") || m.ends_with(".spt");
+    if tree && !m.contains("vault22") { return Some("Forest"); }
+    let plant = m.contains("landscape\\plants") || m.contains("vault22");
     (plant && !NOT_LUSH.iter().any(|w| m.contains(w))).then_some("Grass")
 }
 
@@ -63,23 +77,24 @@ pub enum BethesdaGameVariant {
     Fallout3,
     FalloutNV,
     Fallout4,
+    Fallout76,
 }
 
 impl BethesdaGameVariant {
     fn release(&self) -> &'static str {
-        match self { Self::Fallout3 => "Fallout3", Self::FalloutNV => "FalloutNV", Self::Fallout4 => "Fallout4" }
+        match self { Self::Fallout3 => "Fallout3", Self::FalloutNV => "FalloutNV", Self::Fallout4 => "Fallout4", Self::Fallout76 => "Fallout76" }
     }
     fn app_id(&self) -> u32 {
-        match self { Self::Fallout3 => 22370, Self::FalloutNV => 22380, Self::Fallout4 => 377160 }
+        match self { Self::Fallout3 => 22370, Self::FalloutNV => 22380, Self::Fallout4 => 377160, Self::Fallout76 => 1151340 }
     }
     fn name(&self) -> &'static str {
-        match self { Self::Fallout3 => "Fallout 3", Self::FalloutNV => "Fallout: New Vegas", Self::Fallout4 => "Fallout 4" }
+        match self { Self::Fallout3 => "Fallout 3", Self::FalloutNV => "Fallout: New Vegas", Self::Fallout4 => "Fallout 4", Self::Fallout76 => "Fallout 76" }
     }
     fn id_str(&self) -> &'static str {
-        match self { Self::Fallout3 => "fallout3", Self::FalloutNV => "falloutnv", Self::Fallout4 => "fallout4" }
+        match self { Self::Fallout3 => "fallout3", Self::FalloutNV => "falloutnv", Self::Fallout4 => "fallout4", Self::Fallout76 => "fallout76" }
     }
     fn markers(&self) -> &'static MarkerLists {
-        match self { Self::Fallout3 => &FO3_MARKERS, Self::FalloutNV => &NV_MARKERS, Self::Fallout4 => &FO4_MARKERS }
+        match self { Self::Fallout3 => &FO3_MARKERS, Self::FalloutNV => &NV_MARKERS, Self::Fallout4 => &FO4_MARKERS, Self::Fallout76 => &FO76_MARKERS }
     }
     /// Real miles per game unit of the main map: the mean scale of an affine fit to its anchors (the
     /// Mojave's 24: 0.280 and 0.258 along its axes, about 1.1 mi per cell; the Capital Wasteland's 16:
@@ -90,10 +105,10 @@ impl BethesdaGameVariant {
     /// and its 8 neighbours, from which ground is urban. New Vegas: Vegas and the denser towns, not lone
     /// shacks. Fallout 3's capital is ruins throughout, its rubble spilling around them: half that.
     fn city_footprint(&self) -> f32 {
-        match self { Self::Fallout3 => 0.15, Self::FalloutNV | Self::Fallout4 => 0.3 }
+        match self { Self::Fallout3 => 0.15, Self::FalloutNV | Self::Fallout4 | Self::Fallout76 => 0.3 }
     }
     fn miles_per_unit(&self) -> f32 {
-        match self { Self::Fallout3 => 0.000161, Self::FalloutNV => 0.000269, Self::Fallout4 => 0.000116 }
+        match self { Self::Fallout3 => 0.000161, Self::FalloutNV => 0.000269, Self::Fallout4 => 0.000116, Self::Fallout76 => 0.0003 }
     }
 }
 
@@ -150,6 +165,12 @@ impl BethesdaExtractor {
     }
 
     fn dump(&self, data_dir: &Path, worldspace: &str) -> Result<Dump, String> {
+        if self.variant == BethesdaGameVariant::Fallout76 {
+            let dump = fo76::dump(data_dir, worldspace)?;
+            info!("[{}] {}: {} markers, {} cells, {} land textures, {} hazards", self.variant.name(), worldspace,
+                dump.markers.len(), dump.cells.len(), dump.land_textures.len(), dump.radiation.len());
+            return Ok(dump);
+        }
         let out = Path::new(".cache/bethesda").join(format!("{}_{}.json", self.id, worldspace.to_lowercase()));
         std::fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
         let result = Command::new(env!("MUTAGEN_DOTNET"))
@@ -178,8 +199,18 @@ impl Extractor for BethesdaExtractor {
 
     /// Every master in Data (the helper picks the official ones) plus the helper's source.
     fn get_source_paths(&self) -> Vec<String> {
-        let reader = match self.variant { BethesdaGameVariant::Fallout4 => "Fallout4.cs", _ => "Fallout3.cs" };
-        let mut paths = vec!["tools/mutagen_dump/Program.cs".to_string(), format!("tools/mutagen_dump/{}", reader)];
+        // The reader: fo76utils (its pinned commit is in build.rs) for Fallout 76, else the Mutagen helper.
+        let mut paths: Vec<String> = match self.variant {
+            BethesdaGameVariant::Fallout76 => vec!["src/extractors/fo76.rs".into(), "build.rs".into()],
+            BethesdaGameVariant::Fallout4 => vec!["tools/mutagen_dump/Program.cs".into(), "tools/mutagen_dump/Fallout4.cs".into()],
+            _ => vec!["tools/mutagen_dump/Program.cs".into(), "tools/mutagen_dump/Fallout3.cs".into()],
+        };
+        if let (BethesdaGameVariant::Fallout76, Some(dir)) = (self.variant, self.data_dir()) {
+            let mut btd: Vec<String> = std::fs::read_dir(dir.join("Terrain")).into_iter().flatten().flatten().map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("btd"))).map(|p| p.to_string_lossy().into_owned()).collect();
+            btd.sort();
+            paths.extend(btd);
+        }
         if let Some(dir) = self.data_dir() {
             let mut esms: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten()
                 .map(|e| e.path())
@@ -447,12 +478,33 @@ const FO4_MARKERS: MarkerLists = MarkerLists {
     child_map_offset: true,
 };
 
+/// Fallout 76 (read through Fallout 4's records: its marker types are its own numbers, so its towns are
+/// listed). Appalachia includes Skyline Valley (Shenandoah) and Burning Springs (southern Ohio).
+const FO76_MARKERS: MarkerLists = MarkerLists {
+    places: &[],
+    // The region labels ("$REGION_ASH_HEAP"...) and the stations' fast-travel duplicates.
+    hidden: |name, _| name.starts_with('$') || name.starts_with("Fast Travel Point:"),
+    towns: &[
+        "Morgantown", "Charleston", "Flatwoods", "Point Pleasant", "Welch", "Harpers Ferry", "Watoga", "Grafton",
+        "Sutton", "Helvetia", "Lewisburg", "Berkeley Springs", "Summersville", "Beckley", "Clarksburg", "Monongah",
+        "Huntersville", "Foundation", "The Crater", "Athens", "Albany",
+    ],
+    not_towns: &[],
+    landmarks: &[
+        "The Whitespring Resort", "Top of the World", "New River Gorge Bridge - East", "Seneca Rocks", "Camden Park",
+        "Arktos Pharma", "National Radio Astronomy Research Center", "Charleston Capitol Building", "Fort Defiance",
+    ],
+    child_map_offset: true,
+};
+
 /// Category of a map marker. Vaults come from the marker type; towns are the settlement-type places
 /// tied to a faction reputation (plus the listed towns, minus camps); then the notable landmarks.
 /// Towns, vaults and landmarks appear on the main maps; everything else is `Other`.
 fn marker_icon(lists: &MarkerLists, name: &str, kind: &str, has_reputation: bool) -> IconType {
     let settlement_type = matches!(kind, "City" | "Settlement" | "Encampment" | "TownRuins");
-    if kind == "Vault" { IconType::Vault }
+    // (Fallout 76's marker types are its own numbers, so a vault is also known by its name: "Vault 76".)
+    let vault_name = name.strip_prefix("Vault ").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    if kind == "Vault" || vault_name { IconType::Vault }
     else if lists.landmarks.contains(&name) { IconType::Landmark }
     else if lists.towns.contains(&name) || (has_reputation && settlement_type && !lists.not_towns.contains(&name)) { IconType::City }
     else { IconType::Other }
@@ -696,11 +748,15 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
     let mut footprint: HashMap<(&'static str, (i32, i32)), f32> = HashMap::new();
     for o in &dump.statics {
         let Some(kind) = static_terrain(&o.model) else { continue };
-        *footprint.entry((kind, frame.tile_of(o.x, o.y))).or_default() += o.area / (QUAD * QUAD);
+        let tile = frame.tile_of(o.x, o.y);
+        *footprint.entry((kind, tile)).or_default() += o.area / (QUAD * QUAD);
+        if kind == "Forest" && !DEAD_TREES.iter().any(|w| o.model.to_lowercase().contains(w)) {
+            *footprint.entry(("Woodland", tile)).or_default() += o.area / (QUAD * QUAD);
+        }
     }
-    // Water first; then city, overgrowth and mountain where the footprint or slope averaged over the
-    // 3x3 quadrants around is high (so built-up and overgrown areas and ranges count, not single shacks,
-    // plants or bluffs); else the ground cover.
+    // Water first; then city, forest, overgrowth and mountain where the footprint or slope averaged over
+    // the 3x3 quadrants around is high (so built-up, overgrown and wooded areas and ranges count, not
+    // single shacks, plants, trees or bluffs); else the ground cover.
     let mut terrain: HashMap<(i32, i32), &'static str> = quads.iter().map(|(&(x, y), &(wet, _, ground))| {
         let around = || (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (x + dx, y + dy)));
         let slopes: Vec<f32> = around().filter_map(|p| quads.get(&p).and_then(|q| q.1)).collect();
@@ -708,8 +764,13 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
         let share = |kind| around().map(|p| footprint.get(&(kind, p)).copied().unwrap_or(0.0)).sum::<f32>() / 9.0;
         // Built-up ground is urban even with gardens and hedgerows among the buildings (Boston's blocks);
         // overgrowth shows even on a hillside, such as Vault 22's.
+        // Woods are forest whatever grows beneath the trees, but a steep wooded ridge stays mountain (as a
+        // snowy one does); overgrowth with no canopy shows even on a hillside, open woodland only on
+        // gentler ground.
         let t = if wet { "Water" } else if share("City") >= city_footprint { "City" }
-            else if share("Grass") >= VEGETATION_FOOTPRINT { "Grass" } else if steep { "Mountain" } else { ground };
+            else if share("Forest") >= FOREST_FOOTPRINT && !steep { "Forest" }
+            else if share("Grass") >= VEGETATION_FOOTPRINT { "Grass" } else if steep { "Mountain" }
+            else if share("Woodland") >= WOODLAND_FOOTPRINT { "Grass" } else { ground };
         ((x, y), t)
     }).collect();
 
@@ -763,7 +824,7 @@ fn dump_terrain(dump: &Dump, frame: Frame, city_footprint: f32) -> HashMap<(i32,
 }
 
 /// Terrain precedence when worldspaces sharing a frame disagree on a quadrant: the most notable wins.
-const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Mountain", "Snow"];
+const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Mountain", "Forest", "Snow"];
 
 /// One map from one or more worldspaces sharing a frame (see `GROUP_PRECEDENCE`). `summary`: None for a worldspace
 /// shown in full; Some(name) for a summarized DLC place, shown on the main maps as one landmark
@@ -783,8 +844,19 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
             if rank(t) < rank(e) { *e = t; }
         }
     }
+    // LOD land: beyond the in-game map of every worldspace in the frame. A worldspace without a map, or
+    // whose map misses its own landscape (Dead Money's exteriors carry the Mojave's), shows all its cells.
+    let within = |(nx, ny, sx, sy): (i32, i32, i32, i32), cx: i32, cy: i32| (nx..=sx).contains(&cx) && (sy..=ny).contains(&cy);
+    let shown: Vec<Result<(i32, i32, i32, i32), HashSet<(i32, i32)>>> = dumps.iter().map(|d| match (d.worldspace.map_nw_cell, d.worldspace.map_se_cell) {
+        (Some([nx, ny]), Some([sx, sy])) if d.cells.iter().any(|c| within((nx, ny, sx, sy), c.x, c.y)) => Ok((nx, ny, sx, sy)),
+        _ => Err(d.cells.iter().map(|c| (c.x, c.y)).collect()),
+    }).collect();
+    let on_map = |(x, y): (i32, i32)| {
+        let (cx, cy) = (frame.x0 + x.div_euclid(2), frame.y1 - y.div_euclid(2));
+        shown.iter().any(|s| match s { Ok(m) => within(*m, cx, cy), Err(cells) => cells.contains(&(cx, cy)) })
+    };
     let mut tiles: Vec<RawTile> = best.into_iter()
-        .map(|((x, y), t)| RawTile { x, y, tile_type: t.to_string(), real_lat: None, real_lon: None, weight: 1.0, anchor: None })
+        .map(|((x, y), t)| RawTile { x, y, tile_type: t.to_string(), real_lat: None, real_lon: None, weight: 1.0, anchor: None, lod: !on_map((x, y)) })
         .collect();
     tiles.sort_by_key(|t| (t.y, t.x)); // deterministic order
 
@@ -835,7 +907,7 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
     let (width, height) = (((frame.x1 - frame.x0 + 1) * 2) as u32, ((frame.y1 - frame.y0 + 1) * 2) as u32);
     let mut tally: HashMap<&str, usize> = HashMap::new();
     for t in &tiles { *tally.entry(t.tile_type.as_str()).or_default() += 1; }
-    info!("[Bethesda] {} worldspace(s), {} markers, {}x{} tiles: {:?}", dumps.len(), locations.len(), width, height, tally);
+    info!("[Bethesda] {} worldspace(s), {} markers, {}x{} tiles ({} LOD): {:?}", dumps.len(), locations.len(), width, height, tiles.iter().filter(|t| t.lod).count(), tally);
 
     RawMapData {
         locations,
@@ -875,7 +947,8 @@ mod tests {
         assert_eq!(static_terrain("Architecture\\Urban\\RubblePiles\\Pile01.NIF"), Some("City"));
         assert_eq!(static_terrain("Architecture\\Wasteland\\Highway\\Overpass01.NIF"), None);
         assert_eq!(static_terrain("Landscape\\Plants\\Vault22Grass.NIF"), Some("Grass"));
-        assert_eq!(static_terrain("Landscape\\Trees\\NV_WestJuniper02.NIF"), None);
+        assert_eq!(static_terrain("Landscape\\Trees\\NV_WestJuniper02.NIF"), Some("Forest"));
+        assert_eq!(static_terrain("Landscape\\Trees\\TreeMapleBlasted01.nif"), Some("Forest"));
         assert_eq!(static_terrain("Landscape\\Plants\\NVFicus01.NIF"), Some("Grass"));
         assert_eq!(static_terrain("Landscape\\Plants\\YuccaANV.NIF"), None);
         assert_eq!(static_terrain("Landscape\\Rocks\\NV_Rock01.NIF"), None);

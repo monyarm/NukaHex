@@ -15,7 +15,7 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 | Fallout 3 | ✅ Supported | Automatic (Steam), via Mutagen | Capital Wasteland, The Pitt, Point Lookout and Operation Anchorage (an Alaska inset), all DLC loaded |
 | Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave and all four add-on areas (Sierra Madre, Zion, Big MT, the Divide) |
 | Fallout 4 | ✅ Supported | Automatic (Steam), via Mutagen | The Commonwealth, Far Harbor and Nuka-World, all DLC and Creation Club plugins loaded |
-| Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |
+| Fallout 76 | ✅ Supported | Automatic (Steam), via fo76utils (built locally) | Appalachia incl. Skyline Valley and Burning Springs |
 | Fallout Tactics | ✅ Supported | Automatic (Steam) | World map and towns |
 | Van Buren (tech demo) | ✅ Supported | Automatic | World map art and markers |
 | Fallout: Nevada, Fallout: Sonora (mods) | ✅ Supported | Automatic download (`input/config/mods.json`) | Terrain only (tier 6); their towns anchor the warp |
