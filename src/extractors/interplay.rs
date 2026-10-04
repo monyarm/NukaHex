@@ -17,11 +17,14 @@ const TILE_COLS: usize = 4;
 /// Size of the refined terrain blocks emitted from the art (5x5 per square).
 const SUB_PX: usize = 10;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GameVariant {
     Fallout1,
     Fallout2,
-    FalloutBoS,
+    /// Fallout 2–engine total conversions (tier 5), fetched by `crate::mods`. Their markers only
+    /// anchor the warp; they place terrain, not markers.
+    FalloutNevada,
+    FalloutSonora,
 }
 
 impl GameVariant {
@@ -29,7 +32,7 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => 38400,
             GameVariant::Fallout2 => 38410,
-            GameVariant::FalloutBoS => 0, // Not on Steam typically
+            GameVariant::FalloutNevada | GameVariant::FalloutSonora => 0, // mods: not on Steam
         }
     }
 
@@ -37,7 +40,8 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => "Fallout 1",
             GameVariant::Fallout2 => "Fallout 2",
-            GameVariant::FalloutBoS => "Fallout: Brotherhood of Steel",
+            GameVariant::FalloutNevada => "Fallout: Nevada",
+            GameVariant::FalloutSonora => "Fallout: Sonora",
         }
     }
     
@@ -45,8 +49,13 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => "fallout1",
             GameVariant::Fallout2 => "fallout2",
-            GameVariant::FalloutBoS => "fallout_bos",
+            GameVariant::FalloutNevada => "fallout_nevada",
+            GameVariant::FalloutSonora => "fallout_sonora",
         }
+    }
+
+    fn is_mod(&self) -> bool {
+        matches!(self, GameVariant::FalloutNevada | GameVariant::FalloutSonora)
     }
 }
 
@@ -70,12 +79,22 @@ impl Extractor for FalloutInterplayExtractor {
     }
 
     fn get_cluster_id(&self) -> String {
-        "interplay".to_string()
+        if self.variant.is_mod() { format!("mod_{}", self.variant.id_str()) } else { "interplay".to_string() }
+    }
+
+    /// Mods: the manifest (their files are fetched and verified against it).
+    fn get_source_paths(&self) -> Vec<String> {
+        if self.variant.is_mod() { vec!["input/config/mods.json".to_string()] } else { Vec::new() }
     }
 
     fn extract(&self) -> RawMapData {
         match self.extract_real_data() {
             Ok(data) => data,
+            Err(e) if self.variant.is_mod() => {
+                let msg = format!("{} skipped: {}", self.variant.name(), e);
+                warn!("{}", msg);
+                RawMapData { warnings: vec![msg], coordinate_scale: SQUARE_PX as f32, priority: 5, ..Default::default() }
+            }
             Err(e) => {
                 error!("Error extracting {} data: {}", self.variant.name(), e);
                 warn!("Falling back to mock data");
@@ -94,12 +113,14 @@ impl FalloutInterplayExtractor {
         let mut install_dir = config_paths.get(self.variant.id_str()).map(PathBuf::from);
 
         if install_dir.is_none() {
-            // 1. Try Steam Discovery (only for PC games)
-            install_dir = match self.variant {
-                GameVariant::Fallout1 | GameVariant::Fallout2 => {
-                    dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
-                }
-                _ => None,
+            install_dir = if self.variant.is_mod() {
+                // The fetched mod's game folder: the one holding its master.dat, or its patch000.dat
+                // when it installs over Fallout 2 (Nevada).
+                let files = crate::mods::fetch(self.variant.id_str()).map_err(io::Error::other)?;
+                Some(find_dir_with(&files, "master.dat").or_else(|| find_dir_with(&files, "patch000.dat"))
+                    .ok_or_else(|| io::Error::other("no master.dat or patch000.dat in the mod's files"))?)
+            } else {
+                dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
             };
         }
 
@@ -113,7 +134,15 @@ impl FalloutInterplayExtractor {
 
         // 3. Parse Locations
         // We always parse locations to ensure we have the data, then filter later if needed.
-        let locations = self.parse_city_txt(&city_txt)?;
+        // Mods reuse Fallout 2's internal area names for their own places; the names the player sees
+        // are map.msg's entries 1500 + area index.
+        let area_names = if self.variant.is_mod() {
+            let msg = self.load_binary_file(&install_dir, "text/english/game/map.msg")?;
+            Some(parse_msg(&String::from_utf8_lossy(&msg)))
+        } else {
+            None
+        };
+        let locations = self.parse_city_txt(&city_txt, area_names.as_ref())?;
         
 
 
@@ -146,7 +175,8 @@ impl FalloutInterplayExtractor {
             coordinate_system: crate::schema::CoordinateSystem::Absolute,
             rows: None,
             coordinate_scale: scale, // pixels per tile; derived Default would give 0.0
-            priority: 1,
+            priority: if self.variant.is_mod() { 5 } else { 1 },
+            anchor_only_markers: self.variant.is_mod(),
             world_bounds: None,
             warnings,
             ..Default::default()
@@ -159,8 +189,19 @@ impl FalloutInterplayExtractor {
             return fs::read_to_string(&cache_path);
         }
         
-        // Try Local override or discovered directory
+        // Try Local override or discovered directory, in the engine's order: patch DATs, loose files,
+        // then the main DATs.
         if let Some(dir) = install_dir {
+            let inner_path = format!("data/{}", filename.replace('/', "\\"));
+            let (patches, mains) = self.dats(dir);
+            let from_dats = |dats: &[PathBuf]| dats.iter().find_map(|dat| dat_extractor::extract_dat2(dat, &inner_path).ok());
+            if let Some(bytes) = from_dats(&patches) {
+                let s = String::from_utf8_lossy(&bytes).to_string();
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &s)?;
+                return Ok(s);
+            }
+
             // 1. Direct local file (data/FILENAME)
             let local_path = dir.join("data").join(filename);
             if local_path.exists() {
@@ -179,18 +220,12 @@ impl FalloutInterplayExtractor {
                 return Ok(s);
             }
             
-            // 3. DAT (Only for DAT-compatible games)
-            if let GameVariant::Fallout2 = self.variant {
-                let master_dat = dir.join("master.dat");
-                if master_dat.exists() {
-                    let inner_path = format!("data/{}", filename.replace('/', "\\"));
-                    if let Ok(bytes) = dat_extractor::extract_dat2(&master_dat, &inner_path) {
-                        let s = String::from_utf8_lossy(&bytes).to_string();
-                        if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
-                        fs::write(&cache_path, &s)?;
-                        return Ok(s);
-                    }
-                }
+            // 3. Main DATs (Fallout 2–engine games)
+            if let Some(bytes) = from_dats(&mains) {
+                let s = String::from_utf8_lossy(&bytes).to_string();
+                if let Some(parent) = cache_path.parent() { fs::create_dir_all(parent)?; }
+                fs::write(&cache_path, &s)?;
+                return Ok(s);
             }
         }
         
@@ -224,17 +259,18 @@ impl FalloutInterplayExtractor {
         };
 
         if let Some(dir) = install_dir {
+            // The engine's order: patch DATs, loose files, then the main DATs.
+            let (patches, mains) = self.dats(dir);
+            let from_dats = |dats: &[PathBuf]| dats.iter().find_map(|dat| dat_extractor::extract_dat2(dat, &path.replace('/', "\\")).ok());
+            if let Some(data) = from_dats(&patches) {
+                return cache(data);
+            }
             let loose = dir.join(&path);
             if loose.exists() {
                 return cache(fs::read(loose)?);
             }
-            if let GameVariant::Fallout2 = self.variant {
-                let master_dat = dir.join("master.dat");
-                if master_dat.exists() {
-                    if let Ok(data) = dat_extractor::extract_dat2(&master_dat, &path.replace('/', "\\")) {
-                        return cache(data);
-                    }
-                }
+            if let Some(data) = from_dats(&mains) {
+                return cache(data);
             }
         }
 
@@ -259,8 +295,8 @@ impl FalloutInterplayExtractor {
         let bad = |what: &str| io::Error::new(io::ErrorKind::InvalidData, what.to_string());
         // Fo1in2 runs on the FO2 engine, so FO1's art uses FO2's palette.
         let pal_bytes = match self.variant {
-            GameVariant::Fallout2 => self.load_binary_file(install_dir, "color.pal")?,
-            _ => {
+            GameVariant::Fallout2 | GameVariant::FalloutNevada | GameVariant::FalloutSonora => self.load_binary_file(install_dir, "color.pal")?,
+            GameVariant::Fallout1 => {
                 let cache_path = Path::new(".cache").join(self.variant.id_str()).join("color.pal");
                 if cache_path.exists() { fs::read(&cache_path)? } else {
                     let fo2 = crate::utils::load_config_paths().unwrap_or_default().get("fallout2").map(PathBuf::from)
@@ -288,7 +324,7 @@ impl FalloutInterplayExtractor {
                 rgb[(oy + y) * w + ox + x] = pal[px[y * fw + x] as usize];
             }}
             // Only FO2 ships real masks (Fo1in2's are all empty); missing files just mean "no mask".
-            if let GameVariant::Fallout2 = self.variant {
+            if self.variant != GameVariant::Fallout1 {
                 if let Ok(m) = self.load_binary_file(install_dir, &format!("data/WRLDMP{:02}.MSK", t)) {
                     let row_bytes = TILE_PX_W.div_ceil(8);
                     for y in 0..TILE_PX_H { for x in 0..TILE_PX_W {
@@ -300,6 +336,30 @@ impl FalloutInterplayExtractor {
             }
         }
         Ok((rgb, mask))
+    }
+
+    /// The DAT archives of a Fallout 2–engine game folder, as the engine searches them: the patch
+    /// DATs (patch000.dat...), which override loose files, then master.dat and any other DATs
+    /// (e.g. Sonora's fission.dat), which loose files override. Fallout 1 (Fo1in2) has none.
+    /// A mod installed over Fallout 2 falls back to Fallout 2's master.dat.
+    fn dats(&self, dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        if self.variant == GameVariant::Fallout1 { return (Vec::new(), Vec::new()); }
+        let mut all: Vec<PathBuf> = fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dat")))
+            .collect();
+        all.sort();
+        let name = |p: &PathBuf| p.file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let (mut patches, mut mains): (Vec<PathBuf>, Vec<PathBuf>) = all.into_iter().partition(|p| name(p).starts_with("patch"));
+        // The engine opens patch000.dat, patch001.dat... in turn, each searched before the last.
+        patches.sort_by_key(|p| std::cmp::Reverse(name(p)));
+        mains.sort_by_key(|p| name(p) != "master.dat"); // master.dat first
+        // A mod installed over Fallout 2 (no master.dat of its own) reads Fallout 2's.
+        if self.variant.is_mod() && !mains.iter().any(|p| name(p) == "master.dat") {
+            let fo2 = crate::utils::load_config_paths().unwrap_or_default().get("fallout2").map(PathBuf::from)
+                .or_else(|| dat_extractor::find_steam_app(GameVariant::Fallout2.app_id(), GameVariant::Fallout2.name()).ok());
+            mains.extend(fo2.map(|d| d.join("master.dat")).filter(|p| p.exists()));
+        }
+        (patches, mains)
     }
 
     fn remap_location_name(&self, name: &str) -> String {
@@ -341,8 +401,9 @@ impl FalloutInterplayExtractor {
         }
     }
 
-    fn parse_city_txt(&self, content: &str) -> io::Result<Vec<RawLocation>> {
+    fn parse_city_txt(&self, content: &str, area_names: Option<&HashMap<u32, String>>) -> io::Result<Vec<RawLocation>> {
         let mut locations = Vec::new();
+        let mut area: Option<u32> = None;
         let mut current_name: Option<String> = None;
         let mut current_pos: Option<(f32, f32)> = None;
         let mut _current_map: Option<String> = None;
@@ -359,10 +420,12 @@ impl FalloutInterplayExtractor {
             
             if clean_line.starts_with('[') && clean_line.ends_with(']') {
                 if let (Some(name), Some((x, y))) = (current_name.take(), current_pos.take()) {
-                    self.add_location_if_valid(&mut locations, name, x, y);
+                    let shown = area.and_then(|a| area_names?.get(&(1500 + a)).cloned());
+                    self.add_location_if_valid(&mut locations, name, shown, x, y);
                 }
                 current_name = None;
                 current_pos = None;
+                area = clean_line[1..clean_line.len() - 1].trim().strip_prefix("Area").and_then(|n| n.trim().parse().ok());
                 continue;
             }
             
@@ -390,21 +453,28 @@ impl FalloutInterplayExtractor {
         }
         
         if let (Some(name), Some((x, y))) = (current_name, current_pos) {
-            self.add_location_if_valid(&mut locations, name, x, y);
+            let shown = area.and_then(|a| area_names?.get(&(1500 + a)).cloned());
+            self.add_location_if_valid(&mut locations, name, shown, x, y);
         }
         
         info!("Extracted {} locations from CITY.TXT", locations.len());
         Ok(locations)
     }
 
-    fn add_location_if_valid(&self, locations: &mut Vec<RawLocation>, name: String, x: f32, y: f32) {
+    /// Adds area `name` (its CITY.TXT name, which decides whether it is a real place) as `shown`
+    /// when given (its in-game name); an area listed again under a name already added (an alternate
+    /// state of the same place) is skipped.
+    fn add_location_if_valid(&self, locations: &mut Vec<RawLocation>, name: String, shown: Option<String>, x: f32, y: f32) {
+        // (100, 100) is the engine's placeholder for areas placed at run time or unused slots.
+        if (x, y) == (100.0, 100.0) { return; }
         let name_lower = name.to_lowercase();
         let invalid = ["random", "shadow worlds", "cathedraldead", "vatsdead", "raiders", 
                       "shady sands radscorpion cave", "hub irwines farm", "car outta gas", 
                       "vipers", "scrapheap", "desert", "mountain", "ocean"];
         
         if !(invalid.iter().any(|&s| name_lower.contains(s)) || name_lower.starts_with("special")) && !name_lower.is_empty() {
-             let final_name = self.remap_location_name(&name);
+             let final_name = shown.unwrap_or_else(|| self.remap_location_name(&name));
+             if locations.iter().any(|l| l.name == final_name) { return; }
              let icon_type = Self::resolve_marker_type(&final_name);
              
              locations.push(RawLocation { 
@@ -603,14 +673,16 @@ impl ArtClassifier {
         ArtClassifier { water: ArtModel::train(rgb, w, h, &binary, train_on), land: ArtModel::train(rgb, w, h, &lands, train_on) }
     }
 
-    /// Label of pixel `i` among the `present` types; `mask` (FO2 walk mask) overrides water vs land.
+    /// Label of pixel `i` among the `present` types; `mask` (FO2 walk mask) decides water vs land
+    /// where water is present. (A mod installed over Fallout 2 reads FO2's masks for tiles it has none
+    /// of: those describe FO2's coast, not the mod's art.)
     fn label(&self, i: usize, present: &[&str], mask: Option<bool>) -> Option<String> {
         let lands: Vec<&str> = present.iter().copied().filter(|t| *t != "Water").collect();
         let has_water = present.contains(&"Water");
         let water = match (mask, has_water, lands.is_empty()) {
-            (Some(v), ..) => v,
+            (_, false, _) => false,
+            (Some(v), true, _) => v,
             (None, true, true) => true,
-            (None, false, _) => false,
             (None, true, false) => {
                 let m = self.water.as_ref()?;
                 let allowed = [m.class_index("Water")?, m.class_index("Land")?];
@@ -700,6 +772,15 @@ fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]
 mod tests {
     use super::*;
 
+    #[test]
+    fn msg_entries() {
+        let msg = "# comment\n{1500}{}{Vault City}\n{1501}{voice}{Wind of\nWar}\n{1502}{}{}";
+        let m = parse_msg(msg);
+        assert_eq!(m.get(&1500).map(String::as_str), Some("Vault City"));
+        assert_eq!(m.get(&1501).map(String::as_str), Some("Wind of\nWar"));
+        assert_eq!(m.get(&1502).map(String::as_str), Some(""));
+    }
+
     fn art(v: GameVariant) -> Option<(Vec<RawTile>, usize, usize, Vec<[u8; 3]>, Vec<Option<bool>>)> {
         let ex = FalloutInterplayExtractor::new(v);
         let dir = dat_extractor::find_steam_app(v.app_id(), v.name()).ok();
@@ -781,4 +862,30 @@ mod tests {
             assert!(rad.iter().all(|&(x, y)| (x - 122).abs() <= 12 && (y - 127).abs() <= 12), "{:?}", rad);
         }
     }
+}
+
+/// A Fallout .msg file's `{number}{audio}{text}` entries, by number.
+fn parse_msg(content: &str) -> HashMap<u32, String> {
+    let mut fields = content.split('{').skip(1).map(|f| f.split_once('}').map_or(f, |(field, _)| field));
+    let mut out = HashMap::new();
+    while let (Some(n), Some(_audio), Some(text)) = (fields.next(), fields.next(), fields.next()) {
+        if let Ok(n) = n.trim().parse() { out.insert(n, text.trim().to_string()); }
+    }
+    out
+}
+
+/// The first directory under `root` (breadth-first, `root` included) holding a file named `name`
+/// (case-insensitive).
+fn find_dir_with(root: &Path, name: &str) -> Option<PathBuf> {
+    let mut queue = vec![root.to_path_buf()];
+    while !queue.is_empty() {
+        let mut next = Vec::new();
+        for dir in queue {
+            let entries: Vec<PathBuf> = fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
+            if entries.iter().any(|p| p.file_name().is_some_and(|f| f.eq_ignore_ascii_case(name))) { return Some(dir); }
+            next.extend(entries.into_iter().filter(|p| p.is_dir()));
+        }
+        queue = next;
+    }
+    None
 }

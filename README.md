@@ -13,13 +13,16 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 | Fallout 1 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 3 | 🔧 Planned | Mutagen (C# helper) | Same path as New Vegas; not yet wired |
-| Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave (WastelandNV) and Zion (Honest Hearts), all DLC loaded; other DLC worldspaces later |
+| Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave and all four add-on areas (Sierra Madre, Zion, Big MT, the Divide) |
 | Fallout 4 | 🔧 Planned | Mutagen (C# helper) | To be redone on the Mutagen path |
 | Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |
 | Fallout Tactics | ✅ Supported | Automatic (Steam) | World map and towns |
 | Van Buren (tech demo) | ✅ Supported | Automatic | World map art and markers |
+| Fallout: Nevada, Fallout: Sonora (mods) | ✅ Supported | Automatic download (`input/config/mods.json`) | Terrain only (tier 5); their towns anchor the warp |
 | Fallout TV Series (2024) | ✅ Supported | Manual JSON definitions | Locations manually defined |
 | Fallout: Wasteland Warfare (Board Game) | ✅ Supported | Manual JSON definitions | Locations manually defined |
+
+See [SOURCES.md](SOURCES.md) for every game and add-on and its status.
 
 ## Features
 

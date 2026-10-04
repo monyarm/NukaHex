@@ -8,6 +8,7 @@ mod pipeline;
 mod rubbersheeting;
 mod dat_extractor;
 mod geocoding;
+mod mods;
 mod caching;
 mod clustering; // Added clustering module
 mod utils;
@@ -63,6 +64,9 @@ fn main() -> std::io::Result<()> {
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
         Box::new(crate::extractors::van_buren::VanBurenExtractor),
         Box::new(crate::extractors::tactics::TacticsExtractor),
+        // Fallout 2–engine total conversions (tier 5): terrain only, their markers anchor the warp.
+        Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutNevada)),
+        Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutSonora)),
     ];
 
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).

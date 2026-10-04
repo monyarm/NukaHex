@@ -1,0 +1,17 @@
+[
+    {
+        "id": "fallout_sonora",
+        "name": "Fallout: Sonora (English 1.16.4E)",
+        "source": { "moddb": 298750 },
+        "file": "Fallout_Sonora_1.16.4E.zip",
+        "md5": "e29fd27cd12314795a9f79c0ae27b7bd",
+        "unpack": ["Fallout_Sonora_1_16_E/master.dat", "Fallout_Sonora_1_16_E/fission.dat", "Fallout_Sonora_1_16_E/data/*"]
+    },
+    {
+        "id": "fallout_nevada",
+        "name": "Fallout: Nevada (English Extended Edition)",
+        "source": { "mediafire": "https://www.mediafire.com/file/nqfrkb5fllbpqx4/Fallout_Nevada_Mod_Us.exe/file" },
+        "file": "Fallout_Nevada_Mod_Us.exe",
+        "sha256": "e732fbf6ddf87f7136170a60930b8b0e957de0a36f2d236df61f4a56b1024686"
+    }
+]

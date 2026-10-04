@@ -104,6 +104,33 @@ const REAL_COORDS: &[(&str, &str)] = &[
     // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
     // Desert meets the Grand Canyon, at Grand Canyon West.
     ("Sierra Madre", "Grand Canyon West, Arizona"),
+    // Fallout 2-engine mods (tier 5; keys are their in-game area names, map.msg 1500+). Their markers
+    // only anchor the warp. Names shared with Fallout 2 (Vault City, New Reno) are the same places.
+    // Fallout: Sonora. Dayglow is San Diego in canon.
+    ("Flagstaff", "Flagstaff, Arizona"),
+    ("Phoenix", "Phoenix, Arizona"),
+    ("Casa Grande", "Casa Grande, Arizona"),
+    ("Quartzsite", "Quartzsite, Arizona"),
+    ("Hermosillo", "Hermosillo, Sonora, Mexico"),
+    ("Puerto", "Puerto Peñasco, Sonora, Mexico"),          // "Puerto Penasco" in its worldmap text
+    ("Santa Ana", "Santa Ana, Sonora, Mexico"),
+    ("San Felipe", "San Felipe, Baja California, Mexico"),
+    ("Dayglow", "San Diego, California"),
+    // Fallout: Nevada. Baydie and Ailie are its translation's spellings of Beatty and Ely. Not
+    // anchored: fictional sites (Wind of War, the Sigma base, Uranium City, Old Rabbi...).
+    ("Las Vegas", "Las Vegas, Nevada"),
+    ("Area 51", "Area 51, Nevada"),
+    ("Baydie", "Beatty, Nevada"),
+    ("Ailie", "Ely, Nevada"),
+    ("Hawthorne Military Base", "Hawthorne Army Depot"),
+    ("Bridgeport", "Bridgeport, California"),
+    ("Lovelock", "Lovelock, Nevada"),
+    ("Gerlach", "Gerlach, Nevada"),
+    ("Black Rock", "Black Rock Point, Nevada"),
+    ("Battle Mountain", "Battle Mountain, Nevada"),
+    ("Wendover", "Wendover, Utah"),
+    ("Salt Lake City", "Salt Lake City, Utah"),
+    ("Provo District", "Provo, Utah"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House
@@ -193,6 +220,42 @@ pub fn from_grid(col: f32, row: f32, miles_per_hex: f32) -> (f32, f32) {
 /// survives on the overview scales.
 pub fn salience(tile_type: &str) -> f32 {
     if tile_type == "Radiation" { 4.0 } else { 1.0 }
+}
+
+/// Terrain types that are detail over plain ground: one source's detail beats another's Sand.
+const DETAILS: &[&str] = &["Water", "Grass", "Forest", "Snow", "Radiation", "City"];
+
+/// One source's votes in a hex: its tier (1 = primary .. 5 = mods) and its weighted votes by type.
+type SourceVotes = (u8, HashMap<String, f32>);
+
+/// Tier of a raw map (0, the default, counts as 1).
+fn tier(map: &RawMapData) -> u8 { map.priority.clamp(1, 5) }
+
+/// The winning type of a set of votes (salience-weighted; ties by name, not hash order).
+fn pick(votes: &HashMap<String, f32>) -> Option<&String> {
+    votes.iter().filter(|(t, _)| *t != "unknown")
+        .max_by(|a, b| (a.1 * salience(a.0)).total_cmp(&(b.1 * salience(b.0))).then_with(|| b.0.cmp(a.0)))
+        .map(|(t, _)| t)
+}
+
+/// Winner of a hex from each source's votes. The summed, tier-weighted vote decides, except that a
+/// detail (`DETAILS`) one source gives beats a plain Sand result, unless two or more sources of a
+/// higher tier than that source give Sand themselves. Among details, the highest tier wins.
+fn resolve_hex(sources: &HashMap<usize, SourceVotes>) -> Option<String> {
+    let mut total: HashMap<String, f32> = HashMap::new();
+    for (_, votes) in sources.values() {
+        for (t, w) in votes { *total.entry(t.clone()).or_default() += w; }
+    }
+    let winner = pick(&total)?.clone();
+    if winner != "Sand" { return Some(winner); }
+    let mut verdicts: Vec<(u8, f32, &String)> = sources.values()
+        .filter_map(|(tier, votes)| pick(votes).map(|t| (*tier, votes[t], t))).collect();
+    verdicts.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)).then_with(|| a.2.cmp(b.2)));
+    for &(t, _, detail) in verdicts.iter().filter(|v| DETAILS.contains(&v.2.as_str())) {
+        let sand_above = verdicts.iter().filter(|v| v.0 < t && v.2 == "Sand").count();
+        if sand_above < 2 { return Some(detail.clone()); }
+    }
+    Some(winner)
 }
 
 /// A lake must neither vanish nor fall apart when the map is coarsened. `water` maps each 1 mi water
@@ -410,7 +473,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     let mut warnings = Vec::new();
 
     // We'll project everything to lat/lon first
-    for cluster in &game_clusters {
+    for (cluster_idx, cluster) in game_clusters.iter().enumerate() {
         warnings.extend(cluster.warnings.clone());
         // 1. Pick Anchor
         // User: "pick the first marker with proper lat/lon, or the first marker if there isn't one"
@@ -418,7 +481,9 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             .find(|l| l.real_lat.is_some() && l.real_lon.is_some())
             .or_else(|| cluster.locations.first());
 
-        if let Some(anchor) = anchor_loc {
+        // A cluster without markers (e.g. a mod whose markers only anchored its warp) keeps its
+        // tiles where its own fix put them.
+        let (d_lat, d_lon) = match anchor_loc { None => (0.0, 0.0), Some(anchor) => {
             // 2. Identify Target (Ideal) Position for Anchor
             let mut target_found = false;
             let (target_lat, target_lon) = if let (Some(la), Some(lo)) = (anchor.real_lat, anchor.real_lon) {
@@ -463,28 +528,31 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             };
 
             info!("Cluster aligned via anchor '{}' to offset (dLat: {:.4}, dLon: {:.4})", anchor.name, d_lat, d_lon);
+            (d_lat, d_lon)
+        } };
 
-            // Apply offset to all markers
-            for loc in &cluster.locations {
-                let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
-                    warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name));
-                    continue;
-                };
-                all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type, priority_weight(cluster.priority), false));
-            }
+        // Apply offset to all markers
+        for loc in &cluster.locations {
+            let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
+                warnings.push(format!("Marker '{}' has no lat/lon after cluster fixing; not placed", loc.name));
+                continue;
+            };
+            all_fixed_locations.push((loc.name.clone(), lat + d_lat, lon + d_lon, loc.icon_type, priority_weight(cluster.priority), false));
+        }
 
-            // Apply offset to all tiles
-            for tile in &cluster.tiles {
-                if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                    all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon, priority_weight(cluster.priority)));
-                }
+        // Apply offset to all tiles
+        for tile in &cluster.tiles {
+            if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
+                all_fixed_tiles.push((tile.tile_type.clone(), t_lat + d_lat, t_lon + d_lon, priority_weight(cluster.priority), cluster_idx, tier(cluster)));
             }
         }
     }
 
     // Process manual maps: absolute ones are projected as-is (no translation offset);
     // relative ones are placed afterwards from their markers already placed by name.
-    for manual in manual_maps.iter().filter(|m| m.coordinate_system != crate::schema::CoordinateSystem::Relative) {
+    let n_clusters = game_clusters.len(); // sources: clusters, then manual maps
+    for (j, manual) in manual_maps.iter().enumerate().filter(|(_, m)| m.coordinate_system != crate::schema::CoordinateSystem::Relative) {
+        let manual_idx = n_clusters + j;
         for loc in &manual.locations {
             let (Some(lat), Some(lon)) = (loc.real_lat, loc.real_lon) else {
                 warnings.push(format!("Manual marker '{}' has no lat/lon; not placed", loc.name));
@@ -494,11 +562,12 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
-                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon, priority_weight(manual.priority)));
+                all_fixed_tiles.push((tile.tile_type.clone(), t_lat, t_lon, priority_weight(manual.priority), manual_idx, tier(manual)));
             }
         }
     }
-    for manual in manual_maps.iter().filter(|m| m.coordinate_system == crate::schema::CoordinateSystem::Relative) {
+    for (j, manual) in manual_maps.iter().enumerate().filter(|(_, m)| m.coordinate_system == crate::schema::CoordinateSystem::Relative) {
+        let manual_idx = n_clusters + j;
         let placed: HashMap<String, (f32, f32)> = all_fixed_locations.iter()
             .map(|(n, lat, lon, ..)| (n.to_lowercase(), (*lat, *lon))).collect();
         let Some(transform) = relative_placement(manual, &placed, &mut warnings) else { continue };
@@ -509,7 +578,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         for tile in &manual.tiles {
             let (lat, lon) = transform(tile.x as f32, tile.y as f32);
-            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon, priority_weight(manual.priority)));
+            all_fixed_tiles.push((tile.tile_type.clone(), lat, lon, priority_weight(manual.priority), manual_idx, tier(manual)));
         }
     }
 
@@ -554,9 +623,9 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
 
     // Downsample: each output cell takes the majority type of the finer cells landing in it
     // (ties broken by name, so the result does not depend on input order).
-    let mut votes: HashMap<(i32, i32), HashMap<String, f32>> = HashMap::new();
+    let mut votes: HashMap<(i32, i32), HashMap<usize, SourceVotes>> = HashMap::new();
     let mut water: HashMap<(i32, i32), (i32, i32)> = HashMap::new(); // water: 1 mi hex -> output hex
-    for (t_type, lat, lon, w) in all_fixed_tiles {
+    for (t_type, lat, lon, w, source, tier) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
         let cell = hex_at(gx, gy);
@@ -564,12 +633,10 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             let (fx, fy) = to_grid(lat, lon, 1.0);
             water.insert(hex_at(fx, fy), cell);
         }
-        *votes.entry(cell).or_default().entry(t_type).or_insert(0.0) += w;
+        *votes.entry(cell).or_default().entry(source).or_insert_with(|| (tier, HashMap::new())).1.entry(t_type).or_insert(0.0) += w;
     }
-    let mut grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter().map(|(k, v)| {
-        let best = v.into_iter().max_by(|a, b| (a.1 * salience(&a.0)).total_cmp(&(b.1 * salience(&b.0))).then_with(|| b.0.cmp(&a.0))).unwrap().0;
-        (k, best)
-    }).collect();
+    let mut grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter()
+        .filter_map(|(k, v)| resolve_hex(&v).map(|best| (k, best))).collect();
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
 
     // Every placed tile and every marker (a marker off the grid would be lost).
@@ -675,6 +742,7 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
         world_bounds: fixed.world_bounds,
         miles_per_unit: None,
         priority,
+        anchor_only_markers: false, // anchor-only markers were never placed
         control_points: Vec::new(),
     }
 }
@@ -763,6 +831,9 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
         /// From sparse data (hand-placed manual maps, terrain overrides): may be blended into nearby
         /// hexes that have no data. Dense fixed-cluster grids never are, so nothing is invented.
         sparse: bool,
+        /// The source (index in `raw_maps`; `usize::MAX` for terrain overrides) and its tier.
+        source: usize,
+        tier: u8,
     }
     
     // Map Real World Coords for lookup (parse coordinates or geocode addresses)
@@ -817,6 +888,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                         lat, lon, tile_type: tile.tile_type.clone(),
                         weight: 2.0 * priority_weight(map.priority),
                         sparse: map_idx >= dense_maps,
+                        source: map_idx, tier: tier(map),
                     });
                     manual_projected_lats.push(lat);
                     manual_projected_lons.push(lon);
@@ -899,7 +971,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             }
 
             // Anchors go through the warp too, so every marker sits on the terrain it came from.
-            for loc in &map.locations {
+            // (A map whose markers only anchor the warp places none.)
+            for loc in map.locations.iter().filter(|_| !map.anchor_only_markers) {
                 if loc.real_lat.is_some() && loc.real_lon.is_some() { continue; } // Handle manual markers later
                 let (lat, lon) = sheet.transform(loc.x, loc.y);
                 let entry = game_placements.entry(loc.name.to_lowercase()).or_insert_with(|| {
@@ -958,7 +1031,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
     }
 
     // 3. Resolve Relative manual data (anchored to ANY resolved markers)
-    for map in &raw_maps {
+    for (map_idx, map) in raw_maps.iter().enumerate() {
         if map.coordinate_system == crate::schema::CoordinateSystem::Relative {
             // Build temporary lookup from everything resolved so far
             let mut anchor_lookup: HashMap<String, (f32, f32)> = HashMap::new();
@@ -987,6 +1060,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                     lat, lon, tile_type: tile.tile_type.clone(),
                     weight: 2.0 * priority_weight(map.priority),
                     sparse: true,
+                    source: map_idx, tier: tier(map),
                 });
                 manual_projected_lats.push(lat);
                 manual_projected_lons.push(lon);
@@ -1005,6 +1079,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                     tile_type: terrain.clone(),
                     weight: 3.0 * priority_weight(1), // location terrain overrides come from tier-1 manual data
                     sparse: true,
+                    source: usize::MAX, tier: 1,
                 });
         }
     }
@@ -1128,13 +1203,17 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
         for x in 0..grid_width {
             let (lat, lon) = cell_latlon(x, y);
             
-            let mut type_votes: HashMap<String, f32> = HashMap::new();
+            // Votes per source, resolved by `resolve_hex`.
+            let mut by_source: HashMap<usize, SourceVotes> = HashMap::new();
+            let mut vote = |source: usize, tier: u8, t: &String, w: f32| {
+                *by_source.entry(source).or_insert_with(|| (tier, HashMap::new())).1.entry(t.clone()).or_insert(0.0) += w;
+            };
 
             // A) Points with lat/lon (manual maps and already-fixed clusters). Points inside this hex share
             // its vote by area, like game tiles; only a hex with none blends nearby points.
             if let Some(ps) = hex_points.get(&(min_col + x as i32, min_row + y as i32)) {
                 for p in ps {
-                    *type_votes.entry(p.tile_type.clone()).or_insert(0.0) += 100.0 * p.weight / ps.len() as f32;
+                    vote(p.source, p.tier, &p.tile_type, 100.0 * p.weight / ps.len() as f32);
                 }
             } else if !manual_points_bins.is_empty() {
                 let (bin_y, bin_x) = bin_of(lat, lon);
@@ -1148,8 +1227,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                                 let d_lon_game = (p.lon - lon) * MILES_PER_DEGREE_LAT * lat.to_radians().cos() / 6.0;
                                 let dist_sq = d_lat_game*d_lat_game + d_lon_game*d_lon_game;
                                 if dist_sq < 4.0 {
-                                    let weight = (1.0 / (dist_sq + 0.01)) * p.weight;
-                                    *type_votes.entry(p.tile_type.clone()).or_insert(0.0) += weight;
+                                    vote(p.source, p.tier, &p.tile_type, (1.0 / (dist_sq + 0.01)) * p.weight);
                                 }
                             }
                         }
@@ -1163,7 +1241,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                     if let Some((n, counts)) = game_area_votes[game_idx].get(&(min_col + x as i32, min_row + y as i32)).filter(|b| b.0 >= 2) {
                         // Several tiles in this hex: they share the game's vote by area (the mean of their votes).
                         for (tile_type, w) in counts {
-                            *type_votes.entry(tile_type.clone()).or_insert(0.0) += 100.0 * w / *n as f32;
+                            vote(game_idx, tier(&raw_maps[game_idx]), tile_type, 100.0 * w / *n as f32);
                         }
                     } else if let Some((gx, gy)) = sheet.inverse_transform(lat, lon) {
                         // Each game contributes the square that contains this point: game squares
@@ -1172,16 +1250,13 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
                         let sq = ((gx / terrain_scale).floor() as i32, (gy / terrain_scale).floor() as i32);
                         if let Some((tile_type, base_weight)) = game_tile_maps[game_idx].get(&sq) {
                             // Same strength a manual point has at its own location (1 / 0.01).
-                            *type_votes.entry(tile_type.clone()).or_insert(0.0) += 100.0 * base_weight;
+                            vote(game_idx, tier(&raw_maps[game_idx]), tile_type, 100.0 * base_weight);
                         }
                     }
                 }
             }
             
-            type_votes.remove("unknown"); // no-data never counts as a vote, whatever its source
-            let best_type = type_votes.iter()
-                .max_by(|a, b| (a.1 * salience(a.0)).total_cmp(&(b.1 * salience(b.0))).then_with(|| b.0.cmp(a.0))) // ties: by name, not hash order
-                .map(|(t, _)| t.clone());
+            let best_type = resolve_hex(&by_source); // no-data ("unknown") never counts as a vote
             
             row_tiles.push(FixedTile { 
                 x: x as i32, 
@@ -1553,6 +1628,26 @@ mod invariant_tests {
         assert!(shore.iter().all(|c| tiles[c] == "Sand"), "shore was fattened");
     }
 
+    /// The detail-over-Sand rule: a source's detail beats another's Sand, but not two higher-tier
+    /// sources agreeing on Sand, nor a higher-tier non-Sand type.
+    #[test]
+    fn details_beat_plain_ground() {
+        let src = |tier: u8, t: &str, w: f32| -> SourceVotes { (tier, [(t.to_string(), w)].into()) };
+        let hex = |list: Vec<SourceVotes>| -> HashMap<usize, SourceVotes> { list.into_iter().enumerate().collect() };
+        // One tier-1 Sand (weight 16) against a tier-5 Water (weight 1): the detail wins.
+        assert_eq!(resolve_hex(&hex(vec![src(1, "Sand", 16.0), src(5, "Water", 1.0)])).as_deref(), Some("Water"));
+        // Two tier-1 sources agree on Sand: consensus holds.
+        assert_eq!(resolve_hex(&hex(vec![src(1, "Sand", 16.0), src(1, "Sand", 16.0), src(5, "Water", 1.0)])).as_deref(), Some("Sand"));
+        // A higher-tier Mountain is not plain ground: the weighted vote stands.
+        assert_eq!(resolve_hex(&hex(vec![src(1, "Mountain", 16.0), src(5, "Grass", 1.0)])).as_deref(), Some("Mountain"));
+        // Competing details: the higher tier's wins.
+        assert_eq!(resolve_hex(&hex(vec![src(1, "Sand", 16.0), src(3, "City", 4.0), src(5, "Water", 1.0)])).as_deref(), Some("City"));
+        // Same-tier detail against a single Sand also counts ("every source pair").
+        assert_eq!(resolve_hex(&hex(vec![src(1, "Sand", 16.0), src(1, "Water", 4.0)])).as_deref(), Some("Water"));
+        // No data is not a vote.
+        assert_eq!(resolve_hex(&hex(vec![src(1, "unknown", 16.0)])), None);
+    }
+
     /// Hex centres follow the staggered layout: all six neighbours are one hex apart, and every
     /// centre (and any point nearer to it than to other centres) maps back to its hex.
     #[test]
@@ -1719,7 +1814,8 @@ mod invariant_tests {
     }
 
     /// Votes are weighted by source priority: where a tier-1 and a tier-3 source disagree on a
-    /// cell, the tier-1 type wins even when outnumbered (weights 16 vs 2 x 4).
+    /// cell (neither being a detail over plain Sand), the tier-1 type wins even when outnumbered
+    /// (weights 16 vs 2 x 4).
     #[test]
     fn higher_priority_source_wins_the_vote() {
         let src = |priority: u8, tiles: Vec<(&str, f32)>| RawMapData {
@@ -1731,9 +1827,9 @@ mod invariant_tests {
             coordinate_scale: 1.0, priority, ..Default::default()
         };
         let fixed = fix_translation_only(
-            vec![src(1, vec![("Sand", 0.0)]), src(3, vec![("Water", 0.0), ("Water", 0.001)])], vec![], 6.0, None);
+            vec![src(1, vec![("Mountain", 0.0)]), src(3, vec![("Rock", 0.0), ("Rock", 0.001)])], vec![], 6.0, None);
         let land: Vec<&str> = fixed.tiles.iter().map(|t| t.tile_type.as_str()).filter(|t| *t != "unknown").collect();
-        assert_eq!(land, vec!["Sand"]);
+        assert_eq!(land, vec!["Mountain"]);
     }
 
     /// Map scale: distances measured on the hex grid (column step = 1 hex, row step = sqrt(3)/2)

@@ -114,6 +114,9 @@ pub struct RawMapData {
     /// Source priority tier (1 = canon games and manual locations ... 5 = mods); sets vote weight.
     #[serde(default)]
     pub priority: u8,
+    /// The markers only anchor the warp (a mod placing terrain, not markers): they are not placed.
+    #[serde(default)]
+    pub anchor_only_markers: bool,
     /// Extractor-derived anchors (e.g. drawn state borders), in game coordinates.
     #[serde(default)]
     pub control_points: Vec<RawControlPoint>,
