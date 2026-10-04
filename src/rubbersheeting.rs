@@ -221,6 +221,36 @@ impl RubberSheet {
     }
 }
 
+/// Control points at the corners of `area`, placed by the anchors' least-squares affine fit (their
+/// overall trend), so the warp interpolates over the whole map instead of extrapolating: a TPS's bending
+/// grows without bound away from its anchors (r^2 ln r), while the map beyond them should follow the
+/// anchors' logic. Corners that an anchor already occupies are skipped; with three anchors the fit is
+/// exact and the corners change nothing.
+fn trend_corners(cps: &[ControlPoint], area: FoldCheckArea) -> Vec<ControlPoint> {
+    let n = cps.len() as f64;
+    let (mx, my) = (cps.iter().map(|c| c.game_x as f64).sum::<f64>() / n, cps.iter().map(|c| c.game_y as f64).sum::<f64>() / n);
+    let mut m = vec![vec![0.0; 3]; 3];
+    let mut b = vec![[0.0; 2]; 3];
+    for c in cps {
+        let p = [1.0, c.game_x as f64 - mx, c.game_y as f64 - my];
+        for i in 0..3 {
+            for j in 0..3 { m[i][j] += p[i] * p[j]; }
+            b[i][0] += p[i] * c.real_lat as f64;
+            b[i][1] += p[i] * c.real_lon as f64;
+        }
+    }
+    let Some(fit) = solve(m, b) else { return vec![] }; // collinear anchors
+    let (x0, y0, x1, y1, _) = area;
+    [("NW", x0, y0), ("NE", x1, y0), ("SW", x0, y1), ("SE", x1, y1)].into_iter()
+        .filter(|&(_, x, y)| !cps.iter().any(|c| c.game_x == x && c.game_y == y))
+        .map(|(name, x, y)| {
+            let (dx, dy) = (x as f64 - mx, y as f64 - my);
+            let at = |k: usize| fit[0][k] + fit[1][k] * dx + fit[2][k] * dy;
+            ControlPoint { name: format!("{} corner (anchors' trend)", name), game_x: x, game_y: y, real_lat: at(0) as f32, real_lon: at(1) as f32 }
+        })
+        .collect()
+}
+
 const MILES_PER_DEGREE: f64 = 69.0;
 // ponytail: fixed clearance (fraction of |AB|) past the line; raise if folds remain near moved anchors.
 const CROSSING_MARGIN: f64 = 0.02;
@@ -236,10 +266,12 @@ fn orient(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
 pub type FoldCheckArea = (f32, f32, f32, f32, f32);
 
 impl RubberSheet {
-    /// Game positions inside `area` where the warp folds (Jacobian determinant <= 0).
+    /// Game positions inside `area` where the warp folds: where a sample-grid cell (the triangle to
+    /// the next samples east and south) comes out turned over, so a crease narrower than the grid
+    /// is caught too.
     pub fn folds(&self, area: FoldCheckArea) -> Vec<(f64, f64)> {
         let (x0, y0, x1, y1, step) = area;
-        let h = (step * 0.1) as f64;
+        let h = step as f64;
         let mut out = Vec::new();
         let mut y = y0 as f64;
         while y <= y1 as f64 {
@@ -272,6 +304,7 @@ impl RubberSheet {
     /// smallest full crossing), the warp rebuilt, and this repeats until no fold remains.
     /// Returns the warp and one report line per moved anchor (plus one if folds remain).
     pub fn new_fold_free(mut cps: Vec<ControlPoint>, area: FoldCheckArea) -> (Self, Vec<String>) {
+        if cps.len() >= 3 { cps.extend(trend_corners(&cps, area)); }
         let n = cps.len();
         let mut sheet = RubberSheet::new(cps.clone());
         if n < 3 { return (sheet, vec![]); }
@@ -353,4 +386,35 @@ fn across(a: (f64, f64), b: (f64, f64), c: (f64, f64), side: f64) -> (f64, f64) 
     let t = ((c.0 - a.0) * dx + (c.1 - a.1) * dy) / (dx * dx + dy * dy);
     let s = side * CROSSING_MARGIN;
     (a.0 + t * dx - s * dy, a.1 + t * dy + s * dx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cp(x: f32, y: f32, lat: f32, lon: f32) -> ControlPoint {
+        ControlPoint { name: format!("{},{}", x, y), game_x: x, game_y: y, real_lat: lat, real_lon: lon }
+    }
+
+    #[test]
+    fn map_corners_follow_the_anchors_trend() {
+        // Anchors on an affine grid (0.01 deg per unit) except the centre, pulled off it.
+        let cps = vec![
+            cp(40.0, 40.0, 40.0, -80.0), cp(60.0, 40.0, 40.0, -79.8), cp(40.0, 60.0, 39.8, -80.0),
+            cp(60.0, 60.0, 39.8, -79.8), cp(50.0, 50.0, 39.85, -79.85),
+        ];
+        let area = (0.0, 0.0, 100.0, 100.0, 5.0);
+        let corners = trend_corners(&cps, area);
+        assert_eq!(corners.len(), 4);
+        let (sheet, report) = RubberSheet::new_fold_free(cps.clone(), area);
+        assert!(report.is_empty(), "{:?}", report);
+        // The anchors stay exact and the map's corners sit on the anchors' trend, not wherever the
+        // spline's bending would fling them.
+        for c in cps.iter().chain(&corners) {
+            let (lat, lon) = sheet.transform(c.game_x, c.game_y);
+            assert!((lat - c.real_lat).abs() < 1e-4 && (lon - c.real_lon).abs() < 1e-4, "{}: ({}, {})", c.name, lat, lon);
+        }
+        let nw = &corners[0];
+        assert!((nw.real_lat - 40.39).abs() < 0.02 && (nw.real_lon + 80.39).abs() < 0.02, "{:?}", (nw.real_lat, nw.real_lon));
+    }
 }
