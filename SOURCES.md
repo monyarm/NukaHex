@@ -23,8 +23,8 @@ Van Buren, 4 Brotherhood of Steel, 5 mods.
   (`.claude/plans/fallout_bos.md`)
 - ➖ Fallout: Brotherhood of Steel 2 — cancelled
 
-## Fallout 3 (2008) — tier 1 (Mutagen; game not installed here)
-- ⬜ Capital Wasteland (Washington, DC)
+## Fallout 3 (2008) — tier 1 (Mutagen)
+- ✅ Capital Wasteland (`Wasteland`), incl. its LOD ring; DC's ruins contribute their map markers
 - ⬜ Operation: Anchorage — ➖ a simulation of Alaska, not a place to map
 - ⬜ The Pitt (Pittsburgh)
 - ⬜ Broken Steel — extends the Capital Wasteland (no new worldspace of note)

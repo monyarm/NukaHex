@@ -12,7 +12,7 @@ This project generates Tiled maps (`.tmx`) and tilesets (`.tsx`) from Fallout ga
 |--------|--------|-------------------|-------|
 | Fallout 1 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
 | Fallout 2 | ✅ Supported | Automatic (Steam/GOG) | Full extraction |
-| Fallout 3 | 🔧 Planned | Mutagen (C# helper) | Same path as New Vegas; not yet wired |
+| Fallout 3 | ✅ Supported | Automatic (Steam), via Mutagen | Capital Wasteland, all DLC loaded; The Pitt and Point Lookout next |
 | Fallout: New Vegas | ✅ Supported | Automatic (Steam), via Mutagen | Mojave and all four add-on areas (Sierra Madre, Zion, Big MT, the Divide) |
 | Fallout 4 | 🔧 Planned | Mutagen (C# helper) | To be redone on the Mutagen path |
 | Fallout 76 | 🔧 Planned | - | No Mutagen support; needs another reader |

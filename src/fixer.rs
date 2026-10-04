@@ -131,6 +131,26 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Wendover", "Wendover, Utah"),
     ("Salt Lake City", "Salt Lake City, Utah"),
     ("Provo District", "Provo, Utah"),
+    // Fallout 3 (keys are the game's marker names; values the real places they depict). DC's ruins
+    // (child worldspaces) share the Wasteland's coordinates. Not anchored: fictional places (Megaton,
+    // Rivet City, the vaults...), and the Jefferson Memorial, the Capitol and the White House, 1-2 mi from
+    // the Mall's two anchors in reality but 5+ mi in the game: the warp overshoots (folds) between them.
+    ("The Citadel", "The Pentagon"),
+    ("Lincoln Memorial", "Lincoln Memorial"),
+    ("The Washington Monument", "Washington Monument"),
+    ("Georgetown North", "Georgetown, Washington, D.C."),
+    ("Anacostia Crossing", "Anacostia, Washington, D.C."),
+    ("Takoma Park", "Takoma Park, Maryland"),
+    ("Friendship Heights", "Friendship Heights Village, Montgomery County, Maryland"),
+    ("Bethesda Ruins", "Bethesda, Maryland"),
+    ("Wheaton Armory", "Wheaton, Maryland"),
+    ("Old Olney", "Olney, Maryland"),
+    ("Germantown Police HQ", "Germantown, Maryland"),
+    ("Dickerson Tabernacle Chapel", "Dickerson, Maryland"),
+    ("Falls Church Metro", "Falls Church, Virginia"),
+    ("Fairfax Ruins", "Fairfax, Virginia"),
+    ("Alexandria Arms", "Alexandria, Virginia"),
+    ("Raven Rock", "Raven Rock Mountain Complex"),
     // Fallout 4
     ("Diamond City", "42.346676,-71.097218"), // Fenway Park
     ("Goodneighbor", "42.358433,-71.057530"), // Old State House

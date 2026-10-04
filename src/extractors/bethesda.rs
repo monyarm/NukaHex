@@ -81,6 +81,9 @@ impl BethesdaGameVariant {
     fn id_str(&self) -> &'static str {
         match self { Self::Fallout3 => "fallout3", Self::FalloutNV => "falloutnv" }
     }
+    fn markers(&self) -> &'static MarkerLists {
+        match self { Self::Fallout3 => &FO3_MARKERS, Self::FalloutNV => &NV_MARKERS }
+    }
 }
 
 pub struct BethesdaExtractor {
@@ -170,7 +173,7 @@ impl Extractor for BethesdaExtractor {
         };
         let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
         match dumps {
-            Ok(dumps) => build(&dumps, self.summarized.then(|| self.summary_name)),
+            Ok(dumps) => build(&dumps, self.variant.markers(), self.summarized.then(|| self.summary_name)),
             Err(e) => failed(e),
         }
     }
@@ -200,6 +203,8 @@ struct DumpWorld {
     name: Option<String>,
     edid: Option<String>,
     default_water_height: Option<f32>,
+    /// Height of ground with no landscape data.
+    default_land_height: Option<f32>,
     /// The in-game map's north-west and south-east cells.
     map_nw_cell: Option<[i32; 2]>,
     map_se_cell: Option<[i32; 2]>,
@@ -322,34 +327,73 @@ fn texture_terrain(edid: &str, path: &str) -> &'static str {
     "Sand"
 }
 
-/// Places the map shows by their gates, as one marker at the gates' mean position: Freeside (two gates
-/// on the Mojave map) and New Vegas, the Strip (its gate sits in the Freeside worldspace).
-const NV_PLACES: &[(&str, &[&str])] = &[
-    ("Freeside", &["Freeside's East Gate", "Freeside's North Gate"]),
-    ("New Vegas", &["The Strip North Gate"]),
-];
-/// New Vegas towns that have no faction reputation (every other town has one).
-const NV_TOWNS: &[&str] = &["Primm", "Nipton", "Jacobstown", "Camp Searchlight", "Nelson", "New Vegas"];
-/// Settlement-type markers tied to a reputation that are camps, farms, businesses or facilities, not towns.
-const NV_NOT_TOWNS: &[&str] = &[
-    "Powder Ganger Camp North", "Powder Ganger Camp East", "Powder Ganger Camp South", "Powder Ganger Camp West",
-    "Crimson Caravan Company", "188 Trading Post", "NCR Sharecropper Farms", "HELIOS One",
-    "NCR Correctional Facility",
-];
-/// Notable New Vegas landmarks.
-const NV_LANDMARKS: &[&str] = &[
-    "Hoover Dam", "Nellis Air Force Base", "Camp McCarran", "Hidden Valley", "The Fort", "Black Mountain",
-    "REPCONN Test Site", "Mojave Outpost", "Quarry Junction",
-];
+/// A game's marker vocabulary: what its map markers mean beyond their type.
+struct MarkerLists {
+    /// Places the map shows by their gates, as one marker at the gates' mean position.
+    places: &'static [(&'static str, &'static [&'static str])],
+    /// Markers the game never shows (zone markers) or that repeat a place in another state.
+    hidden: fn(&str) -> bool,
+    /// Towns the reputation rule misses (every game's towns, when it has no reputations).
+    towns: &'static [&'static str],
+    /// Settlement-type markers tied to a reputation that are camps, farms, businesses or facilities.
+    not_towns: &'static [&'static str],
+    /// Notable landmarks.
+    landmarks: &'static [&'static str],
+    /// Child worldspaces' markers sit on the parent's map at position * scale + offset (their ONAM
+    /// data; New Vegas's Freeside), not at their own position. Fallout 3's DC worlds share the
+    /// Wasteland's coordinates whatever their ONAM says: their markers fit the real places within
+    /// 1-2 mi as they are.
+    child_map_offset: bool,
+}
+
+const NV_MARKERS: MarkerLists = MarkerLists {
+    // Freeside (two gates on the Mojave map) and New Vegas, the Strip (its gate sits in the Freeside
+    // worldspace).
+    places: &[
+        ("Freeside", &["Freeside's East Gate", "Freeside's North Gate"]),
+        ("New Vegas", &["The Strip North Gate"]),
+    ],
+    hidden: |_| false,
+    towns: &["Primm", "Nipton", "Jacobstown", "Camp Searchlight", "Nelson", "New Vegas"],
+    not_towns: &[
+        "Powder Ganger Camp North", "Powder Ganger Camp East", "Powder Ganger Camp South", "Powder Ganger Camp West",
+        "Crimson Caravan Company", "188 Trading Post", "NCR Sharecropper Farms", "HELIOS One",
+        "NCR Correctional Facility",
+    ],
+    landmarks: &[
+        "Hoover Dam", "Nellis Air Force Base", "Camp McCarran", "Hidden Valley", "The Fort", "Black Mountain",
+        "REPCONN Test Site", "Mojave Outpost", "Quarry Junction",
+    ],
+    child_map_offset: true,
+};
+
+/// Fallout 3 has no faction reputations, so its towns are listed.
+const FO3_MARKERS: MarkerLists = MarkerLists {
+    places: &[],
+    // The DC ruins' zone markers ("DC01a"...; initially disabled, never enabled) and Megaton after
+    // its destruction.
+    hidden: |name| name == "Megaton Ruins"
+        || name.strip_prefix("DC").is_some_and(|r| r.len() == 3 && r[..2].bytes().all(|b| b.is_ascii_digit())),
+    towns: &[
+        "Megaton", "Rivet City", "Tenpenny Tower", "Big Town", "Canterbury Commons", "Arefu", "Little Lamplight",
+        "Paradise Falls", "Andale", "The Republic of Dave", "Girdershade", "Oasis",
+    ],
+    not_towns: &[],
+    landmarks: &[
+        "The Citadel", "Raven Rock", "Jefferson Memorial", "The Capitol Building", "The Washington Monument",
+        "Lincoln Memorial", "White House", "GNR Building Plaza", "Fort Constantine", "Museum of History",
+    ],
+    child_map_offset: false,
+};
 
 /// Category of a map marker. Vaults come from the marker type; towns are the settlement-type places
-/// tied to a faction reputation (plus the few towns without one, minus camps); then the notable
-/// landmarks. Towns, vaults and landmarks appear on the main maps; everything else is `Other`.
-fn marker_icon(name: &str, kind: &str, has_reputation: bool) -> IconType {
+/// tied to a faction reputation (plus the listed towns, minus camps); then the notable landmarks.
+/// Towns, vaults and landmarks appear on the main maps; everything else is `Other`.
+fn marker_icon(lists: &MarkerLists, name: &str, kind: &str, has_reputation: bool) -> IconType {
     let settlement_type = matches!(kind, "City" | "Settlement" | "Encampment" | "TownRuins");
     if kind == "Vault" { IconType::Vault }
-    else if NV_LANDMARKS.contains(&name) { IconType::Landmark }
-    else if NV_TOWNS.contains(&name) || (has_reputation && settlement_type && !NV_NOT_TOWNS.contains(&name)) { IconType::City }
+    else if lists.landmarks.contains(&name) { IconType::Landmark }
+    else if lists.towns.contains(&name) || (has_reputation && settlement_type && !lists.not_towns.contains(&name)) { IconType::City }
     else { IconType::Other }
 }
 
@@ -459,9 +503,34 @@ fn hazards(dump: &Dump) -> Vec<Placed> {
 #[derive(Clone, Copy)]
 struct Frame { x0: i32, x1: i32, y0: i32, y1: i32 }
 
+impl DumpCell {
+    fn water_level(&self, world: &DumpWorld) -> f32 {
+        self.water_height.filter(|&w| w < NO_WATER).unwrap_or(world.default_water_height.unwrap_or(f32::MIN))
+    }
+}
+
+/// The cells with landscape. A cell whose ground reaches the default land height ("no data") below its
+/// water level is the skirt the LOD terrain drops into at the worldspace's edge (Fallout 3's Wasteland:
+/// its outer four rings), not a sea, and so is a cell beside it that dips under water on the way down;
+/// ground at that height above water (the Sierra Madre's, the Divide's) is real.
+fn land_cells(dump: &Dump) -> impl Iterator<Item = &DumpCell> {
+    let world = &dump.worldspace;
+    let submerged = |c: &DumpCell| c.heights.as_ref().is_some_and(|h| h.iter().any(|&v| (v as f32) < c.water_level(world)));
+    let seeds: HashSet<(i32, i32)> = dump.cells.iter().filter(|c| {
+        let skirt = world.default_land_height.filter(|&h| h < c.water_level(world)).map(|h| h as i32);
+        skirt.is_some_and(|s| c.heights.as_ref().is_some_and(|h| h.contains(&s)))
+    }).map(|c| (c.x, c.y)).collect();
+    let beside = |c: &DumpCell| (-1..=1).any(|dy| (-1..=1).any(|dx| seeds.contains(&(c.x + dx, c.y + dy))));
+    let skirt: HashSet<(i32, i32)> = dump.cells.iter().filter(|c| seeds.contains(&(c.x, c.y)) || (beside(c) && submerged(c)))
+        .map(|c| (c.x, c.y)).collect();
+    dump.cells.iter()
+        .filter(|c| c.heights.is_some() || c.layers.is_some())
+        .filter(move |c| !skirt.contains(&(c.x, c.y)))
+}
+
 impl Frame {
     fn of(dumps: &[Dump]) -> Option<Frame> {
-        let land: Vec<&DumpCell> = dumps.iter().flat_map(|d| &d.cells).filter(|c| c.heights.is_some() || c.layers.is_some()).collect();
+        let land: Vec<&DumpCell> = dumps.iter().flat_map(land_cells).collect();
         Some(Frame {
             x0: land.iter().map(|c| c.x).min()?, x1: land.iter().map(|c| c.x).max()?,
             y0: land.iter().map(|c| c.y).min()?, y1: land.iter().map(|c| c.y).max()?,
@@ -481,12 +550,11 @@ fn dump_terrain(dump: &Dump, frame: Frame) -> HashMap<(i32, i32), &'static str> 
     let class: HashMap<&str, &'static str> = dump.land_textures.iter()
         .map(|(k, t)| (k.as_str(), texture_terrain(t.edid.as_deref().unwrap_or(""), t.texture.as_deref().unwrap_or(""))))
         .collect();
-    let default_water = dump.worldspace.default_water_height.unwrap_or(f32::MIN);
 
     // Per quadrant tile: (wet, slope, ground cover terrain).
     let mut quads: HashMap<(i32, i32), (bool, Option<f32>, &'static str)> = HashMap::new();
-    for cell in dump.cells.iter().filter(|c| c.heights.is_some() || c.layers.is_some()) {
-        let water = cell.water_height.filter(|&w| w < NO_WATER).unwrap_or(default_water);
+    for cell in land_cells(dump) {
+        let water = cell.water_level(&dump.worldspace);
         let layers = cell.layers.as_deref().unwrap_or(&[]);
         let h = cell.heights.as_deref();
         let wet = h.map(|h| cell_wet(cell, h, water, &dump.water_planes));
@@ -545,7 +613,7 @@ const GROUP_PRECEDENCE: &[&str] = &["Radiation", "City", "Water", "Grass", "Moun
 /// One map from one or more worldspaces sharing a frame (see `GROUP_PRECEDENCE`). `summary`: None for a worldspace
 /// shown in full; Some(name) for a summarized DLC place, shown on the main maps as one landmark
 /// (called `name`, else the worldspace's own name) at the centre of its map, its markers as details.
-fn build(dumps: &[Dump], summary: Option<Option<&str>>) -> RawMapData {
+fn build(dumps: &[Dump], lists: &MarkerLists, summary: Option<Option<&str>>) -> RawMapData {
     let Some(frame) = Frame::of(dumps) else {
         return RawMapData { warnings: vec!["worldspace has no landscape".into()], coordinate_scale: QUAD, priority: 1, ..Default::default() };
     };
@@ -567,16 +635,20 @@ fn build(dumps: &[Dump], summary: Option<Option<&str>>) -> RawMapData {
     let mut locations: Vec<RawLocation> = Vec::new();
     let mut members: HashMap<String, usize> = HashMap::new(); // gates merged so far, per place
     for dump in dumps {
-        // Markers of child worldspaces (Freeside...) sit on this map at position * scale + offset.
+        // Markers of child worldspaces (Freeside, DC...) on this map (see `child_map_offset`).
         let child = dump.child_markers.iter().map(|m| {
-            let (scale, [ox, oy]) = (m.map_scale.unwrap_or(1.0), m.map_offset.unwrap_or([0.0, 0.0]));
+            let (scale, [ox, oy]) = match lists.child_map_offset {
+                true => (m.map_scale.unwrap_or(1.0), m.map_offset.unwrap_or([0.0, 0.0])),
+                false => (1.0, [0.0, 0.0]),
+            };
             (&m.marker, m.marker.x * scale + ox, m.marker.y * scale + oy)
         });
         for (m, wx, wy) in dump.markers.iter().map(|m| (m, m.x, m.y)).chain(child) {
             let Some(name) = m.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
-            let name = NV_PLACES.iter().find(|(_, gates)| gates.contains(&name)).map_or(name, |(place, _)| place);
+            if (lists.hidden)(name) { continue; }
+            let name = lists.places.iter().find(|(_, gates)| gates.contains(&name)).map_or(name, |(place, _)| place);
             let (x, y) = frame.to_frame(wx, wy);
-            let icon_type = marker_icon(name, m.kind.as_deref().unwrap_or("None"), m.reputation.is_some());
+            let icon_type = marker_icon(lists, name, m.kind.as_deref().unwrap_or("None"), m.reputation.is_some());
             if let Some(l) = locations.iter_mut().find(|l| l.name == name) {
                 // Another gate (or exterior) of the same place: running mean of the positions.
                 let n = members.entry(name.to_string()).or_insert(1);
@@ -654,16 +726,16 @@ mod tests {
 
     #[test]
     fn marker_categories() {
-        assert!(matches!(marker_icon("Vault 11", "Vault", false), IconType::Vault));
-        assert!(matches!(marker_icon("Goodsprings", "Encampment", true), IconType::City));
-        assert!(matches!(marker_icon("Primm", "City", false), IconType::City));
-        assert!(matches!(marker_icon("New Vegas", "City", false), IconType::City));
-        assert!(matches!(marker_icon("HELIOS One", "City", true), IconType::Other));
-        assert!(matches!(marker_icon("Camp Forlorn Hope", "Military", true), IconType::Other));
-        assert!(matches!(marker_icon("Hoover Dam", "Monument", true), IconType::Landmark));
-        assert!(matches!(marker_icon("Goodsprings Cemetery", "NaturalLandmark", false), IconType::Other));
-        assert!(matches!(marker_icon("Ranger Station Alpha", "Military", true), IconType::Other));
-        assert!(matches!(marker_icon("Powder Ganger Camp East", "Encampment", true), IconType::Other));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Vault 11", "Vault", false), IconType::Vault));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Goodsprings", "Encampment", true), IconType::City));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Primm", "City", false), IconType::City));
+        assert!(matches!(marker_icon(&NV_MARKERS, "New Vegas", "City", false), IconType::City));
+        assert!(matches!(marker_icon(&NV_MARKERS, "HELIOS One", "City", true), IconType::Other));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Camp Forlorn Hope", "Military", true), IconType::Other));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Hoover Dam", "Monument", true), IconType::Landmark));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Goodsprings Cemetery", "NaturalLandmark", false), IconType::Other));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Ranger Station Alpha", "Military", true), IconType::Other));
+        assert!(matches!(marker_icon(&NV_MARKERS, "Powder Ganger Camp East", "Encampment", true), IconType::Other));
     }
 
     fn layer(q: u8, n: u16, tex: &str, alpha: Option<Vec<(u16, f32)>>) -> DumpLayer {
@@ -718,7 +790,7 @@ mod tests {
         let tex = |q| layer(q, 0, "t", None);
         let marker = |name: &str, x, y| DumpMarker { name: Some(name.into()), kind: Some("Encampment".into()), reputation: None, x, y };
         let dump = Dump {
-            worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, map_nw_cell: None, map_se_cell: None },
+            worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None },
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
             child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
@@ -730,7 +802,7 @@ mod tests {
             cells: vec![DumpCell { x: 0, y: 0, water_height: None, heights: None, layers: Some((0..4).map(tex).collect()) }],
         };
         let dump = [dump];
-        let map = build(&dump, None);
+        let map = build(&dump, &NV_MARKERS, None);
         assert_eq!((map.width, map.height), (2, 2));
         let mut pos: Vec<(i32, i32)> = map.tiles.iter().map(|t| (t.x, t.y)).collect();
         pos.sort();
@@ -739,10 +811,36 @@ mod tests {
         assert_eq!((map.locations[0].x, map.locations[0].y), (1000.0, 1096.0));
         assert_eq!((map.locations[1].x, map.locations[1].y), (2050.0, 2996.0));
         // Summarized: every marker is a full-map detail, plus one landmark named after the world.
-        let map = build(&dump, Some(None));
+        let map = build(&dump, &NV_MARKERS, Some(None));
         assert!(map.locations[..2].iter().all(|l| matches!(l.icon_type, IconType::Detail)));
         let w = &map.locations[2];
         assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));
         assert!(matches!(w.icon_type, IconType::Landmark));
+    }
+
+    #[test]
+    fn lod_skirt_is_not_land() {
+        let cell = |x, h: i32| DumpCell { x, y: 0, water_height: None, heights: Some(vec![h; 33 * 33]), layers: None };
+        let dump = |land, water| Dump {
+            worldspace: DumpWorld { name: None, edid: None, default_water_height: Some(water), default_land_height: Some(land), map_nw_cell: None, map_se_cell: None },
+            markers: vec![], child_markers: vec![], radiation: vec![], statics: vec![], water_planes: vec![], volumes: vec![],
+            land_textures: HashMap::new(),
+            cells: vec![cell(0, 12000), cell(1, land as i32), cell(2, 9000), cell(4, 9000)],
+        };
+        // Fallout 3: the edge drops to the default land height, under the default water.
+        let fo3 = dump(-2048.0, 10500.0);
+        // ...and the cell beside it dipping under water on the way down goes too; a lake further in stays.
+        assert_eq!(land_cells(&fo3).map(|c| c.x).collect::<Vec<_>>(), vec![0, 4]);
+        // The Sierra Madre: ground at the default land height, above water, is real.
+        let sm = dump(1024.0, 0.0);
+        assert_eq!(land_cells(&sm).map(|c| c.x).collect::<Vec<_>>(), vec![0, 1, 2, 4]);
+    }
+
+    #[test]
+    fn fo3_hidden_markers() {
+        for name in ["DC01a", "DC15b", "Megaton Ruins"] { assert!((FO3_MARKERS.hidden)(name), "{}", name); }
+        for name in ["Megaton", "DC Ruins", "Dickerson Tabernacle Chapel"] { assert!(!(FO3_MARKERS.hidden)(name), "{}", name); }
+        assert!(matches!(marker_icon(&FO3_MARKERS, "Rivet City", "Encampment", false), IconType::City));
+        assert!(matches!(marker_icon(&FO3_MARKERS, "Grisly Diner", "Encampment", false), IconType::Other));
     }
 }

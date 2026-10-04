@@ -71,6 +71,7 @@ fn main() -> std::io::Result<()> {
 
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).
     use crate::extractors::bethesda::{BethesdaExtractor, BethesdaGameVariant};
+    game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout3, "Wasteland"))); // the Capital Wasteland
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC02ZionCanyon"))); // Honest Hearts: Zion NP, Utah
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::FalloutNV, "NVDLC03BigMT"))); // Old World Blues
