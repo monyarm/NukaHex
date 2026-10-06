@@ -13,5 +13,12 @@
         "source": { "mediafire": "https://www.mediafire.com/file/nqfrkb5fllbpqx4/Fallout_Nevada_Mod_Us.exe/file" },
         "file": "Fallout_Nevada_Mod_Us.exe",
         "sha256": "e732fbf6ddf87f7136170a60930b8b0e957de0a36f2d236df61f4a56b1024686"
+    },
+    {
+        "id": "fallout_resurrection",
+        "name": "Fallout 1.5: Resurrection (English 1.5)",
+        "source": { "moddb": 114183 },
+        "file": "FoRes_EN_1_5_install.exe",
+        "md5": "067360e3b61abdf56b871ce45faec035"
     }
 ]

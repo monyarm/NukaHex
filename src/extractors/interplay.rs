@@ -25,6 +25,8 @@ pub enum GameVariant {
     /// anchor the warp; they place terrain, not markers.
     FalloutNevada,
     FalloutSonora,
+    /// Fallout 1.5: Resurrection (New Mexico), installed over Fallout 2.
+    FalloutResurrection,
 }
 
 impl GameVariant {
@@ -32,7 +34,7 @@ impl GameVariant {
         match self {
             GameVariant::Fallout1 => 38400,
             GameVariant::Fallout2 => 38410,
-            GameVariant::FalloutNevada | GameVariant::FalloutSonora => 0, // mods: not on Steam
+            GameVariant::FalloutNevada | GameVariant::FalloutSonora | GameVariant::FalloutResurrection => 0, // mods: not on Steam
         }
     }
 
@@ -42,6 +44,7 @@ impl GameVariant {
             GameVariant::Fallout2 => "Fallout 2",
             GameVariant::FalloutNevada => "Fallout: Nevada",
             GameVariant::FalloutSonora => "Fallout: Sonora",
+            GameVariant::FalloutResurrection => "Fallout 1.5: Resurrection",
         }
     }
     
@@ -51,11 +54,12 @@ impl GameVariant {
             GameVariant::Fallout2 => "fallout2",
             GameVariant::FalloutNevada => "fallout_nevada",
             GameVariant::FalloutSonora => "fallout_sonora",
+            GameVariant::FalloutResurrection => "fallout_resurrection",
         }
     }
 
     fn is_mod(&self) -> bool {
-        matches!(self, GameVariant::FalloutNevada | GameVariant::FalloutSonora)
+        matches!(self, GameVariant::FalloutNevada | GameVariant::FalloutSonora | GameVariant::FalloutResurrection)
     }
 }
 
@@ -115,10 +119,11 @@ impl FalloutInterplayExtractor {
         if install_dir.is_none() {
             install_dir = if self.variant.is_mod() {
                 // The fetched mod's game folder: the one holding its master.dat, or its patch000.dat
-                // when it installs over Fallout 2 (Nevada).
+                // or its own DAT when it installs over Fallout 2 (Nevada; Resurrection's fores.dat).
                 let files = crate::mods::fetch(self.variant.id_str()).map_err(io::Error::other)?;
                 Some(find_dir_with(&files, "master.dat").or_else(|| find_dir_with(&files, "patch000.dat"))
-                    .ok_or_else(|| io::Error::other("no master.dat or patch000.dat in the mod's files"))?)
+                    .or_else(|| find_dir_with(&files, "fores.dat"))
+                    .ok_or_else(|| io::Error::other("no master.dat, patch000.dat or fores.dat in the mod's files"))?)
             } else {
                 dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
             };
@@ -287,7 +292,7 @@ impl FalloutInterplayExtractor {
         Err(io::Error::new(io::ErrorKind::NotFound, format!("Binary file {} not found (Variant: {:?})", path, self.variant)))
     }
 
-    /// The world-map art as one RGB image (TILE_COLS*350 x rows*300), plus FO2's walk masks
+    /// The world-map art as one RGB image (tiles across x 350 by rows x 300), plus FO2's walk masks
     /// (`Some(true)` = sea) where a mask file exists.
     fn load_world_art(&self, install_dir: &Option<PathBuf>, width_sq: usize, height_sq: usize)
         -> io::Result<(Vec<[u8; 3]>, Vec<Option<bool>>)>
@@ -295,7 +300,7 @@ impl FalloutInterplayExtractor {
         let bad = |what: &str| io::Error::new(io::ErrorKind::InvalidData, what.to_string());
         // Fo1in2 runs on the FO2 engine, so FO1's art uses FO2's palette.
         let pal_bytes = match self.variant {
-            GameVariant::Fallout2 | GameVariant::FalloutNevada | GameVariant::FalloutSonora => self.load_binary_file(install_dir, "color.pal")?,
+            GameVariant::Fallout2 | GameVariant::FalloutNevada | GameVariant::FalloutSonora | GameVariant::FalloutResurrection => self.load_binary_file(install_dir, "color.pal")?,
             GameVariant::Fallout1 => {
                 let cache_path = Path::new(".cache").join(self.variant.id_str()).join("color.pal");
                 if cache_path.exists() { fs::read(&cache_path)? } else {
@@ -314,13 +319,14 @@ impl FalloutInterplayExtractor {
         let (w, h) = (width_sq * SQUARE_PX, height_sq * SQUARE_PX);
         let mut rgb = vec![[0u8; 3]; w * h];
         let mut mask = vec![None; w * h];
-        let tile_rows = h / TILE_PX_H;
-        for t in 0..TILE_COLS * tile_rows {
-            let (ox, oy) = ((t % TILE_COLS) * TILE_PX_W, (t / TILE_COLS) * TILE_PX_H);
+        let (tile_cols, tile_rows) = (w / TILE_PX_W, h / TILE_PX_H);
+        for t in 0..tile_cols * tile_rows {
+            let (ox, oy) = ((t % tile_cols) * TILE_PX_W, (t / tile_cols) * TILE_PX_H);
             let frm = self.load_binary_file(install_dir, &format!("art/intrface/WRLDMP{:02}.FRM", t))?;
             let (fw, fh, px) = crate::frm::decode_frm(&frm).ok_or_else(|| bad("bad world-map FRM"))?;
-            if (fw, fh) != (TILE_PX_W, TILE_PX_H) { return Err(bad("unexpected world-map tile size")); }
-            for y in 0..fh { for x in 0..fw {
+            // (A tile drawn taller than the grid, as one of Resurrection's, shows only its grid part.)
+            if fw != TILE_PX_W || fh < TILE_PX_H { return Err(bad("unexpected world-map tile size")); }
+            for y in 0..TILE_PX_H { for x in 0..fw {
                 rgb[(oy + y) * w + ox + x] = pal[px[y * fw + x] as usize];
             }}
             // Only FO2 ships real masks (Fo1in2's are all empty); missing files just mean "no mask".
@@ -489,8 +495,10 @@ impl FalloutInterplayExtractor {
     fn parse_worldmap_txt(&self, content: &str) -> io::Result<(Vec<RawTile>, u32, u32, HashMap<u32, String>)> {
         const TILE_WIDTH: u32 = (TILE_PX_W / SQUARE_PX) as u32;
         const TILE_HEIGHT: u32 = (TILE_PX_H / SQUARE_PX) as u32;
-        const NUM_HORIZONTAL_TILES: u32 = TILE_COLS as u32;
-        
+        // Tiles per row: Fallout 2's 4 unless the map says (Resurrection's is 3 wide).
+        let num_horizontal_tiles = content.lines().find_map(|l| l.trim().strip_prefix("num_horizontal_tiles")
+            .and_then(|r| r.trim().strip_prefix('=')).and_then(|v| v.trim().parse::<u32>().ok())).unwrap_or(TILE_COLS as u32);
+
         let mut terrain_map: std::collections::HashMap<(u32, u32), String> = std::collections::HashMap::new();
         let mut current_tile_idx: Option<u32> = None;
         
@@ -508,11 +516,11 @@ impl FalloutInterplayExtractor {
             if let Some(tile_idx) = current_tile_idx {
                 if let Some((coord_str, rest)) = line.split_once('=') {
                      // x_y=Terrain...
-                    if let Some((x_str, y_str)) = coord_str.split_once('_') {
+                    if let Some((x_str, y_str)) = coord_str.trim().split_once('_') {
                         if let (Ok(local_x), Ok(local_y)) = (x_str.parse::<u32>(), y_str.parse::<u32>()) {
-                            if let Some(terrain) = rest.split(',').next() {
-                                let tile_row = tile_idx / NUM_HORIZONTAL_TILES;
-                                let tile_col = tile_idx % NUM_HORIZONTAL_TILES;
+                            if let Some(terrain) = rest.split(',').next().map(str::trim) {
+                                let tile_row = tile_idx / num_horizontal_tiles;
+                                let tile_col = tile_idx % num_horizontal_tiles;
                                 let global_x = tile_col * TILE_WIDTH + local_x;
                                 let global_y = tile_row * TILE_HEIGHT + local_y;
                                 terrain_map.insert((global_x, global_y), terrain.to_string());
@@ -720,23 +728,31 @@ fn solve4(mut a: [[f64; 4]; 4], mut b: [f64; 4]) -> Option<[f64; 4]> {
     Some(x)
 }
 
-/// Saturated glowing red (the Glow crater's radiation veins); nothing else in FO1/FO2 art has it.
+/// Saturated red (the Glow crater's radiation veins, and their dimmer edges).
 fn is_radiation_glow(p: [u8; 3]) -> bool {
     let (r, g, b) = (p[0] as f32, p[1] as f32, p[2] as f32);
     r >= 50.0 && r > 2.5 * g && r > 2.5 * b
+}
+
+/// The veins' glowing cores: bright saturated red. Without them, dim red is only shadow (Resurrection's
+/// mountains are shaded in the same dark reds as the Glow's vein edges, but have no bright core).
+fn is_radiation_core(p: [u8; 3]) -> bool {
+    is_radiation_glow(p) && p[0] >= 140
 }
 
 /// Splits each square into SUB_PX blocks:
 /// - Squares whose neighbourhood has one type keep it, so the art never invents terrain.
 /// - Boundary squares take, per block, the art classifier's majority vote among the types present
 ///   in their 3x3 neighbourhood; FO2's walk mask decides water vs land where it exists.
-/// - Blocks within reach of the Glow's radiation glow become Radiation.
+/// - Blocks within reach of the Glow's radiation glow (with a glowing core) become Radiation.
 fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]], mask: &[Option<bool>]) -> Vec<RawTile> {
     let (w, h) = (w_sq * SQUARE_PX, h_sq * SQUARE_PX);
     let ty: HashMap<(i32, i32), String> = squares.iter().map(|t| ((t.x, t.y), t.tile_type.clone())).collect();
     let art = ArtClassifier::train(rgb, w, h, &ty, &|_, _| true);
     let glow: Vec<f64> = rgb.iter().map(|p| is_radiation_glow(*p) as u8 as f64).collect();
     let near_glow = crate::raster::box_mean(&glow, w, h, 15);
+    let core: Vec<f64> = rgb.iter().map(|p| is_radiation_core(*p) as u8 as f64).collect();
+    let near_core = crate::raster::box_mean(&core, w, h, 15);
 
     let k = SQUARE_PX / SUB_PX;
     let mut out = Vec::with_capacity(squares.len() * k * k);
@@ -756,8 +772,9 @@ fn refine_with_art(squares: &[RawTile], w_sq: usize, h_sq: usize, rgb: &[[u8; 3]
                 }
                 if let Some((t, _)) = votes.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0))) { tile_type = t; }
             }
-            // Glow pixels must be dense nearby (>1% of a 31x31 window), so stray red specks don't count.
-            if pixels.clone().any(|i| near_glow[i] > 0.01) { tile_type = "Radiation".to_string(); }
+            // Glow pixels must be dense nearby (>1% of a 31x31 window), so stray red specks don't count,
+            // with a glowing core among them.
+            if pixels.clone().any(|i| near_glow[i] > 0.01 && near_core[i] > 0.0) { tile_type = "Radiation".to_string(); }
             out.push(RawTile {
                 x: sx * k as i32 + bx as i32, y: sy * k as i32 + by as i32,
                 tile_type,

@@ -67,6 +67,7 @@ fn main() -> std::io::Result<()> {
         // Fallout 2–engine total conversions (tier 6): terrain only, their markers anchor the warp.
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutNevada)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutSonora)),
+        Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutResurrection)),
     ];
 
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).

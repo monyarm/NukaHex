@@ -131,6 +131,11 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Wendover", "Wendover, Utah"),
     ("Salt Lake City", "Salt Lake City, Utah"),
     ("Provo District", "Provo, Utah"),
+    // Fallout 1.5: Resurrection (New Mexico). Rat Hole is Kirtland ("Kirtland... I mean Rat Hole, that's
+    // what it's called now"; the town north-west of Albuquerque, as the game draws it, not Albuquerque's
+    // Kirtland Air Force Base). Not anchored: its fictional towns (New Hope, Sedit, Corath...).
+    ("Albuquerque", "Albuquerque, New Mexico"),
+    ("Rat Hole", "36.7342,-108.3593"),                   // Kirtland, New Mexico
     // Fallout 3 (keys are the game's marker names; values the real places they depict). DC's ruins
     // (child worldspaces) share the Wasteland's coordinates. Not anchored: fictional places (Megaton,
     // Rivet City, the vaults...), and the Jefferson Memorial, the Capitol and the White House, 1-2 mi from
@@ -1161,6 +1166,20 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             control_points.truncate(1);
             control_points.push(ControlPoint { name: format!("{} (east)", c.name), game_x: c.game_x + d, game_y: c.game_y, real_lat: c.real_lat, real_lon: c.real_lon + dlon });
             control_points.push(ControlPoint { name: format!("{} (south)", c.name), game_x: c.game_x, game_y: c.game_y + d, real_lat: c.real_lat - dlat, real_lon: c.real_lon });
+        } else if control_points.len() == 2 {
+            // Two anchors and no known scale (Fallout 1.5: Resurrection): the similarity through them
+            // (their distance gives the scale, their bearing the rotation), via a third point at right
+            // angles to the pair on both sides. Game y grows south, so real points are taken as (east,
+            // south) miles from the first anchor to keep the same handedness.
+            let (a, b) = (control_points[0].clone(), control_points[1].clone());
+            let kx = MILES_PER_DEGREE_LAT * a.real_lat.to_radians().cos();
+            let (ve, vs) = ((b.real_lon - a.real_lon) * kx, (a.real_lat - b.real_lat) * MILES_PER_DEGREE_LAT);
+            let (gx, gy) = (b.game_x - a.game_x, b.game_y - a.game_y);
+            control_points.push(ControlPoint {
+                name: format!("{} (right angle)", a.name),
+                game_x: a.game_x - gy, game_y: a.game_y + gx,
+                real_lat: a.real_lat - ve / MILES_PER_DEGREE_LAT, real_lon: a.real_lon - vs / kx,
+            });
         }
 
         let sheet_opt = if control_points.len() >= 3 {
@@ -2073,6 +2092,31 @@ mod invariant_tests {
         let names: Vec<&str> = fixed.locations.iter().map(|l| l.name.as_str()).collect();
         assert!(names.contains(&"Near") && !names.contains(&"Far"), "{:?}", names);
         assert!(fixed.height < 10, "the far marker must not stretch the map: height {}", fixed.height);
+    }
+
+    /// Two anchors and no known scale place a map by the similarity through them: a marker at right
+    /// angles to the pair (same distance, turned the way game "south" is) lands at the matching real
+    /// spot. (Albuquerque and Rat Hole, Resurrection's anchors: Rat Hole is up and to the left.)
+    #[test]
+    fn two_anchors_give_a_similarity() {
+        let loc = |name: &str, x: f32, y: f32| crate::schema::RawLocation { name: name.into(), x, y,
+            icon_type: crate::schema::IconType::City, real_lat: None, real_lon: None, terrain_override: None, anchor: None };
+        let tiles = (0..40).flat_map(|y| (0..40).map(move |x| crate::schema::RawTile { x, y, tile_type: "Sand".into(),
+            real_lat: None, real_lon: None, weight: 1.0, anchor: None, lod: false })).collect();
+        // Game units: Albuquerque at (300, 300), Rat Hole up-left; the probe at right angles (down-left).
+        let map = RawMapData { locations: vec![loc("Albuquerque", 300.0, 300.0), loc("Rat Hole", 150.0, 150.0), loc("Probe", 150.0, 450.0)],
+            tiles, width: 40, height: 40, coordinate_scale: 10.0, priority: 1, ..Default::default() };
+        let fixed = fix_with_terrain_inverse_warping(vec![map], 0, 1.0, None);
+        let at = |n: &str| fixed.locations.iter().find(|l| l.name == n).and_then(|l| l.real_lat.zip(l.real_lon)).unwrap();
+        let ((la, lo), (lr, lor), (lp, lop)) = (at("Albuquerque"), at("Rat Hole"), at("Probe"));
+        let kx = MILES_PER_DEGREE_LAT * la.to_radians().cos();
+        let miles = |lat: f32, lon: f32| ((lon - lo) * kx, (lat - la) * MILES_PER_DEGREE_LAT); // (east, north)
+        let (r, p) = (miles(lr, lor), miles(lp, lop));
+        // The probe is the anchor pair's vector turned 90 degrees: same length, perpendicular.
+        assert!((r.0.hypot(r.1) - p.0.hypot(p.1)).abs() < 3.0, "lengths {:?} {:?}", r, p);
+        assert!((r.0 * p.0 + r.1 * p.1).abs() < 3.0 * r.0.hypot(r.1), "not perpendicular {:?} {:?}", r, p);
+        // Rat Hole north-west of Albuquerque puts the probe (down-left in the game) south-west.
+        assert!(p.0 < 0.0 && p.1 < 0.0, "probe should be south-west: {:?}", p);
     }
 
     /// Map scale: distances measured on the hex grid (column step = 1 hex, row step = sqrt(3)/2)

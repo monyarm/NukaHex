@@ -140,7 +140,14 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
 ### Fallout 2 engine (`interplay.rs`; cluster maps `mod_<id>`)
 - ✅ Fallout: Nevada — Nevada and Utah before Fallout 1 (Reno to Salt Lake City and Las Vegas)
 - ✅ Fallout: Sonora — Arizona, Sonora and Baja California (Phoenix to Hermosillo)
-- ⏸ Fallout 1.5: Resurrection, Mutants Rising, MIB88 Megamod, Fallout Yesterday — to check
+- ✅ Fallout 1.5: Resurrection — New Mexico between Fallout 1 and 2 (ModDB's EN 1.5 installer, over Fallout
+  2's master.dat); anchored by Albuquerque and Rat Hole (Kirtland, NM, as its dialogue says)
+- ⏸ Mutants Rising — Elko, Nevada; only a 2011 demo is out (ModDB): wait for a full release (Nexus or
+  wherever it appears)
+- ➖ MIB88 Megamod — Fallout 2's own region with towns restored and added (Carson City, Vaults 14 and 23...):
+  skipped
+- ➖ Fallout Yesterday — Van Buren remade in the Fallout 2 engine, the same area as the Van Buren map we
+  read (all its places within ~30 mi of that map): skipped
 - ➖ Olympus 2207 — not set in the Fallout universe
 
 ### Bethesda games

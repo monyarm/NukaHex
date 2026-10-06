@@ -168,7 +168,7 @@ impl ManualExtractor {
             let (lat, lon) = if let (Some(lat), Some(lon)) = (marker.lat, marker.lon) {
                 (lat, lon)
             } else if let Some(location) = &marker.location {
-                match crate::geocoding::geocode(location) {
+                match crate::geocoding::parse_coords(location) {
                     Ok(coords) => coords,
                     Err(e) => {
                         warn!("Failed to geocode '{}': {}", location, e);
@@ -266,7 +266,7 @@ impl ManualExtractor {
                 let (lat, lon) = if let (Some(la), Some(lo)) = (center_lat, center_lon) {
                     (*la, *lo)
                 } else if let Some(q) = center {
-                    match crate::geocoding::geocode(q) {
+                    match crate::geocoding::parse_coords(q) {
                         Ok(c) => c,
                         Err(e) => {
                             error!("Failed to geocode terrain center '{}': {}", q, e);
@@ -291,7 +291,7 @@ impl ManualExtractor {
                 let (lat, lon) = if let (Some(la), Some(lo)) = (top_left_lat, top_left_lon) {
                     (*la, *lo)
                 } else if let Some(q) = top_left {
-                    match crate::geocoding::geocode(q) {
+                    match crate::geocoding::parse_coords(q) {
                         Ok(c) => c,
                         Err(e) => {
                             error!("Failed to geocode terrain top_left '{}': {}", q, e);
@@ -368,5 +368,26 @@ impl ManualExtractor {
             }
         }
         tiles
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// "lat, lon" locations and circle centres are coordinates, used as they are (a geocoder moved
+    /// the Reservation's "36.2004, -107.3700" 51 miles, near Albuquerque).
+    #[test]
+    fn coordinates_are_not_geocoded() {
+        let path = std::env::temp_dir().join("fallout_map_manual_coords.json");
+        std::fs::write(&path, r#"{ "tier": 4, "markers": [ { "name": "Here", "type": "Landmark", "location": "36.2004, -107.3700" } ],
+            "terrain": { "type": "circle", "center": "36.2004, -107.3700", "radius_hexes": 6, "terrain_type": "Radiation" } }"#).unwrap();
+        let map = ManualExtractor::new(path.to_string_lossy().into_owned(), 6.0).extract();
+        let loc = &map.locations[0];
+        assert_eq!((loc.real_lat, loc.real_lon), (Some(36.2004), Some(-107.37)));
+        let n = map.tiles.len() as f32;
+        let (lat, lon) = map.tiles.iter().fold((0.0, 0.0), |a, t| (a.0 + t.real_lat.unwrap() / n, a.1 + t.real_lon.unwrap() / n));
+        assert!((lat - 36.2004).abs() < 0.01 && (lon + 107.37).abs() < 0.01, "circle centred at {}, {}", lat, lon);
+        assert_eq!(map.priority, 4);
     }
 }
