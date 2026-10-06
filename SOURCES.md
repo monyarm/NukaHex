@@ -22,7 +22,7 @@ corner; their own cluster maps are at the real place.
 
 ## Van Buren (cancelled; 2007 tech demo) — tier 4
 - ✅ Colorado / Utah / Arizona world map (`van_buren.rs`); Denver shown as Dog City
-- ⬜ Design documents (leaked to No Mutants Allowed 2005–06; Internet Archive
+- ✅ Design documents (leaked to No Mutants Allowed 2005–06; Internet Archive
   `van-buren-docs-and-info`): Tibbets Prison, Denver, Boulder, Blackfoot & Hangdogs, Twin Mothers,
   Ouroboros, Mesa Verde, the Nursery, Maxson Bunker, New Canaan, Jericho, Burham Springs, Hoover Dam,
   the Reservation, Bloomfield Space Center, B.O.M.B.-001, Fort Abandon; the companion documents (CRB-S,
@@ -34,7 +34,8 @@ corner; their own cluster maps are at the real place.
 - ⏸ Carbon, Los (Dallas), the Vault — deferred: needs the engine's mesh/material format
   (`.claude/plans/fallout_bos.md`)
 - ➖ Fallout: Brotherhood of Steel 2 — cancelled
-- ⬜ Fallout: Brotherhood of Steel 2 design document (leaked 2009; fallout.wiki)
+- ✅ Fallout: Brotherhood of Steel 2 design document (leaked 2009; fallout.wiki): its Texas (Lubbock, Abilene's
+  Lone Star and Vault 39, Fort Worth, the Corpse at Corpus Christi) in `input/manual/design_docs`
 
 ## Fallout Bible (2002–2003, Chris Avellone) — tier 5
 - ➖ Interplay's setting notes (Duck and Cover PDFs, Internet Archive `falloutbiblecomplete`): Q&A on
@@ -46,16 +47,16 @@ corner; their own cluster maps are at the real place.
 ## Design documents — tier 5 (Fallout 1/2, New Vegas, Brotherhood of Steel 2), 4 (Van Buren, Fallout Extreme)
 Transcriptions on Nukapedia (fallout.fandom.com "Design document"); places a released game also
 mentions go to `input/manual` at that game's tier.
-- ⬜ Fallout: vision statement; Vault 13: A GURPS Post-Nuclear Adventure timeline; Burrows, Mr. Handy
+- ✅ Fallout: vision statement; Vault 13: A GURPS Post-Nuclear Adventure timeline; Burrows, Mr. Handy
   and Vipers design documents
-- ⬜ Fallout 2: EPA design document; Kaga encounter notes
-- ⬜ Fallout: New Vegas: Dead Money and Lonesome Road design documents
-- ⬜ Fallout Extreme (cancelled): game proposal, Xbox concept submission (and draft), 'X' test world
+- ✅ Fallout 2: EPA design document; Kaga encounter notes
+- ✅ Fallout: New Vegas: Dead Money and Lonesome Road design documents
+- ✅ Fallout Extreme (cancelled): game proposal, Xbox concept submission (and draft), 'X' test world
   design document — places outside the US out of scope
 - Van Buren and Brotherhood of Steel 2: in their sections above
 
 ## Mentioned-only locations (fallout.wiki) — the mentioning game's tier
-- ⬜ The wiki's "mentioned-only locations" categories (654 pages: Fallout 1, 2, 3 and its add-ons, New
+- ✅ The wiki's "mentioned-only locations" categories (654 pages: Fallout 1, 2, 3 and its add-ons, New
   Vegas and its add-ons, 4 and Far Harbor, 76, Tactics, the Bible, Brotherhood of Steel, the RPG,
   Wasteland Warfare): places the games name but never show. Only major cities, major landmarks, vaults
   and places the text locates or describes; markers in `input/manual`
