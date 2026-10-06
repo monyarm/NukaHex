@@ -150,6 +150,8 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
 - ➖ Fallout Yesterday — Van Buren remade in the Fallout 2 engine, the same area as the Van Buren map we
   read (all its places within ~30 mi of that map): skipped
 - ➖ Olympus 2207 — not set in the Fallout universe
+- ➖ Last Hope (2009; v1.088, NMA) — its own mountain world map with fictional towns (Philton, Canville,
+  Miners Town, Golden Valley...): nothing real to anchor it
 - ➖ Fallout: Between Good & Evil (Czech) — eastern/southern Arizona and northern Mexico before Fallout 1;
   never released (its site, towerofcreation.com, now archived: no release by 2012, none since)
 - ➖ Vault Rats (2007) — a short parody on Fallout 2's own world map (no world map or towns of its own)
@@ -169,7 +171,10 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
 - ➖ Fallout: Enclave (2019, ModDB) — its own map (a salt lake in the south-west, snowy ranges east) with
   Van Buren's names garbled in translation ("New Cannon", "Boomfield", "Max Bunker") in an order Van
   Buren's real places contradict: nothing reliable to anchor it
+- ➖ Lost in the Wastelands (2011; v1.2, Russian; ModDB via RobCo Mod Launcher) — its own small map with
+  fictional places (a dump that wants to join the NCR, Vault 35, caches, a cave): nothing real to anchor it
 - ➖ Darkfall (2008 demo) — Fallout Tactics' own campaign map (identical art) with fictional towns
+- ➖ Fallout Tactics Redux, xkcon's Ultimate Rip Off Mod — the original campaign reworked (its own map)
 - ➖ Project Flagstaff (2020 demo) — Arizona; a test map only, no campaign world map
 - ⏸ Fallout Tactics 2: Long Live The King (south-east US and the Caribbean), Fallout: Enclave II,
   Project Safehouse, Fallout Resurrection (Tactics) — not released
