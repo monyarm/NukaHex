@@ -142,8 +142,9 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
 - ✅ Fallout: Sonora — Arizona, Sonora and Baja California (Phoenix to Hermosillo)
 - ✅ Fallout 1.5: Resurrection — New Mexico between Fallout 1 and 2 (ModDB's EN 1.5 installer, over Fallout
   2's master.dat); anchored by Albuquerque and Rat Hole (Kirtland, NM, as its dialogue says)
-- ⏸ Mutants Rising — Elko, Nevada; only a 2011 demo is out (ModDB): wait for a full release (Nexus or
-  wherever it appears)
+- ➖ Mutants Rising — Elko, Nevada; only a 2011 demo is out (ModDB). Its world map is Fallout 2's (814 of
+  840 squares the same terrain, the Pacific coast included) with the towns renamed for Nevada and Utah:
+  no terrain of its own. Revisit if a full release redraws the map
 - ➖ MIB88 Megamod — Fallout 2's own region with towns restored and added (Carson City, Vaults 14 and 23...):
   skipped
 - ➖ Fallout Yesterday — Van Buren remade in the Fallout 2 engine, the same area as the Van Buren map we
