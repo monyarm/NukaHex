@@ -27,5 +27,47 @@
         "source": { "moddb": 287735 },
         "file": "FT_Crusade_1.2.3.rar",
         "md5": "efe33b0b354e49f38dc0016e4b6b4d43"
+    },
+    {
+        "id": "alton_il",
+        "name": "Alton IL - Huge World and Quest Mod 2.0.1 (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 16949, "file": 1000000100 } },
+        "file": "Alton IL Version 2-0-1-16949-2-0-1.rar",
+        "sha256": "071c36303f6fd5bacded33c1ecaaf74e20ae25092dc0899afddd8b6cc275c7fc"
+    },
+    {
+        "id": "into_the_ark",
+        "name": "Into the Ark 1.0.7 (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 21780, "file": 1000010274 } },
+        "file": "Into the Ark-21780-1-0-7.zip",
+        "sha256": "d9a1a730aeb55f23378eda982915f58016e38c99fbb040c746a5d8a01b770de1"
+    },
+    {
+        "id": "dc_anniversary",
+        "name": "Fallout 3 Anniversary - District of Columbia 1.4 (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 27168, "file": 1000030479 } },
+        "file": "Main-27168-V1-4-1778706572.rar",
+        "sha256": "03f2ca4c7535cdc9cbcb448053dfa99429c399a46410eaf6860425a968077c40"
+    },
+    {
+        "id": "vault_89",
+        "name": "Vault 89 - Burkittsville 2.0 (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 18560, "file": 1000000032 } },
+        "file": "Vault 89 - Main mod-18560-V2-0.zip",
+        "sha256": "719f6f614e6fc1cb830cd8854eae539918a39334b8eab939276ac4689489ccd9"
+    },
+    {
+        "id": "northwest_forest",
+        "name": "Northwest Forest-Redone 1.2 (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 17758, "file": 84369 } },
+        "file": "Northwest Forest-17758-1-2.rar",
+        "sha256": "021fc87cd9268002d15a2d52d6af883cb7a5d6975d7b0ecd4d64ad36259cc958"
+    },
+    {
+        "id": "eastern_wasteland",
+        "name": "Project Eastern Wasteland (Alpha, bugfix V2) (Fallout 3)",
+        "source": { "nexus": { "game": "fallout3", "mod": 16183, "file": 80139 } },
+        "file": "Alpha Bugfix V2 DL THIS ONE NOT OLD ONE-16183.rar",
+        "sha256": "0766f9b38d378d1c10ce642d09a0f573d0f90f0a6eff6e58b0b116035fdc7ee0"
     }
 ]

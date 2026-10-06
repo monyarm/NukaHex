@@ -10,11 +10,13 @@ using Mutagen.Bethesda.Plugins.Order;
 
 static class Fallout3Dump
 {
-    public static int Run(GameRelease release, string dataDir, string worldEdid, string outPath)
+    public static int Run(GameRelease release, string dataDir, string worldEdid, string outPath, string[] plugins, bool addedOnly)
     {
         var masters = Implicits.Get(release).BaseMasters
             .Where(mk => File.Exists(Path.Combine(dataDir, mk.FileName)))
+            .Concat(plugins.Select(p => ModKey.FromFileName(p)))
             .ToArray();
+        var pluginKeys = plugins.Select(p => ModKey.FromFileName(p)).ToHashSet();
         using var env = GameEnvironment.Typical.Builder<IFallout3Mod, IFallout3ModGetter>(release)
             .WithTargetDataFolder(dataDir)
             .WithLoadOrder(masters)
@@ -36,10 +38,12 @@ static class Fallout3Dump
 
         // Cells: grid position and water.
         var cells = new Dictionary<FormKey, Dictionary<string, object?>>();
+        var newCells = new HashSet<FormKey>(); // created by the given plugins
         foreach (var ctx in order.Cell().WinningContextOverrides(lc))
         {
             if (!InWorld(ctx) || ctx.Record.Grid == null) continue;
             var c = ctx.Record;
+            if (pluginKeys.Contains(c.FormKey.ModKey)) newCells.Add(c.FormKey);
             cells[c.FormKey] = new()
             {
                 ["x"] = c.Grid.GridX,
@@ -80,6 +84,19 @@ static class Fallout3Dump
                 // Alpha layers: (vertex index within the 17x17 quadrant, opacity); base layers have none.
                 ["alpha"] = l is IAlphaLayerGetter a ? a.AlphaLayerData.Select(d => new object[] { d.Position, MathF.Round(d.Opacity, 3) }).ToArray() : null,
             }).ToArray();
+        }
+
+        // --added-only: the cells the plugins add, or whose landscape they reshape (the Wasteland already
+        // has cells past its border, the far land its LOD shows, which a mod extending it overrides).
+        var addedGrid = new HashSet<(int, int)>();
+        if (addedOnly)
+        {
+            var reshaped = order.Landscape().WinningContextOverrides(lc)
+                .Where(ctx => pluginKeys.Contains(ctx.ModKey) && ctx.TryGetParent<ICellGetter>(out _))
+                .Select(ctx => { ctx.TryGetParent<ICellGetter>(out var cell); return cell!.FormKey; })
+                .ToHashSet();
+            foreach (var key in cells.Keys.Where(k => !newCells.Contains(k) && !reshaped.Contains(k)).ToList()) cells.Remove(key);
+            foreach (var c in cells.Values) addedGrid.Add(((int)c["x"]!, (int)c["y"]!));
         }
 
         // Land textures referenced anywhere.
@@ -140,6 +157,7 @@ static class Fallout3Dump
             }
             if (ws.FormKey != world.FormKey) continue;
             if (r.MapMarker is { } m) markers.Add(Marker(m)!);
+            if (addedOnly && !addedGrid.Contains(((int)MathF.Floor(pos.Value.X / 4096), (int)MathF.Floor(pos.Value.Y / 4096)))) continue;
             if (r.TeleportDestination != null) doors.Add(new[] { pos.Value.X, pos.Value.Y });
             // Statics and trees with their footprint (object bounds x scale, in square units) and mesh path;
             // which meshes count as buildings or vegetation is decided in Rust.

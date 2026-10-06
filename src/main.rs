@@ -93,6 +93,31 @@ fn main() -> std::io::Result<()> {
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout3, "Point Lookout", &[ // Maryland
         "DLC4Pointlookout", "DLC4Bog",
     ])));
+    // Fallout 3 mods (tier 6). Into the Ark: Newark, New Jersey (the Ironbound a child world on its
+    // coordinates; not the Ark, a separate little world, nor Philadelphia's, which has no landscape).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "into_the_ark", &["Newark.esp"], "Newark", &[
+        "DLC06NewarkWastes", "DLC06Ironbound",
+    ])));
+    // Alton IL: Alton, Illinois, placed by the town at Fallout 3's scale (its places are laid out
+    // freely: its Godfrey lies south of the river, the real one north); its other worlds, each on its own
+    // coordinates, by the real places they name (not Belleview nor the BoS Nature Preserve: fictional).
+    for (name, world) in [("Alton", "AltonDowntownWorld"), ("New Godfrey", "AltonBoneyardWorld"), ("Dulles International Airport", "AltonPlaneDiscovery")] {
+        game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "alton_il", &["Alton, IL.esm"], name, &[world]).placed_by_name()));
+    }
+    // Project Eastern Wasteland: Riverdale, Maryland, the town and the wasteland around it, separate worlds
+    // (not its Eastern Ruins: a 64-cell square of default land, built in a few rows).
+    for (name, world) in [("Riverdale", "Riverdale"), ("Riverdale Wasteland", "RiverdaleWasteland")] {
+        game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "eastern_wasteland", &["Eastern Ruins.esp"], name, &[world]).placed_by_name()));
+    }
+    // DC Anniversary: the cut DC and Virginia districts restored, child worlds on the Wasteland's coordinates.
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "dc_anniversary", &["DCAnniversary.esm"], &[
+        "Wasteland", "DCworld02", "DCworld04", "DCworld07", "DCworld13", "DCworld14", "DCworld16", "DCworld19", "DCworld20",
+        "DCworld21", "DCworld22", "DCworld23", "DCworld24", "DCworld25", "DCworld27", "AlexCityHallCourtyardWorld",
+    ])));
+    // Land past the Wasteland's north-western border: Vault 89 at Burkittsville, Maryland, and a forest
+    // beyond Raven Rock.
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "vault_89", &["Fallout 3 Vault 89 Mod - Master.esp"], &["Wasteland"])));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "northwest_forest", &["Northwest Forest Redone.esp"], &["Wasteland"])));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Commonwealth"))); // Boston
     // Far Harbor: the Island, Mount Desert Island in Maine (not the DLC03VRWorldspace simulation).

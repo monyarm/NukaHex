@@ -1,7 +1,8 @@
 //! Mod files (tier 6): fetched once from their hosts into `.cache/mods/<id>/`, verified against the
 //! hash recorded in `input/config/mods.json`, and unpacked (7z, or innoextract for Inno Setup
 //! installers; both external tools, like curl). The ModDB and Mediafire resolvers follow
-//! `~/.nix/lib/fetchers/{moddb,mediafire}.nix`.
+//! `~/.nix/lib/fetchers/{moddb,mediafire}.nix`. Nexus files are downloaded by hand, as portmod does:
+//! the user saves them in the downloads folder, and they are copied from there.
 
 use log::info;
 use serde::Deserialize;
@@ -10,7 +11,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const MANIFEST: &str = "input/config/mods.json";
+pub const MANIFEST: &str = "input/config/mods.json";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
 /// ModDB sits behind Cloudflare, which flags curl's TLS 1.3 handshake; TLS 1.2 passes.
 const MODDB_CURL: &[&str] = &["--tls-max", "1.2", "--header", "Referer: https://www.moddb.com/"];
@@ -32,6 +33,14 @@ struct ModEntry {
 enum Source {
     Moddb(u64),
     Mediafire(String),
+    /// A Nexus file, downloaded by hand (Nexus serves files to free accounts only through its site).
+    Nexus { game: String, #[serde(rename = "mod")] mod_id: u64, file: u64 },
+}
+
+/// Where hand-downloaded files are looked for: the XDG downloads folder, else `~/Downloads`.
+fn downloads_dir() -> PathBuf {
+    std::env::var_os("XDG_DOWNLOAD_DIR").map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Downloads"))
 }
 
 fn curl(extra: &[&str], url: &str) -> Command {
@@ -87,6 +96,14 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
     if unpacked.is_dir() { return Ok(unpacked); }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
+    if let (Source::Nexus { game, mod_id, file }, false) = (&m.source, archive.exists()) {
+        let downloaded = downloads_dir().join(&m.file);
+        if !downloaded.is_file() {
+            return Err(format!("download https://www.nexusmods.com/{}/mods/{}?tab=files&file_id={} by hand into {} (as {})",
+                game, mod_id, file, downloads_dir().display(), m.file));
+        }
+        std::fs::copy(&downloaded, &archive).map_err(|e| format!("copying {}: {}", downloaded.display(), e))?;
+    }
     if !archive.exists() {
         let (url, extra): (String, &[&str]) = match &m.source {
             Source::Moddb(n) => {
@@ -94,6 +111,7 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
                 (moddb_mirror(&start).ok_or("no mirror link on ModDB's download page (bot check or layout change)")?, MODDB_CURL)
             }
             Source::Mediafire(url) => (mediafire_direct(&page(&[], url)?).unwrap_or_else(|| url.clone()), &[]),
+            Source::Nexus { .. } => unreachable!("copied above"),
         };
         info!("[Mods] downloading {} ({})", m.file, id);
         let part = dir.join(format!("{}.part", m.file));
@@ -105,9 +123,11 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
     let (expected, actual) = match (&m.sha256, &m.md5) {
         (Some(h), _) => (h, hex_digest::<sha2::Sha256>(&archive)?),
         (None, Some(h)) => (h, hex_digest::<md5::Md5>(&archive)?),
-        (None, None) => return Err(format!("{} has no hash in {}", id, MANIFEST)),
+        (None, None) => return Err(format!("{} has no hash in {}: record its sha256, {}, once the file is checked",
+            id, MANIFEST, hex_digest::<sha2::Sha256>(&archive)?)),
     };
     if !actual.eq_ignore_ascii_case(expected) {
+        let _ = std::fs::remove_file(&archive); // fetched (or copied) again next time
         return Err(format!("{} does not match its recorded hash ({} != {})", m.file, actual, expected));
     }
 
@@ -128,9 +148,33 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
     Ok(unpacked)
 }
 
+/// The first directory under `root` (breadth-first, `root` included) holding a file named `name`
+/// (case-insensitive).
+pub fn find_dir_with(root: &Path, name: &str) -> Option<PathBuf> {
+    let mut queue = vec![root.to_path_buf()];
+    while !queue.is_empty() {
+        let mut next = Vec::new();
+        for dir in queue {
+            let entries: Vec<PathBuf> = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
+            if entries.iter().any(|p| p.is_file() && p.file_name().is_some_and(|f| f.eq_ignore_ascii_case(name))) { return Some(dir); }
+            next.extend(entries.into_iter().filter(|p| p.is_dir()));
+        }
+        queue = next;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_parses() {
+        let manifest: Vec<ModEntry> = serde_json::from_slice(&std::fs::read(MANIFEST).unwrap()).unwrap();
+        assert!(!manifest.is_empty());
+        let nexus: Source = serde_json::from_str(r#"{ "nexus": { "game": "fallout3", "mod": 1, "file": 2 } }"#).unwrap();
+        assert!(matches!(nexus, Source::Nexus { mod_id: 1, file: 2, .. }));
+    }
 
     #[test]
     fn link_parsers() {

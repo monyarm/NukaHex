@@ -121,8 +121,8 @@ impl FalloutInterplayExtractor {
                 // The fetched mod's game folder: the one holding its master.dat, or its patch000.dat
                 // or its own DAT when it installs over Fallout 2 (Nevada; Resurrection's fores.dat).
                 let files = crate::mods::fetch(self.variant.id_str()).map_err(io::Error::other)?;
-                Some(find_dir_with(&files, "master.dat").or_else(|| find_dir_with(&files, "patch000.dat"))
-                    .or_else(|| find_dir_with(&files, "fores.dat"))
+                Some(crate::mods::find_dir_with(&files, "master.dat").or_else(|| crate::mods::find_dir_with(&files, "patch000.dat"))
+                    .or_else(|| crate::mods::find_dir_with(&files, "fores.dat"))
                     .ok_or_else(|| io::Error::other("no master.dat, patch000.dat or fores.dat in the mod's files"))?)
             } else {
                 dat_extractor::find_steam_app(self.variant.app_id(), self.variant.name()).ok()
@@ -892,18 +892,3 @@ fn parse_msg(content: &str) -> HashMap<u32, String> {
     out
 }
 
-/// The first directory under `root` (breadth-first, `root` included) holding a file named `name`
-/// (case-insensitive).
-fn find_dir_with(root: &Path, name: &str) -> Option<PathBuf> {
-    let mut queue = vec![root.to_path_buf()];
-    while !queue.is_empty() {
-        let mut next = Vec::new();
-        for dir in queue {
-            let entries: Vec<PathBuf> = fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
-            if entries.iter().any(|p| p.file_name().is_some_and(|f| f.eq_ignore_ascii_case(name))) { return Some(dir); }
-            next.extend(entries.into_iter().filter(|p| p.is_dir()));
-        }
-        queue = next;
-    }
-    None
-}

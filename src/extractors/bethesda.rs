@@ -128,6 +128,14 @@ pub struct BethesdaExtractor {
     interior: Option<&'static str>,
     /// Its marker only anchors its terrain (an expedition zone other than the one marking its city).
     anchor_only: bool,
+    /// A mod's worldspace: the mod (its id in `mods.json`) and the plugins it loads after the game's masters.
+    mod_plugins: Option<(&'static str, &'static [&'static str])>,
+    /// Only the cells the mod adds to a game's worldspace (land past its borders); every marker still
+    /// anchors, so the new land follows the game's own warp.
+    added_only: bool,
+    /// Placed by its name alone (a mod's freely laid-out place): its other markers, which could share
+    /// names with real places elsewhere (Alton's "The Divide"), do not anchor it.
+    by_name: bool,
 }
 
 /// Miles per game unit at the size things are built (a unit is about 1.43 cm), for places the game does
@@ -140,7 +148,7 @@ impl BethesdaExtractor {
     }
 
     fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
-        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false }
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false, mod_plugins: None, added_only: false, by_name: false }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
@@ -168,6 +176,25 @@ impl BethesdaExtractor {
         Self { interior: Some(ground), anchor_only: !shown, ..Self::dlc_group(BethesdaGameVariant::Fallout76, name, &[cell]) }
     }
 
+    /// A worldspace a mod adds (fetched by `mods::fetch`), summarized like a DLC place; as for every
+    /// mod, its markers only anchor its terrain.
+    /// `name` names it on the main maps, as for `dlc_group`.
+    pub fn from_mod(variant: BethesdaGameVariant, mod_id: &'static str, plugins: &'static [&'static str], name: &'static str, worldspaces: &[&'static str]) -> Self {
+        let place: String = name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        Self { id: format!("mod_{}_{}", mod_id, place), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), ..Self::dlc_group(variant, name, worldspaces) }
+    }
+
+    /// Placed by its name alone (see `by_name`).
+    pub fn placed_by_name(self) -> Self {
+        Self { by_name: true, ..self }
+    }
+
+    /// The cells a mod adds to a game's worldspaces (and the child worlds it adds on their coordinates),
+    /// placed by the game's own anchors (see `added_only`).
+    pub fn mod_extension(variant: BethesdaGameVariant, mod_id: &'static str, plugins: &'static [&'static str], worldspaces: &[&'static str]) -> Self {
+        Self { id: format!("mod_{}", mod_id), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), added_only: true, ..Self::parts(variant, worldspaces) }
+    }
+
     /// A source of another priority tier (e.g. Operation Anchorage, a simulation of the past).
     pub fn with_tier(self, tier: u8) -> Self {
         Self { tier, ..self }
@@ -180,6 +207,31 @@ impl BethesdaExtractor {
         Some(install.join("Data")).filter(|d| d.is_dir())
     }
 
+    /// The data folder the helper reads, and the plugins it loads after the game's masters: the game's own
+    /// Data, or for a mod a folder in its cache linking the game's masters and the mod's plugins.
+    fn load_dir(&self, data_dir: &Path) -> Result<(PathBuf, Vec<String>), String> {
+        let Some((mod_id, plugins)) = self.mod_plugins else { return Ok((data_dir.to_path_buf(), vec![])) };
+        let files = crate::mods::fetch(mod_id)?;
+        // Shared by the mod's extractors, which run in parallel: links are made once, never rebuilt.
+        let dir = Path::new(".cache/mods").join(mod_id).join("data");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let link = |from: &Path, name: &str| match std::os::unix::fs::symlink(std::fs::canonicalize(from).map_err(|e| e.to_string())?, dir.join(name)) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(format!("linking {}: {}", name, e)),
+            _ => Ok(()),
+        };
+        for e in std::fs::read_dir(data_dir).map_err(|e| e.to_string())?.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.to_lowercase().ends_with(".esm") { link(&e.path(), &name)?; }
+        }
+        for plugin in plugins {
+            let found = crate::mods::find_dir_with(&files, plugin).ok_or_else(|| format!("{} not found in {}", plugin, files.display()))?;
+            let name = std::fs::read_dir(&found).map_err(|e| e.to_string())?.flatten().map(|e| e.file_name())
+                .find(|f| f.eq_ignore_ascii_case(plugin)).unwrap();
+            link(&found.join(name), plugin)?;
+        }
+        Ok((dir, plugins.iter().map(|p| p.to_string()).collect()))
+    }
+
     fn dump(&self, data_dir: &Path, worldspace: &str) -> Result<Dump, String> {
         if self.variant == BethesdaGameVariant::Fallout76 {
             let dump = match self.interior { Some(ground) => fo76::zone(data_dir, worldspace, ground)?, None => fo76::dump(data_dir, worldspace)? };
@@ -187,11 +239,14 @@ impl BethesdaExtractor {
                 dump.markers.len(), dump.cells.len(), dump.land_textures.len(), dump.radiation.len());
             return Ok(dump);
         }
+        let (load_dir, plugins) = self.load_dir(data_dir)?;
         let out = Path::new(".cache/bethesda").join(format!("{}_{}.json", self.id, worldspace.to_lowercase()));
         std::fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
         let result = Command::new(env!("MUTAGEN_DOTNET"))
             .arg(env!("MUTAGEN_DUMP_DLL"))
-            .args([self.variant.release(), &data_dir.to_string_lossy(), worldspace, &out.to_string_lossy()])
+            .args([self.variant.release(), &load_dir.to_string_lossy(), worldspace, &out.to_string_lossy()])
+            .args(self.added_only.then_some("--added-only"))
+            .args(&plugins)
             .output().map_err(|e| e.to_string())?;
         let log = String::from_utf8_lossy(&result.stderr);
         if !result.status.success() {
@@ -203,6 +258,12 @@ impl BethesdaExtractor {
         let _ = std::fs::remove_file(&out); // the extractor's own output is what gets cached
         dump.map(|mut d: Dump| {
             if self.variant == BethesdaGameVariant::Fallout4 { d.lod = super::lod::cell_brightness(data_dir, worldspace); }
+            // A mod's added cells lie past the game's map (that is what they add): all of them are shown.
+            if self.added_only { (d.worldspace.map_nw_cell, d.worldspace.map_se_cell) = (None, None); }
+            // A mod's own world: only where it is built (see `built_extent`).
+            if self.mod_plugins.is_some() && !self.added_only {
+                if let Some((x0, x1, y0, y1)) = built_extent(&d) { d.cells.retain(|c| (x0..=x1).contains(&c.x) && (y0..=y1).contains(&c.y)); }
+            }
             d
         })
     }
@@ -227,6 +288,7 @@ impl Extractor for BethesdaExtractor {
             btd.sort();
             paths.extend(btd);
         }
+        if self.mod_plugins.is_some() { paths.push(crate::mods::MANIFEST.into()); }
         if let Some(dir) = self.data_dir() {
             let mut esms: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten()
                 .map(|e| e.path())
@@ -248,7 +310,14 @@ impl Extractor for BethesdaExtractor {
         };
         let dumps: Result<Vec<Dump>, String> = self.worldspaces.iter().map(|w| self.dump(&data_dir, w)).collect();
         match dumps {
-            Ok(dumps) => RawMapData { priority: self.tier, anchor_only_markers: self.anchor_only, ..build(&dumps, self.variant, self.summarized.then(|| self.summary_name), if self.interior.is_some() { TRUE_MILES_PER_UNIT } else { self.variant.miles_per_unit() }) },
+            Ok(dumps) => {
+                let mut map = build(&dumps, self.variant, self.summarized.then(|| self.summary_name), if self.interior.is_some() { TRUE_MILES_PER_UNIT } else { self.variant.miles_per_unit() });
+                // A mod's land beyond its map is unbuilt filler (Alton's 80-cell square around a 30-cell
+                // town), not the far view of real land the games' LOD is.
+                if self.mod_plugins.is_some() { map.tiles.retain(|t| !t.lod); }
+                if let (true, Some(name)) = (self.by_name, self.summary_name) { map.locations.retain(|l| l.name == name); }
+                RawMapData { priority: self.tier, anchor_only_markers: self.anchor_only, ..map }
+            }
             Err(e) => failed(e),
         }
     }
@@ -724,6 +793,28 @@ fn land_cells(dump: &Dump) -> impl Iterator<Item = &DumpCell> {
         .filter(move |c| !skirt.contains(&(c.x, c.y)))
 }
 
+/// The cells (x0, x1, y0, y1) a mod's world is built over: the box around the largest 8-connected group
+/// of cells holding its placed objects. Mods lay their places in a square of generated ground (Alton's
+/// 80 cells around a 30-cell town, New Godfrey's 64 around a few cells), with stray objects at its edges.
+fn built_extent(dump: &Dump) -> Option<(i32, i32, i32, i32)> {
+    let built: HashSet<(i32, i32)> = dump.statics.iter().map(|s| ((s.x / CELL).floor() as i32, (s.y / CELL).floor() as i32)).collect();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    let mut best: Vec<(i32, i32)> = Vec::new();
+    let mut starts: Vec<&(i32, i32)> = built.iter().collect();
+    starts.sort(); // deterministic choice between equal groups
+    for &start in starts {
+        if !seen.insert(start) { continue; }
+        let (mut group, mut stack) = (vec![start], vec![start]);
+        while let Some((x, y)) = stack.pop() {
+            for n in (-1..=1).flat_map(|dx| (-1..=1).map(move |dy| (x + dx, y + dy))) {
+                if built.contains(&n) && seen.insert(n) { group.push(n); stack.push(n); }
+            }
+        }
+        if group.len() > best.len() { best = group; }
+    }
+    Some((best.iter().map(|c| c.0).min()?, best.iter().map(|c| c.0).max()?, best.iter().map(|c| c.1).min()?, best.iter().map(|c| c.1).max()?))
+}
+
 impl Frame {
     fn of(dumps: &[Dump]) -> Option<Frame> {
         let land: Vec<&DumpCell> = dumps.iter().flat_map(land_cells).collect();
@@ -1082,6 +1173,19 @@ mod tests {
         let w = &map.locations[2];
         assert_eq!((w.name.as_str(), w.x, w.y), ("Test World", 2048.0, 2048.0));
         assert!(matches!(w.icon_type, IconType::Landmark));
+    }
+
+    #[test]
+    fn mod_worlds_keep_their_built_extent() {
+        // A town over cells (0..=2, 0..=1), a gap inside it at (1, 1), and stray objects at the square's edge.
+        let at = |cx: i32, cy: i32| DumpStatic { x: cx as f32 * CELL + 100.0, y: cy as f32 * CELL + 100.0, area: 1.0, model: String::new() };
+        let dump = Dump {
+            worldspace: DumpWorld { name: None, edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None, default_ground: None },
+            markers: vec![], child_markers: vec![], radiation: vec![], water_planes: vec![], volumes: vec![],
+            statics: vec![at(0, 0), at(1, 0), at(2, 0), at(0, 1), at(2, 1), at(-40, 39), at(39, -40)],
+            land_textures: HashMap::new(), cells: vec![], lod: None,
+        };
+        assert_eq!(built_extent(&dump), Some((0, 2, 0, 1)));
     }
 
     #[test]

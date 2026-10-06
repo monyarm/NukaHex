@@ -168,6 +168,21 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
     // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
     ("Operation Anchorage", "Anchorage, Alaska"),
+    // Fallout 3 mods. Vault 89 (the Burkittsville vault of Hamilton's Hideaway's cut logs), past the
+    // Wasteland's north-western border. Into the Ark's Newark (not anchored: its fictional places, and
+    // stations and buildings within a few blocks of these).
+    ("Vault 89", "Burkittsville, Maryland"),
+    ("Alton", "Alton, Illinois"),
+    ("New Godfrey", "Godfrey, Illinois"),
+    ("Dulles International Airport", "Washington Dulles International Airport"),
+    ("Riverdale", "Riverdale Park, Maryland"),
+    ("Riverdale Wasteland", "Riverdale Park, Maryland"),
+    ("Military Park", "Military Park, Newark"),
+    ("Newark Penn Station", "Newark Penn Station"),
+    ("Broad St. Station", "Newark Broad Street Station"),
+    ("Essex Community College", "Essex County College, Newark"),
+    ("Krating Daeng Stadium", "40.7368,-74.1503"),           // Red Bull Arena, Harrison (Krating Daeng: Thai Red Bull)
+    ("Ironbound Entrance", "Ironbound, Newark"),
     // Fallout 4 (keys are the game's marker names; values the real places they depict). Not anchored:
     // fictional places; downtown landmarks within a mile of these; Rocky Narrows Park (the game's is
     // north-west of Boston, the real one in Sherborn to the south-west, ~13 mi off); Fort Strong (the

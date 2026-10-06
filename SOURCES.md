@@ -134,8 +134,9 @@ Creation Club plugins listed in Fallout4.ccc)
 
 ## Mods — tier 6
 Fetched by `src/mods.rs` from `input/config/mods.json` (ModDB, Mediafire; hash-checked). Their
-markers only anchor the warp; their terrain adds detail. Nexus files need Premium or a manual
-download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where they exist.
+markers only anchor the warp; their terrain adds detail. Nexus files are downloaded by hand into
+`~/Downloads` (a run names the missing files and their pages), then copied and checked like the rest.
+GamePressure mirrors of Nexus files are acceptable where they exist.
 
 ### Fallout 2 engine (`interplay.rs`; cluster maps `mod_<id>`)
 - ✅ Fallout: Nevada — Nevada and Utah before Fallout 1 (Reno to Salt Lake City and Las Vegas)
@@ -233,9 +234,33 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
   The World We Knew: quests in the Mojave and interiors (Better Angels and The Inheritance to check)
 - Tale of Two Wastelands — Fallout 3's lands in New Vegas's engine; we read Fallout 3 directly
 
+### Fallout 3: new land at real places (worldspaces; Nexus files downloaded by hand)
+- ✅ Alton IL — Alton, Illinois, placed by the town at Fallout 3's scale (its places are laid out
+  freely); with New Godfrey (at Godfrey, IL) and its Dulles International Airport (Dulles, VA). Not
+  Belleview nor the BoS Nature Preserve (fictional); Nexus 16949
+- ✅ Into the Ark — Newark, New Jersey (and the Ironbound), anchored by its real sights; its Philadelphia
+  has no landscape; Nexus 21780
+- ➖ Wrong Turn — fictional hill country in West Virginia, no place to anchor it: skipped; Nexus 17526
+- Anchorage Aftermath (Nexus 22034), Back to Anchorage (10720), Anchorage - 2277 (21677, unfinished) —
+  Anchorage after the war: the land Operation Anchorage's simulation already maps
+- The Scourge 2255 — the Pitt in 2255 (its worldspaces copied and expanded); Nexus 27029
+- ✅ Fallout 3 Anniversary - District of Columbia — the 13 cut DC worldspaces restored and placed where they
+  were meant to be; Nexus 27168
+- ✅ Beyond the Wasteland's borders (cells they add to or reshape in the Wasteland): Vault 89 -
+  Burkittsville (Burkittsville, MD; Nexus 18560), Northwest Forest(-Redone) (past Raven Rock; 17758)
+- ✅ Project Eastern Wasteland (alpha) — Riverdale, Maryland: the town and its wasteland, at Riverdale
+  Park (not its Eastern Ruins, a 64-cell square of default land built in a few rows); Nexus 16183
+- ➖ Inside the Capital Wasteland (land we map): Fallout World Expansion, DCXpansion Stanton Park, Stories
+  from Point Lookout, The Secrets of Harrisport, Red Line North (metro cells), VT Island
+- ➖ Fictional places: Valley Wasteland, Heads of Iron, Island - Northern Territory, The Assassin, Alpha -
+  The New World, Death Canyon, Fallout Zero, Alien Resurrection, The Librarian, Green Killzone, A Town Far
+  Far Away, Evil Forces
+- ➖ Outside the US: Reykjavik (Iceland), Saint Petersburg, Karlskrona (Sweden), Nostalgia (Chernobyl);
+  Operation: Kingpin (New Owen Sound, Ontario, ~110 mi from Michigan; never released)
+- ➖ Unreleased: Fallout remake (Fallout 1 in Fallout 3), The Deep South
+
 ### Other engines (world maps we could read)
 - ➖ Fallout Tactics engine: Fallout: The Sum — not set in the Fallout universe
-- Fallout 3, new land at real places: Alton, IL (Alton, Illinois; twice Point Lookout's size; Nexus)
 - Fallout 4, new land at real places: Northern Springs (northern Massachusetts; Nexus); not released:
   Fallout: Cascadia (Seattle), Fallout Miami, Fallout: Vault 13 (Fallout 1 remade), Fallout 4: New
   Vegas, Fallout 4: The Capital Wasteland, Kanawha (West Virginia), Niagara, Wyoming, Billings
