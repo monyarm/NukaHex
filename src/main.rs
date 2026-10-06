@@ -63,11 +63,13 @@ fn main() -> std::io::Result<()> {
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout1)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::Fallout2)),
         Box::new(crate::extractors::van_buren::VanBurenExtractor),
-        Box::new(crate::extractors::tactics::TacticsExtractor),
+        Box::new(crate::extractors::tactics::TacticsExtractor::Main),
         // Fallout 2–engine total conversions (tier 6): terrain only, their markers anchor the warp.
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutNevada)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutSonora)),
         Box::new(FalloutInterplayExtractor::new(GameVariant::FalloutResurrection)),
+        // Fallout Tactics mods (tier 6): Crusade (the Texas Gulf Coast at Victoria).
+        Box::new(crate::extractors::tactics::TacticsExtractor::Mod("fot_crusade")),
     ];
 
     // Bethesda games via Mutagen (all official plugins loaded; one worldspace placed per extractor).

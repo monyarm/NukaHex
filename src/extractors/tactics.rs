@@ -6,6 +6,8 @@
 //!   stored column-major
 //! - `<esh>` property lists for the locations: Name (a locale key), Loc x/y (px), Is Bunker, ...
 //! Location names come from `locale/game/generic_mission.txt` in `core/locale_0.bos`.
+//!
+//! Mods (tier 6, fetched by `crate::mods`) ship their own campaign file (`*.cam`) and locale loose.
 
 use crate::extractors::Extractor;
 use crate::schema::{IconType, RawLocation, RawMapData, RawTile};
@@ -16,25 +18,61 @@ use std::path::PathBuf;
 
 const STEAM_APP_ID: u32 = 38420;
 
-pub struct TacticsExtractor;
+/// Fallout Tactics' own campaign, or a mod's (its id in `input/config/mods.json`).
+pub enum TacticsExtractor {
+    Main,
+    /// A mod's campaign (tier 6): terrain only, its markers anchor the warp.
+    Mod(&'static str),
+}
 
 impl Extractor for TacticsExtractor {
-    fn get_id(&self) -> &str { "fallout_tactics" }
+    fn get_id(&self) -> &str { match self { Self::Main => "fallout_tactics", Self::Mod(id) => id } }
     fn get_code_path(&self) -> &str { "src/extractors/tactics.rs" }
-    fn get_cluster_id(&self) -> String { "fallout_tactics".to_string() }
+    fn get_cluster_id(&self) -> String {
+        match self { Self::Main => "fallout_tactics".to_string(), Self::Mod(id) => format!("mod_{}", id) }
+    }
     fn get_source_paths(&self) -> Vec<String> {
-        install_dir().map(|d| vec![d.join("core/Mis-Main_0.bos").to_string_lossy().into_owned()]).unwrap_or_default()
+        match self {
+            Self::Main => install_dir().map(|d| vec![d.join("core/Mis-Main_0.bos").to_string_lossy().into_owned()]).unwrap_or_default(),
+            Self::Mod(_) => vec!["input/config/mods.json".to_string()],
+        }
     }
 
     fn extract(&self) -> RawMapData {
-        match extract_campaign() {
-            Ok(data) => data,
+        let tier = match self { Self::Main => crate::schema::tier::SPIN_OFF, Self::Mod(_) => crate::schema::tier::MODS };
+        let result = match self {
+            Self::Main => load_campaign().and_then(|c| {
+                let locale = read_zip_entry(&install_dir()?.join("core/locale_0.bos"), "locale/game/generic_mission.txt")?;
+                Ok((c, locale))
+            }),
+            Self::Mod(id) => load_mod_campaign(id),
+        };
+        match result.and_then(|(campaign, locale)| map_of(campaign, &String::from_utf8_lossy(&locale), self.get_id())) {
+            Ok(data) => RawMapData { priority: tier, anchor_only_markers: matches!(self, Self::Mod(_)), ..data },
             Err(e) => {
-                warn!("Fallout Tactics extraction failed: {}", e);
-                RawMapData { warnings: vec![format!("Fallout Tactics extraction failed: {}", e)], coordinate_scale: 75.0, priority: crate::schema::tier::SPIN_OFF, ..Default::default() }
+                warn!("{} extraction failed: {}", self.get_id(), e);
+                RawMapData { warnings: vec![format!("{} extraction failed: {}", self.get_id(), e)], coordinate_scale: 75.0, priority: tier, ..Default::default() }
             }
         }
     }
+}
+
+/// A fetched mod's campaign file and its locale's location names (the first `*.cam` and
+/// `locale/game/generic_mission.txt` in its files, any case).
+fn load_mod_campaign(id: &str) -> io::Result<(Campaign, Vec<u8>)> {
+    let root = crate::mods::fetch(id).map_err(io::Error::other)?;
+    let mut files = Vec::new();
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        for p in std::fs::read_dir(&dir)?.flatten().map(|e| e.path()) {
+            if p.is_dir() { stack.push(p) } else { files.push(p) }
+        }
+    }
+    files.sort();
+    let lower = |p: &PathBuf| p.to_string_lossy().replace('\\', "/").to_lowercase();
+    let cam = files.iter().find(|p| lower(p).ends_with(".cam")).ok_or_else(|| err("no campaign file (*.cam)"))?;
+    let locale = files.iter().find(|p| lower(p).ends_with("locale/game/generic_mission.txt")).ok_or_else(|| err("no locale/game/generic_mission.txt"))?;
+    Ok((parse_campaign(&std::fs::read(cam)?)?, std::fs::read(locale)?))
 }
 
 fn err(msg: impl Into<String>) -> io::Error { io::Error::new(io::ErrorKind::InvalidData, msg.into()) }
@@ -137,16 +175,15 @@ fn marker_type(name: &str, bunker: bool) -> IconType {
     }
 }
 
-fn extract_campaign() -> io::Result<RawMapData> {
-    info!("Extracting Fallout Tactics campaign map...");
-    let dir = install_dir()?;
-    let campaign = load_campaign()?;
-    let locale = parse_locale(&String::from_utf8_lossy(&read_zip_entry(&dir.join("core/locale_0.bos"), "locale/game/generic_mission.txt")?));
+/// The map of a campaign whose locale (`generic_mission.txt`) is `locale`; `id` names it in messages.
+fn map_of(campaign: Campaign, locale: &str, id: &str) -> io::Result<RawMapData> {
+    info!("Extracting {} campaign map...", id);
+    let locale = parse_locale(locale);
 
     let mut warnings = Vec::new();
     let locations = campaign.locations.iter().filter_map(|(key, x, y, bunker)| {
         let Some(name) = locale.get(key) else {
-            warnings.push(format!("Fallout Tactics: no name for location key '{}'", key));
+            warnings.push(format!("{}: no name for location key '{}'", id, key));
             return None;
         };
         Some(RawLocation {
@@ -157,12 +194,11 @@ fn extract_campaign() -> io::Result<RawMapData> {
 
     let (w, h) = (campaign.cols * campaign.tile_px, campaign.rows * campaign.tile_px);
     let (tiles, block) = classify_terrain(&campaign.art, w, h);
-    info!("Fallout Tactics: {} locations, {} tiles", locations.len(), tiles.len());
+    info!("{}: {} locations, {} tiles", id, locations.len(), tiles.len());
     Ok(RawMapData {
         locations, tiles,
         width: (w / block) as u32, height: (h / block) as u32,
         coordinate_scale: block as f32,
-        priority: crate::schema::tier::SPIN_OFF,
         warnings,
         ..Default::default()
     })
@@ -170,11 +206,19 @@ fn extract_campaign() -> io::Result<RawMapData> {
 
 /// Terrain blocks (BLOCK px) from the campaign art. The painting has real terrain colour:
 /// - Snow: near-white (the Rockies)
-/// - Water: smooth pale cream (Lake Michigan, the Mississippi lakes)
-/// - Mountain: the strongest 20% of large-scale relief texture
-/// - Grass: the greenest 30% of the land (olive plains of Kansas/Missouri), by (g-b)/(r-b) hue
+/// - Water: smooth pale cream (Lake Michigan, the Mississippi lakes), or blue (a mod's ocean)
+/// - Mountain: large-scale relief texture well above the map's typical (`MOUNTAIN_RELIEF`), so a flat
+///   map has little
+/// - Grass: green land (`GREEN_HUE`; the olive plains of Kansas/Missouri), by (g-b)/(r-b) hue
 /// - Sand: everything else (brown land)
 /// Each block takes the majority of its pixels' classes.
+/// Relief, as a multiple of the map's median, from which ground is Mountain (the main campaign's ranges:
+/// about its strongest 20%).
+const MOUNTAIN_RELIEF: f64 = 1.3;
+/// (g-b)/(r-b) hue from which land is Grass: the main campaign's olive plains (its greenest 30%), a colour
+/// that means the same on a mod's map.
+const GREEN_HUE: f64 = 0.61;
+
 fn classify_terrain(art: &[[u8; 3]], w: usize, h: usize) -> (Vec<RawTile>, usize) {
     use crate::raster::box_mean;
     const BLOCK: usize = 15;
@@ -187,12 +231,12 @@ fn classify_terrain(art: &[[u8; 3]], w: usize, h: usize) -> (Vec<RawTile>, usize
     let hue: Vec<f64> = art.iter().map(|p| (p[1] as f64 - p[2] as f64) / (p[0] as f64 - p[2] as f64).max(10.0)).collect();
     let green = box_mean(&hue, w, h, 30);
     let snow = box_mean(&lum.iter().map(|&l| (l > 205.0) as u8 as f64).collect::<Vec<_>>(), w, h, 4);
-    let water_px: Vec<f64> = (0..w * h).map(|i| (lum[i] > 140.0 && lum[i] <= 205.0 && smooth[i] < 9.0) as u8 as f64).collect();
+    let blue = |p: [u8; 3]| p[2] as f64 > p[0] as f64 + 15.0 && p[2] > p[1];
+    let water_px: Vec<f64> = (0..w * h).map(|i| ((lum[i] > 140.0 && lum[i] <= 205.0 && smooth[i] < 9.0) || blue(art[i])) as u8 as f64).collect();
     let water = box_mean(&water_px, w, h, 7);
 
     let quantile = |v: &[f64], q: f64| { let mut s: Vec<f64> = v.iter().copied().filter(|x| x.is_finite()).collect(); s.sort_by(|a, b| a.total_cmp(b)); s[((s.len() - 1) as f64 * q) as usize] };
-    let land_green: Vec<f64> = (0..w * h).filter(|&i| snow[i] <= 0.5).map(|i| green[i]).collect();
-    let (relief_t, green_t) = (quantile(&relief, 0.8), quantile(&land_green, 0.7));
+    let (relief_t, green_t) = (MOUNTAIN_RELIEF * quantile(&relief, 0.5), GREEN_HUE);
     let class = |i: usize| -> &'static str {
         if snow[i] > 0.5 { "Snow" } else if water[i] > 0.5 { "Water" } else if relief[i] > relief_t { "Mountain" } else if green[i] > green_t { "Grass" } else { "Sand" }
     };

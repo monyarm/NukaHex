@@ -150,6 +150,29 @@ download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where
 - ➖ Fallout Yesterday — Van Buren remade in the Fallout 2 engine, the same area as the Van Buren map we
   read (all its places within ~30 mi of that map): skipped
 - ➖ Olympus 2207 — not set in the Fallout universe
+- ➖ Fallout: Between Good & Evil (Czech) — eastern/southern Arizona and northern Mexico before Fallout 1;
+  never released (its site, towerofcreation.com, now archived: no release by 2012, none since)
+- ➖ Vault Rats (2007) — a short parody on Fallout 2's own world map (no world map or towns of its own)
+- ➖ FOnline: 2238 / Reloaded (Fallout 1 and 2's worlds merged: land we already map); FOnline: Ashes of
+  Phoenix (one city, no regional map)
+- ➖ Fallout: Bakersfield (Doom engine remake of Fallout 1's Necropolis, due 2027)
+
+### Fallout Tactics engine (campaign world maps, `bos.cam`, as `tactics.rs` reads)
+- ✅ Fallout Tactics: Crusade (2020; v1.2.3, ModDB) — the Texas Gulf Coast around Victoria (its own map,
+  ~27x19 mi), anchored by Victoria, Bloomington, Port Lavaca and Vanderbilt (Garcitas Creek, a creek, fits
+  12 mi off; La Salle and Guada are not placeable)
+- ➖ Fallout: The Wastes (2009, ModDB) — California, Klamath to the Channel Islands; only land Fallout 1 and 2
+  already map, and its places do not register with ours (its NCR sits twice as far from Vault 13 as the
+  real ones: sheared or, without it, tens of miles off the coast)
+- ➖ Fallout: Awaken (2003; 1.41d English patch, ModDB) — fictional towns ("New Chicago", "far to the
+  west" of Los Angeles) with Fallout 1's names in another layout: nothing real to anchor it
+- ➖ Fallout: Enclave (2019, ModDB) — its own map (a salt lake in the south-west, snowy ranges east) with
+  Van Buren's names garbled in translation ("New Cannon", "Boomfield", "Max Bunker") in an order Van
+  Buren's real places contradict: nothing reliable to anchor it
+- ➖ Darkfall (2008 demo) — Fallout Tactics' own campaign map (identical art) with fictional towns
+- ➖ Project Flagstaff (2020 demo) — Arizona; a test map only, no campaign world map
+- ⏸ Fallout Tactics 2: Long Live The King (south-east US and the Caribbean), Fallout: Enclave II,
+  Project Safehouse, Fallout Resurrection (Tactics) — not released
 
 ### Bethesda games
 - ⬜ Next: Fallout: New California (terrain; ModDB's full installer BETA 231, or GOG's build)

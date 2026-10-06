@@ -136,6 +136,12 @@ const REAL_COORDS: &[(&str, &str)] = &[
     // Kirtland Air Force Base). Not anchored: its fictional towns (New Hope, Sedit, Corath...).
     ("Albuquerque", "Albuquerque, New Mexico"),
     ("Rat Hole", "36.7342,-108.3593"),                   // Kirtland, New Mexico
+    // Fallout Tactics: Crusade (the Texas Gulf Coast). Not anchored: Garcitas Creek (a creek, no one point:
+    // 12 mi off the fit), La Salle and Guada (not placeable), its fictional sites.
+    ("Victoria", "28.8053,-97.0036"),                    // Victoria, Texas (the city; the query finds the county)
+    ("Bloomington", "Bloomington, Texas"),
+    ("Port Lavaca", "Port Lavaca, Texas"),
+    ("Vanderbilt", "Vanderbilt, Texas"),
     // Fallout 3 (keys are the game's marker names; values the real places they depict). DC's ruins
     // (child worldspaces) share the Wasteland's coordinates. Not anchored: fictional places (Megaton,
     // Rivet City, the vaults...), and the Jefferson Memorial, the Capitol and the White House, 1-2 mi from
@@ -358,6 +364,12 @@ const LOD_SOURCE: usize = 1 << (usize::BITS - 1);
 
 /// The source a tile votes as: its own, or its LOD land's.
 fn voter(source: usize, lod: bool) -> usize { if lod { source | LOD_SOURCE } else { source } }
+
+/// The best (lowest) tier with data in a hex: its own land's, or its LOD's where it has only LOD.
+fn top_tier(sources: &HashMap<usize, SourceVotes>) -> Option<u8> {
+    let lod = lod_only(sources);
+    sources.iter().filter(|(s, (_, votes))| (lod || *s & LOD_SOURCE == 0) && pick(votes).is_some()).map(|(_, (tier, _))| *tier).min()
+}
 
 /// Whether only LOD land voted in a hex.
 fn lod_only(sources: &HashMap<usize, SourceVotes>) -> bool {
@@ -835,7 +847,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     // Downsample: each output cell takes the majority type of the finer cells landing in it
     // (ties broken by name, so the result does not depend on input order).
     let mut votes: HashMap<(i32, i32), HashMap<usize, SourceVotes>> = HashMap::new();
-    let mut water: HashMap<(i32, i32), ((i32, i32), bool)> = HashMap::new(); // water: 1 mi hex -> (output hex, LOD)
+    let mut water: HashMap<(i32, i32), ((i32, i32), bool, u8)> = HashMap::new(); // water: 1 mi hex -> (output hex, LOD, tier)
     let mut inset_cells: HashMap<usize, (i32, i32, i32, i32)> = HashMap::new(); // cluster -> grid box
     let mut extent_cells: HashSet<(i32, i32)> = HashSet::new(); // cells a non-trimmable source has land in
     for (t_type, lat, lon, w, source, tier) in all_fixed_tiles {
@@ -849,12 +861,16 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
         if t_type == "Water" {
             let (fx, fy) = to_grid(lat, lon, 1.0);
-            water.insert(hex_at(fx, fy), (cell, source & LOD_SOURCE != 0));
+            let entry = water.entry(hex_at(fx, fy)).or_insert((cell, source & LOD_SOURCE != 0, tier));
+            if tier < entry.2 { *entry = (cell, source & LOD_SOURCE != 0, tier); }
         }
         *votes.entry(cell).or_default().entry(source).or_insert_with(|| (tier, HashMap::new())).1.entry(t_type).or_insert(0.0) += w;
     }
-    // (LOD water is kept only where no source's own land is.)
-    let water: HashMap<(i32, i32), (i32, i32)> = water.into_iter().filter(|(_, (cell, lod))| !lod || lod_only(&votes[cell])).map(|(k, (cell, _))| (k, cell)).collect();
+    // (Water is kept only from the best tier voting in its hex, so a lower tier's sea never floods a
+    // higher tier's land; LOD water only where no source's own land is.)
+    let water: HashMap<(i32, i32), (i32, i32)> = water.into_iter()
+        .filter(|(_, (cell, lod, tier))| (!lod || lod_only(&votes[cell])) && top_tier(&votes[cell]).is_none_or(|t| *tier <= t))
+        .map(|(k, (cell, _, _))| (k, cell)).collect();
     let mut grid_tiles_map: HashMap<(i32, i32), String> = votes.into_iter()
         .filter_map(|(k, v)| resolve_hex(&v).map(|best| (k, best))).collect();
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
@@ -2092,6 +2108,24 @@ mod invariant_tests {
         let names: Vec<&str> = fixed.locations.iter().map(|l| l.name.as_str()).collect();
         assert!(names.contains(&"Near") && !names.contains(&"Far"), "{:?}", names);
         assert!(fixed.height < 10, "the far marker must not stretch the map: height {}", fixed.height);
+    }
+
+    /// A lower tier's water is not forced over a higher tier's land: a mod's lake covering a third of a
+    /// hex, outvoted there by a main game's town, leaves the town.
+    #[test]
+    fn lower_tier_water_does_not_flood_higher_tier_land() {
+        let (lat, lon) = from_grid(hex_center(100, 100).0, hex_center(100, 100).1, 6.0);
+        let marker = |name: &str| crate::schema::RawLocation { name: name.into(), x: 0.0, y: 0.0, icon_type: crate::schema::IconType::City,
+            real_lat: Some(lat), real_lon: Some(lon), terrain_override: None, anchor: None };
+        let tile = |t: &str, dlat: f32, dlon: f32| crate::schema::RawTile { x: 0, y: 0, tile_type: t.into(), real_lat: Some(lat + dlat),
+            real_lon: Some(lon + dlon), weight: 1.0, anchor: None, lod: false };
+        let town = RawMapData { locations: vec![marker("Town")], tiles: vec![tile("City", 0.0, 0.0)], coordinate_scale: 1.0, priority: 1, ..Default::default() };
+        // A lake of 10 one-mile hexes (weight 1 each against the town's 16) within 2 miles of the centre.
+        let lake: Vec<_> = (0..10).map(|i| tile("Water", (i % 3) as f32 * 0.012 - 0.012, (i / 3) as f32 * 0.016 - 0.024)).collect();
+        let mod_map = RawMapData { locations: vec![marker("Lake")], tiles: lake, coordinate_scale: 1.0, priority: crate::schema::tier::MODS, ..Default::default() };
+        let fixed = fix_translation_only(vec![town, mod_map], vec![], 6.0, None);
+        let land: Vec<&str> = fixed.tiles.iter().map(|t| t.tile_type.as_str()).filter(|t| *t != "unknown").collect();
+        assert_eq!(land, vec!["City"], "{:?}", land);
     }
 
     /// Two anchors and no known scale place a map by the similarity through them: a marker at right

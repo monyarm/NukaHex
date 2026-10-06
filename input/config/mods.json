@@ -20,5 +20,12 @@
         "source": { "moddb": 114183 },
         "file": "FoRes_EN_1_5_install.exe",
         "md5": "067360e3b61abdf56b871ce45faec035"
+    },
+    {
+        "id": "fot_crusade",
+        "name": "Fallout Tactics: Crusade 1.2.3",
+        "source": { "moddb": 287735 },
+        "file": "FT_Crusade_1.2.3.rar",
+        "md5": "efe33b0b354e49f38dc0016e4b6b4d43"
     }
 ]
