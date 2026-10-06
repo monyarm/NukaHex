@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout Tactics, Fallout 3, New Vegas, Fallout 4, Fallout 76: city of the UN headquarters, struck by nukes in the Great War (fallout.wiki: New York City) | Dead Money: Dean Domino had prime billing in New York before the War (fallout.wiki: New York City) | FO4, Far Harbor: Grath: NY, Boston, DC could have been saved; WE BEAT NEW YORK arrest; nuclear strikes (fallout.wiki: New York City) | Vault 13 GURPS timeline: in 2065 a reactor in New York City nearly melts down, which starts electricity rationing; canon: Fallout 3 / Fallout 4 mention New York | Fallout 76: Johnny Weston lived on its streets as a failed actor when the bombs fell; Blackwell's Island asylum, SoHo and Manhattan also mentioned (fallout.wiki: New York City) | Fallout Tactics (intro image), also Fallout 3, New Vegas, Fallout 4, Fallout 76: pre-war city in New York state, former UN headquarters, hit in the Great War; also covers the Manhattan page (Tactics, Fallout 76) (fallout.wiki: New York City)",
+    "markers": [
+        {
+            "name": "New York City",
+            "type": "City",
+            "location": "New York, New York"
+        }
+    ]
+}

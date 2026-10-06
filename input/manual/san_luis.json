@@ -1,0 +1,16 @@
+{
+    "comment": "FNV: Hanlon says the San Luis lake is now mud and dust (San Luis Reservoir) (fallout.wiki: San Luis)",
+    "markers": [
+        {
+            "name": "San Luis",
+            "type": "Landmark",
+            "location": "37.0600, -121.1200"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "37.0600, -121.1200",
+        "radius_hexes": 6,
+        "terrain_type": "Sand"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "Point Lookout: Dr. Jiang came ashore and was processed as a defector by naturalization agents in Norfolk (fallout.wiki: Norfolk)",
+    "markers": [
+        {
+            "name": "Norfolk",
+            "type": "City",
+            "location": "Norfolk, Virginia"
+        }
+    ]
+}

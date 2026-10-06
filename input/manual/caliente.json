@@ -1,0 +1,10 @@
+{
+    "comment": "Honest Hearts: Stella was sheriff of Caliente, a little town north on the 93 with fresh water and geothermal power (fallout.wiki: Caliente)",
+    "markers": [
+        {
+            "name": "Caliente",
+            "type": "Settlement",
+            "location": "Caliente, Nevada"
+        }
+    ]
+}

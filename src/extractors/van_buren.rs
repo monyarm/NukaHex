@@ -34,6 +34,10 @@ const LOCATIONS: &[(&str, IconType)] = &[
     ("Nursery", IconType::Landmark), ("Ouroborus", IconType::Landmark),
 ];
 
+/// Names the map shows for a location other than its drawn label: Denver is Dog City, as the Van Buren
+/// design documents and New Vegas call the dog-overrun ruins.
+const SHOWN_AS: &[(&str, &str)] = &[("Denver", "Dog City")];
+
 /// Real coordinates of the drawn state borders: the two vertical lines (west to east) and the
 /// two horizontal lines (north to south).
 const BORDER_LONS: [f32; 2] = [-114.05, -109.045]; // NV/UT-AZ, UT/CO-AZ/NM
@@ -241,7 +245,8 @@ fn extract_world_map() -> io::Result<RawMapData> {
     for ((&(x, y), text), name) in rings.iter().zip(&texts).zip(snap_names(&texts)) {
         match name {
             Some(n) => locations.push(RawLocation {
-                name: LOCATIONS[n].0.to_string(), x: x as f32, y: y as f32, icon_type: LOCATIONS[n].1,
+                name: SHOWN_AS.iter().find(|(label, _)| *label == LOCATIONS[n].0).map_or(LOCATIONS[n].0, |(_, shown)| shown).to_string(),
+                x: x as f32, y: y as f32, icon_type: LOCATIONS[n].1,
                 real_lat: None, real_lon: None, terrain_override: None, anchor: None,
             }),
             None => warnings.push(format!("Van Buren: unreadable location label {:?} at ({}, {})", text, x, y)),

@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 14_Reservation.txt:7,12,36: rocky hills of northern New Mexico; several bombs fell within five miles and the region still glows, lethal without Rad-X or a suit; terrain only, marker already mapped; canon: no",
+    "tier": 4,
+    "markers": [],
+    "terrain": {
+        "type": "circle",
+        "center": "36.2004, -107.3700",
+        "radius_hexes": 6,
+        "terrain_type": "Radiation"
+    }
+}

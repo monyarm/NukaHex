@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Cass says Boomer weapons came from Hawthorne Army Depot; FO RPG puts its bunkers in the valley south of Walker Lake (fallout.wiki: Hawthorne Army Depot)",
+    "markers": [
+        {
+            "name": "Hawthorne Army Depot",
+            "type": "Other",
+            "location": "38.5300, -118.6400"
+        }
+    ]
+}

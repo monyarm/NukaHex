@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: post-war walled-up town whose people captured Nathan Broadhurst and killed Jim Walker on his Pittsburgh route (fallout.wiki: Bedford)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Bedford",
+            "type": "Settlement",
+            "location": "Bedford, Pennsylvania"
+        }
+    ]
+}

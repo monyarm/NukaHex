@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: the UN was disbanded at its headquarters in 2052 and the building auctioned off; the New York City page places it in New York (fallout.wiki: Headquarters of the United Nations)",
+    "markers": [
+        {
+            "name": "Headquarters of the United Nations",
+            "type": "Landmark",
+            "location": "United Nations Headquarters, New York, New York"
+        }
+    ]
+}

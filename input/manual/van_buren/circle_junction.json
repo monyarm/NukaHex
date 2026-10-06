@@ -1,0 +1,11 @@
+{
+    "comment": "Circle Junction design document (Van Buren): Iron Rivers tribe railroad switching yard with a turntable, the first stop after the Leavenworth prison, with Denver and Boulder close by (Denver's neighbours are Boulder and Circle Junction); the General's train left it heading northwest. Placed at Limon, CO, the eastern-plains rail junction on the Leavenworth-to-Denver line, which lies southeast of Denver (inferred); canon: no | Van Buren design doc vb_Ft. Abandon_v.1.01.txt:137,463,473: a circular tangle of railways running in many directions, home base of the nomadic Iron Lines tribals, placed east and south of Denver; position computed ~25 mi SE of the Dog City marker (39.7392,-104.9903), no exact place given; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Circle Junction",
+            "type": "Settlement",
+            "location": "39.2639, -103.6922"
+        }
+    ]
+}

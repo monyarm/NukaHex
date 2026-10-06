@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): 'Mt. St. Helens Experimental - Vault 6' in the Pacific Northwest list; placed at Mount St. Helens; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Vault 6",
+            "type": "Vault",
+            "location": "46.1912, -122.1944"
+        }
+    ]
+}

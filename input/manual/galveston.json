@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Gulf Coast city where 'Shanghai Sally' was spotted, fled by speedboat and was destroyed offshore by the USS Wade (fallout.wiki: Galveston)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Galveston",
+            "type": "City",
+            "location": "Galveston, Texas"
+        }
+    ]
+}

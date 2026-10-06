@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: national memorial named in a Pioneer Scout exam (fallout.wiki: Mount Rushmore)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Mount Rushmore",
+            "type": "Monument",
+            "location": "Mount Rushmore National Memorial, South Dakota"
+        }
+    ]
+}

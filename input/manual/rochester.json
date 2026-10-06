@@ -1,0 +1,10 @@
+{
+    "comment": "FO4: supplier city (Tables n Tops) in Thicket Excavations terminals (fallout.wiki: Rochester)",
+    "markers": [
+        {
+            "name": "Rochester",
+            "type": "City",
+            "location": "Rochester, New York"
+        }
+    ]
+}

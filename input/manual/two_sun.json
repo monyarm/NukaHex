@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Raul lived about 75 years in Tuscon, which locals call Two-Sun (fallout.wiki: Two-Sun)",
+    "markers": [
+        {
+            "name": "Two-Sun",
+            "type": "City",
+            "location": "Tucson, Arizona"
+        }
+    ]
+}

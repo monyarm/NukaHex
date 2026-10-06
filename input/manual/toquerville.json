@@ -1,0 +1,10 @@
+{
+    "comment": "Honest Hearts: Randall Clark went to Toquerville, just off I-15 west of Zion, for medical supplies (fallout.wiki: Toquerville)",
+    "markers": [
+        {
+            "name": "Toquerville",
+            "type": "Settlement",
+            "location": "Toquerville, Utah"
+        }
+    ]
+}

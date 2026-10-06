@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): Pacific Northwest critical location 'settlements outside Mt. Hood'; placed at Government Camp on the mountain's south flank; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Mt. Hood Settlements",
+            "type": "Settlement",
+            "location": "45.3040, -121.7548"
+        }
+    ]
+}

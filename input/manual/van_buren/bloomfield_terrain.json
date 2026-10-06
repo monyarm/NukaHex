@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 15_Bloomfield_Space_Center.txt:8,15-18: remote space center on a desert plain in southwest Arizona, untouched by nukes; terrain only, marker already mapped; canon: no",
+    "tier": 4,
+    "markers": [],
+    "terrain": {
+        "type": "circle",
+        "center": "34.1371, -113.6634",
+        "radius_hexes": 12,
+        "terrain_type": "Sand"
+    }
+}

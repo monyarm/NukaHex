@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Primm Slim's Vikki and Vance died in a police-robber crossfire in Plano, Texas (fallout.wiki: Plano)",
+    "markers": [
+        {
+            "name": "Plano",
+            "type": "City",
+            "location": "Plano, Texas"
+        }
+    ]
+}

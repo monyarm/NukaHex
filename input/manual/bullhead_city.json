@@ -1,0 +1,10 @@
+{
+    "comment": "FNV official guide: Kimball's extirpation of tribals around present-day Bullhead City in the Mojave (fallout.wiki: Bullhead City)",
+    "markers": [
+        {
+            "name": "Bullhead City",
+            "type": "Settlement",
+            "location": "Bullhead City, Arizona"
+        }
+    ]
+}

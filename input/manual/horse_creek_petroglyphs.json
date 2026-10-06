@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: petroglyphs in Appalachia that Professor Michael Blake travelled to see (fallout.wiki: Horse Creek Petroglyphs)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Horse Creek Petroglyphs",
+            "type": "Landmark",
+            "location": "Oceana, Wyoming County, West Virginia"
+        }
+    ]
+}

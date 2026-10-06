@@ -1,0 +1,10 @@
+{
+    "comment": "Honest Hearts: south of Salt Lake City and east of Provo Bay; White Legs raided an armory there (fallout.wiki: Spanish Fork)",
+    "markers": [
+        {
+            "name": "Spanish Fork",
+            "type": "City",
+            "location": "Spanish Fork, Utah"
+        }
+    ]
+}

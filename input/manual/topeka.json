@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Ken left the Pitt for Topeka (fallout.wiki: Topeka)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Topeka",
+            "type": "City",
+            "location": "Topeka, Kansas"
+        }
+    ]
+}

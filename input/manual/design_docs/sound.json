@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): Pacific Northwest critical location 'The Sound', i.e. Puget Sound; marker in the main basin off Seattle; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "The Sound",
+            "type": "Landmark",
+            "location": "47.6200, -122.4500"
+        }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3 and Fallout 76: the Liberty Bell inscription names the State House in Philadelphia; the Button Gwinnett robot threatens to hang you outside it (fallout.wiki: Pennsylvania State House)",
+    "markers": [
+        {
+            "name": "Pennsylvania State House",
+            "type": "Landmark",
+            "location": "Independence Hall, Philadelphia, Pennsylvania"
+        }
+    ]
+}

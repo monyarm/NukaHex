@@ -2,7 +2,7 @@
 
 Every Fallout game and add-on, and whether the map uses it. Tiers (vote weight and build order;
 `schema::tier`): 1 main games and manual locations, 2 Fallout 76, 3 simulations of the past
-(Operation Anchorage), 4 Tactics and Van Buren, 5 Brotherhood of Steel, 6 mods. Vote weights
+(Operation Anchorage), 4 Tactics and Van Buren, 5 Brotherhood of Steel, the Fallout Bible and Exodus, 6 mods. Vote weights
 16/8/6/4/2/1. A game's LOD land (what it shows beyond its own map) only fills where no source's own
 land is.
 
@@ -21,12 +21,44 @@ corner; their own cluster maps are at the real place.
 - ✅ Midwest world map, Illinois to Colorado (`tactics.rs`)
 
 ## Van Buren (cancelled; 2007 tech demo) — tier 4
-- ✅ Colorado / Utah / Arizona world map (`van_buren.rs`)
+- ✅ Colorado / Utah / Arizona world map (`van_buren.rs`); Denver shown as Dog City
+- ⬜ Design documents (leaked to No Mutants Allowed 2005–06; Internet Archive
+  `van-buren-docs-and-info`): Tibbets Prison, Denver, Boulder, Blackfoot & Hangdogs, Twin Mothers,
+  Ouroboros, Mesa Verde, the Nursery, Maxson Bunker, New Canaan, Jericho, Burham Springs, Hoover Dam,
+  the Reservation, Bloomfield Space Center, B.O.M.B.-001, Fort Abandon; the companion documents (CRB-S,
+  Mr. Handy, Devil Dog, Kurisu, Beatrice, Otto Steed, Measles, Kyle, Bear, Sid, Alexandra); the
+  segregated game text; the Circle Junction document (Nukapedia). Places in `input/manual/van_buren`
+  (tier 4); those a released game also mentions go to `input/manual` at its tier (New Canaan)
 
 ## Fallout: Brotherhood of Steel (2004, PS2/Xbox) — tier 5
 - ⏸ Carbon, Los (Dallas), the Vault — deferred: needs the engine's mesh/material format
   (`.claude/plans/fallout_bos.md`)
 - ➖ Fallout: Brotherhood of Steel 2 — cancelled
+- ⬜ Fallout: Brotherhood of Steel 2 design document (leaked 2009; fallout.wiki)
+
+## Fallout Bible (2002–2003, Chris Avellone) — tier 5
+- ➖ Interplay's setting notes (Duck and Cover PDFs, Internet Archive `falloutbiblecomplete`): Q&A on
+  Fallout 1 and 2, whose places the games already map, so no new places. Its value is canon on which
+  real places they are (Bible 6, 8): Necropolis = Bakersfield (the holodisc's Vault 12; the game draws
+  it near Baker), Klamath = Klamath Falls, Redding = Redding, Modoc after the Modoc National Forest;
+  the Hub, Junktown, Gecko and Arroyo are made up. Manual JSON may set `"tier"` for such sources.
+
+## Design documents — tier 5 (Fallout 1/2, New Vegas, Brotherhood of Steel 2), 4 (Van Buren, Fallout Extreme)
+Transcriptions on Nukapedia (fallout.fandom.com "Design document"); places a released game also
+mentions go to `input/manual` at that game's tier.
+- ⬜ Fallout: vision statement; Vault 13: A GURPS Post-Nuclear Adventure timeline; Burrows, Mr. Handy
+  and Vipers design documents
+- ⬜ Fallout 2: EPA design document; Kaga encounter notes
+- ⬜ Fallout: New Vegas: Dead Money and Lonesome Road design documents
+- ⬜ Fallout Extreme (cancelled): game proposal, Xbox concept submission (and draft), 'X' test world
+  design document — places outside the US out of scope
+- Van Buren and Brotherhood of Steel 2: in their sections above
+
+## Mentioned-only locations (fallout.wiki) — the mentioning game's tier
+- ⬜ The wiki's "mentioned-only locations" categories (654 pages: Fallout 1, 2, 3 and its add-ons, New
+  Vegas and its add-ons, 4 and Far Harbor, 76, Tactics, the Bible, Brotherhood of Steel, the RPG,
+  Wasteland Warfare): places the games name but never show. Only major cities, major landmarks, vaults
+  and places the text locates or describes; markers in `input/manual`
 
 ## Fallout 3 (2008) — tier 1 (Mutagen)
 - ✅ Capital Wasteland (`Wasteland`), incl. its LOD ring; DC's ruins contribute their map markers
@@ -84,14 +116,25 @@ Creation Club plugins listed in Fallout4.ccc)
 - ✅ Season 1 locations (manual JSON in `input/manual/tv`)
 - ⬜ Season 2 (New Vegas) locations, as manual JSON
 
+## Other media
+- ⬜ Fallout: The Roleplaying Game setting guides (Modiphius): New Vegas Setting Guide (2026), a New
+  California guide (Fallout 1's era), Winter of Atom (the Commonwealth); regional maps to check
+- ➖ Fallout: The Board Game (FFG, with New California and Atomic Bonds), Fallout: Factions and
+  Wasteland Warfare's Commonwealth and Nuka-World expansions: places the games already map
+- ➖ Comics (One Man and a Box, All Roads), MTG cards, art books, Fallout Shelter: nothing new to place
+- ⏸ TV series season 3 (filming from mid-2026; setting not announced)
+
 ## Tabletop
 - ✅ Fallout: Wasteland Warfare — NCR map (manual JSON in `input/manual/tabletop`)
 - ➖ Fallout: The Roleplaying Game — checked, little usable map data (a long-shot source)
+- ⬜ Exodus (2008, Glutton Creeper Games) — began as Interplay's licensed Fallout d20 RPG; Bethesda had
+  the licence annulled in 2007 and it shipped without the Fallout names. The American Southwest in 2042
+  (New Mexico, Arizona, California, northern Mexico, Utah, Nevada); tier 5
 
 ## Mods — tier 6
 Fetched by `src/mods.rs` from `input/config/mods.json` (ModDB, Mediafire; hash-checked). Their
 markers only anchor the warp; their terrain adds detail. Nexus files need Premium or a manual
-download (see TODO.md).
+download (see TODO.md). GamePressure mirrors of Nexus files are acceptable where they exist.
 
 ### Fallout 2 engine (`interplay.rs`; cluster maps `mod_<id>`)
 - ✅ Fallout: Nevada — Nevada and Utah before Fallout 1 (Reno to Salt Lake City and Las Vegas)
@@ -100,21 +143,26 @@ download (see TODO.md).
 - ➖ Olympus 2207 — not set in the Fallout universe
 
 ### Bethesda games
-⏸ all deferred.
+- ⬜ Next: Fallout: New California (terrain; ModDB's full installer BETA 231, or GOG's build)
+- ➖ Out of scope: Fallout: London, Sakhalin (outside the US)
 
 ### New Vegas: new land at real places (terrain + markers, anchorable)
 - Fallout: New California — Black Bear Mountain National Forest, Vault 18 in the Cajon Pass
-  (San Bernardino Mountains, CA); a worldspace ~65% the Mojave's size; Nexus 45138, also free on
-  GOG with a one-click install
-- Fallout: The Frontier — Portland, Oregon (snowbound); larger than the Mojave
+  (San Bernardino Mountains, CA); a worldspace ~65% the Mojave's size; Nexus 45138, ModDB
+  (`falloutprojectbrazil`: full installer BETA 231, 2018), free on GOG with a one-click install
+- Fallout: The Frontier — Portland, Oregon (snowbound); larger than the Mojave; Nexus only (its ModDB
+  page has no files)
 - Long 15 – NCR Expansion — the Long 15 before Lonesome Road's nuke, and NCR lands in California;
   Nexus 94306
 - Dry Wells – Legion Expansion — Dry Wells before the nuke, and Legion lands in Arizona; Nexus 88180
 - Nova Arizona – A Legion Lands Expansion — the land east of the Colorado River; Nexus 85915
 - Salt Lake Stories — around the Great Salt Lake (15 small worldspaces); Nexus 63332
-- Tales of New Reno – Episode Zero — a New Reno worldspace (Reno, NV; Fallout 2's New Reno)
-- Fallout: Atlanta — Atlanta, GA (alpha, in development since 2016)
-- Fallout: Nuevo Mexico — Mexico City (in development, no release)
+- Tales of New Reno – Episode Zero — a New Reno worldspace (Reno, NV; Fallout 2's New Reno);
+  GamePressure mirror
+- Fallout: Atlanta — Atlanta, GA (alpha, in development since 2016; v0.6.0 on GamePressure, 2026)
+- Sun Valley — NCR, Legion and Khans in "Sun Valley" with Hoover City, by tunnel from New Vegas
+  (v0.45 beta, 2011; ModDB); real place to check
+- ➖ Fallout: Nuevo Mexico — New Mexico; cancelled (January 2025)
 
 ### New Vegas: new land with no stated real place (terrain; placement needs canon/fan theory)
 - Median Valley — a quest mod in its own worldspace; Nexus 61568 (setting not found)
@@ -132,9 +180,10 @@ download (see TODO.md).
 - New Vegas Bounties III (Someguy series) — a frigid new worldspace in Utah
 - Russell (Someguy series) — companion mod with a "Mesquite Valley" worldspace (the Mesquite
   Mountains west of Goodsprings, or Mesquite, NV? to check)
-- Beyond Boulder Dome — three worldspaces at Boulder, Colorado (a Van Buren location)
-- Fallout: Revelation Blues — recreates Black Isle's cancelled Fallout 3 (Van Buren) in New Vegas
-  (demo released)
+- Beyond Boulder Dome — three worldspaces at Boulder, Colorado (a Van Buren location); GamePressure
+  mirror
+- Fallout: The New West (formerly Revelation Blues) — recreates Black Isle's cancelled Fallout 3
+  (Van Buren) in New Vegas (demos released, Nexus)
 - Havasu Blues — a ghoul settlement in Arizona (Lake Havasu? to check)
 - Into the Deep — a new town, Shamble, by Ivanpah Dry Lake near Nipton
 - Skidge Quest Pack — twelve quests and a new town, Sue Town (location to check)
@@ -149,8 +198,11 @@ download (see TODO.md).
 
 ### Other engines (world maps we could read)
 - ➖ Fallout Tactics engine: Fallout: The Sum — not set in the Fallout universe
-- Fallout 4: Fallout London, Fallout: Cascadia, Fallout Miami, Fallout: Vault 13 (Fallout 1 remade),
-  Fallout 4: New Vegas, Fallout 4: The Capital Wasteland and others (after Fallout 4 itself)
+- Fallout 3, new land at real places: Alton, IL (Alton, Illinois; twice Point Lookout's size; Nexus)
+- Fallout 4, new land at real places: Northern Springs (northern Massachusetts; Nexus); not released:
+  Fallout: Cascadia (Seattle), Fallout Miami, Fallout: Vault 13 (Fallout 1 remade), Fallout 4: New
+  Vegas, Fallout 4: The Capital Wasteland, Kanawha (West Virginia), Niagara, Wyoming, Billings
+- ➖ Fallout 4: Fallout: London, Sakhalin — outside the US, out of scope
 
 ## Next
 From the remaining games, Fallout 76 is nearest to what is mapped: Burning Springs (southern Ohio)

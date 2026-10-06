@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout: Brotherhood of Steel 2 design document: town split between human-run Square and Ghoul Town by the airport, where the Jackals hold slaves; canon: no",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "Lubbock",
+            "type": "City",
+            "location": "33.5779, -101.8552"
+        }
+    ]
+}

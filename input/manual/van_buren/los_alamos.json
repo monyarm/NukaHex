@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 07_Mesa Verde.txt: Pre-war atomic laboratory at Los Alamos, source of technological knowledge that influenced Cipher tribe. Referenced as historical location.",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Los Alamos",
+            "type": "Landmark",
+            "location": "35.8810, -106.3008"
+        }
+    ]
+}

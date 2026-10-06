@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: Abraham Washington garbles history, placing the signing of the Declaration at Fort McHarry in Maryland (a corruption of Fort McHenry) (fallout.wiki: Fort McHarry)",
+    "markers": [
+        {
+            "name": "Fort McHarry",
+            "type": "Monument",
+            "location": "Fort McHenry, Baltimore, Maryland"
+        }
+    ]
+}

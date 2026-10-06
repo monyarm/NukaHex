@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Lucius says Dale Barton salvaged the Legion howitzer from a military base in Yuma, Arizona (fallout.wiki: Yuma)",
+    "markers": [
+        {
+            "name": "Yuma",
+            "type": "City",
+            "location": "Yuma, Arizona"
+        }
+    ]
+}

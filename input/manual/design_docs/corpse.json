@@ -1,0 +1,17 @@
+{
+    "comment": "Fallout: Brotherhood of Steel 2 design document: the Corpse (Corpus Christi), a city reduced to building stubs poking out of sand by the Gulf; canon: no",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "The Corpse",
+            "type": "City",
+            "location": "27.8006, -97.3964"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "27.8006, -97.3964",
+        "radius_hexes": 6,
+        "terrain_type": "Sand"
+    }
+}

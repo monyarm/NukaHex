@@ -1,0 +1,10 @@
+{
+    "comment": "Point Lookout: Chinese operative Wan Yang escaped while being transferred from Canada to Albany, New York (fallout.wiki: Albany)",
+    "markers": [
+        {
+            "name": "Albany",
+            "type": "City",
+            "location": "Albany, New York"
+        }
+    ]
+}

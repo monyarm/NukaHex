@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Ohio town across the Ohio River from Point Pleasant, once joined by the Silver Bridge; placed relative to the Point Pleasant marker (39.0326, -81.7050) using the real offset (-0.035, -0.065) (fallout.wiki: Gallipolis)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Gallipolis",
+            "type": "Settlement",
+            "location": "38.9976, -81.7700"
+        }
+    ]
+}

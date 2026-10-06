@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): 'Troll Warren', a super mutant community in the Pacific Northwest list next to Seattle sites; name read as the Fremont Troll under the Aurora Bridge (inferred); canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Troll Warren",
+            "type": "Settlement",
+            "location": "47.6510, -122.3473"
+        }
+    ]
+}

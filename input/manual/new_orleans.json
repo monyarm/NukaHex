@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Cassidy Stolz funded a friend's art shown at the New Orleans Museum of Art and missed visiting the French Quarter (fallout.wiki: New Orleans)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "New Orleans",
+            "type": "City",
+            "location": "New Orleans, Louisiana"
+        }
+    ]
+}

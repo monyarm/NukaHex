@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Herbert Hoover studied mining engineering here and met Lou Henry (fallout.wiki: Stanford University)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Stanford University",
+            "type": "Landmark",
+            "location": "Stanford University, Stanford, California"
+        }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Mr. House says the Platinum Chip was printed in Sunnyvale, California on October 22, 2077 (fallout.wiki: Sunnyvale)",
+    "markers": [
+        {
+            "name": "Sunnyvale",
+            "type": "City",
+            "location": "Sunnyvale, California"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: bullion depository whose gold was secretly moved to Vault 79, leaving it empty (fallout.wiki: Fort Knox)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Fort Knox",
+            "type": "Landmark",
+            "location": "Fort Knox, Kentucky"
+        }
+    ]
+}

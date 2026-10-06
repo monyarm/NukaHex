@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Camp Searchlight terminal: a nuclear waste convoy from San Onofre was diverted to Searchlight when the bombs fell (fallout.wiki: San Onofre)",
+    "markers": [
+        {
+            "name": "San Onofre",
+            "type": "Other",
+            "location": "33.3689, -117.5556"
+        }
+    ]
+}

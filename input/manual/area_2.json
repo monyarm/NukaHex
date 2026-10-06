@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Boomer Pete says their howitzers came from a huge weapon depot called Area 2, many miles from Nellis; real Area 2 of the Nevada Test Site (fallout.wiki: Area 2)",
+    "markers": [
+        {
+            "name": "Area 2",
+            "type": "Other",
+            "location": "37.1350, -116.0850"
+        }
+    ]
+}

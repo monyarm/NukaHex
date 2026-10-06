@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: the Capitol Preservation Society names it as where Lincoln gave his 1863 speech (fallout.wiki: Gettysburg)",
+    "markers": [
+        {
+            "name": "Gettysburg",
+            "type": "City",
+            "location": "Gettysburg, Pennsylvania"
+        }
+    ]
+}

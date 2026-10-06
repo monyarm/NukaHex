@@ -93,7 +93,7 @@ fn main() -> std::io::Result<()> {
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Commonwealth"))); // Boston
     // Far Harbor: the Island, Mount Desert Island in Maine (not the DLC03VRWorldspace simulation).
-    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout4, "The Island", &["DLC03FarHarbor"])));
+    game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout4, "Far Harbor", &["DLC03FarHarbor"])));
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::Fallout4, "NukaWorld"))); // Nuka-World
     // Fallout 76: Appalachia (West Virginia, with Skyline Valley and Burning Springs).
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout76, "APPALACHIA").with_tier(crate::schema::tier::FALLOUT_76)));

@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3 and Fallout 76: Maryland city, home of Hopkins Hospital; Ineke docked her ship there (fallout.wiki: Baltimore) | Fallout 76: Ineke's ship docked at Baltimore after the bombs; also home of Hopkins Hospital (fallout.wiki: Baltimore)",
+    "markers": [
+        {
+            "name": "Baltimore",
+            "type": "City",
+            "location": "Baltimore, Maryland"
+        }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Mr. RADical's journal: he spent a night at Yucca Mountain testing his suit and saw something large in the tunnel (fallout.wiki: Yucca Mountain)",
+    "markers": [
+        {
+            "name": "Yucca Mountain",
+            "type": "Landmark",
+            "location": "36.8530, -116.4600"
+        }
+    ]
+}

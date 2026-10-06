@@ -1,0 +1,10 @@
+{
+    "comment": "FO4: completely devastated by nuclear weapons in the Great War (fallout.wiki: Framingham)",
+    "markers": [
+        {
+            "name": "Framingham",
+            "type": "City",
+            "location": "Framingham, Massachusetts"
+        }
+    ]
+}

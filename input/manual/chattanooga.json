@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Tommy Ten-Toes recalls an incident in Chattanooga on the Blue Ridge Caravan's route (fallout.wiki: Chattanooga)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Chattanooga",
+            "type": "City",
+            "location": "Chattanooga, Tennessee"
+        }
+    ]
+}

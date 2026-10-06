@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): 'Capitol Hill' listed among the Seattle-area Pacific Northwest locations, so Seattle's Capitol Hill; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Capitol Hill",
+            "type": "Landmark",
+            "location": "47.6253, -122.3222"
+        }
+    ]
+}

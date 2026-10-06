@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 2: pre-war city, home of the Little Rock Saints, who lost Super Bowl CXII to the Anaheim Jets in 2075 (fallout.wiki: Little Rock)",
+    "markers": [
+        {
+            "name": "Little Rock",
+            "type": "City",
+            "location": "Little Rock, Arkansas"
+        }
+    ]
+}

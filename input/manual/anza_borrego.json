@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: Hanlon says the Rattletail settlers resettled in Anza-Borrego and raised bighorners (fallout.wiki: Anza-Borrego)",
+    "markers": [
+        {
+            "name": "Anza-Borrego",
+            "type": "Settlement",
+            "location": "Borrego Springs, California"
+        }
+    ]
+}

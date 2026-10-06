@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 03 Boulder.txt:9,124: ruined Boulder around the dome is poisoned by radiation and toxic waste, with toxic clouds and acid rain; terrain only, marker already mapped; canon: no",
+    "tier": 4,
+    "markers": [],
+    "terrain": {
+        "type": "circle",
+        "center": "40.0150, -105.2705",
+        "radius_hexes": 6,
+        "terrain_type": "Radiation"
+    }
+}

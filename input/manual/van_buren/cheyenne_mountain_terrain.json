@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 03 Boulder.txt:12: Cheyenne Mountain (NORAD) was a prime target; a large section of the mountains became a radioactive smoking crater; terrain only, marker already mapped (fallout_tactics); canon: Tactics",
+    "tier": 4,
+    "markers": [],
+    "terrain": {
+        "type": "circle",
+        "center": "38.7440, -104.8472",
+        "radius_hexes": 12,
+        "terrain_type": "Radiation"
+    }
+}

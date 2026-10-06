@@ -1,0 +1,17 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000) and Xbox concept submission: the Issaquah Nation (hawk-man braves) controls the inland Pacific Northwest, which the proposal calls densely forested; villages placed at Issaquah, WA; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Issaquah Nation",
+            "type": "Settlement",
+            "location": "47.5301, -122.0326"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "47.5301, -122.0326",
+        "radius_hexes": 12,
+        "terrain_type": "Forest"
+    }
+}

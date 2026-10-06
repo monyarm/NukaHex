@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: John Henry Eden recalls travelling to the Kentucky town with his dog Honey (fallout.wiki: Hodgenville)",
+    "markers": [
+        {
+            "name": "Hodgenville",
+            "type": "City",
+            "location": "Hodgenville, Kentucky"
+        }
+    ]
+}

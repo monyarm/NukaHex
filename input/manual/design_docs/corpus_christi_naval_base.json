@@ -1,0 +1,17 @@
+{
+    "comment": "Fallout: Brotherhood of Steel 2 design document: the abandoned Corpus Christi naval base where Reese built the Super GECK, flooded by the Gulf and encased in plant growth; canon: no",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "Corpus Christi Naval Base",
+            "type": "Other",
+            "location": "27.6926, -97.2911"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "27.6926, -97.2911",
+        "radius_hexes": 6,
+        "terrain_type": "Water"
+    }
+}

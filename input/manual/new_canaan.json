@@ -1,0 +1,10 @@
+{
+    "comment": "Canon: Honest Hearts (the White Legs destroyed it). Van Buren design doc 10_New_Canaan.txt:8 - Mormon community set in ruins of Ogden, Utah on Great Salt Lake; controls Jericho Water Plant; three maps: Outskirts, Town, Union Station. Founded by Judah Black in 2235 on ruins of earlier New Jerusalem settlement.",
+    "markers": [
+        {
+            "name": "New Canaan",
+            "type": "Settlement",
+            "location": "41.2300, -111.9700"
+        }
+    ]
+}

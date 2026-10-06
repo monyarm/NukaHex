@@ -1,0 +1,16 @@
+{
+    "comment": "Fallout: Brotherhood of Steel 2 design document: Lone Star, the trading hub of Texas, holds the old Abilene Vault, so it is Abilene, TX; canon: no | Fallout: Brotherhood of Steel 2 design document: the old Abilene Vault (Vault 39) inside Lone Star, its interior overgrown into a jungle by Reese's GECK; shares Lone Star's Abilene position; canon: no",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "Lone Star",
+            "type": "City",
+            "location": "32.4487, -99.7331"
+        },
+        {
+            "name": "Vault 39",
+            "type": "Vault",
+            "location": "32.4487, -99.7331"
+        }
+    ]
+}

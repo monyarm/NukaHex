@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3 and Fallout 4: town Andale beats in the Best Town contest; a shipment went to Ornate Obelisks of Rockville, MD (fallout.wiki: Rockville)",
+    "markers": [
+        {
+            "name": "Rockville",
+            "type": "City",
+            "location": "Rockville, Maryland"
+        }
+    ]
+}

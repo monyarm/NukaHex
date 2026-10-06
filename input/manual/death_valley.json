@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout (Vault Dweller's Survival Guide) and Fallout: New Vegas Honest Hearts: a Mojave Desert region in California by the Nevada border, near the Divide; with Big MT it blocked NCR reinforcements into the Mojave (fallout.wiki: Death Valley) | Honest Hearts: Joshua Graham says the Divide lay near Death Valley, which hindered NCR reinforcements; region of the Mojave by the Nevada line. Placed at Furnace Creek, mid-valley (fallout.wiki: Death Valley)",
+    "markers": [
+        {
+            "name": "Death Valley",
+            "type": "Landmark",
+            "location": "36.4622, -116.8669"
+        }
+    ]
+}

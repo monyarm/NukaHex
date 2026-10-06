@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout Tactics, Fallout 3, Lonesome Road, Fallout 4, Fallout 76: Illinois city; the Midwestern Brotherhood formed near its ruins and the Enclave kept an outpost there (fallout.wiki: Chicago) | Lonesome Road/FNV: ED-E was repaired by a family in Chicago, Illinois; Dr. Whitley addresses an Enclave outpost there (fallout.wiki: Chicago) | FO4: Nick Valentine transferred from Chicago Police; Skylanes 1981 flight source (fallout.wiki: Chicago) | Fallout 76: the Aaronholt brothers argued over moving to Chicago; Sofia Daguerre grew up there (fallout.wiki: Chicago) | Fallout Tactics (intro shows the city before and after the war; the BoS airship crashed near its ruins and the Midwest chapter formed outside it), also Fallout 3, New Vegas Lonesome Road (Enclave outpost where ED-E was found), Fallout 4, Fallout 76: Illinois city (fallout.wiki: Chicago)",
+    "markers": [
+        {
+            "name": "Chicago",
+            "type": "City",
+            "location": "Chicago, Illinois"
+        }
+    ]
+}

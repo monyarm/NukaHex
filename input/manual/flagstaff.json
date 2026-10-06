@@ -1,0 +1,10 @@
+{
+    "comment": "FNV (official guide): Caesar set up a capital of sorts in the ruins of Flagstaff by 2255 (fallout.wiki: Flagstaff) | Fallout 76: first stop of 'Shanghai Sally's' carjacking spree (fallout.wiki: Flagstaff)",
+    "markers": [
+        {
+            "name": "Flagstaff",
+            "type": "City",
+            "location": "Flagstaff, Arizona"
+        }
+    ]
+}

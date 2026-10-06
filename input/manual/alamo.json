@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Backwoodsman magazine likens a fight to the Alamo (fallout.wiki: The Alamo) | Fallout: Brotherhood of Steel 2 design document: San Antonio took a single bomb on its north side; the Alamo survived and became the Brotherhood's Texas headquarters; canon: no",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "The Alamo",
+            "type": "Monument",
+            "location": "The Alamo, San Antonio, Texas"
+        }
+    ]
+}

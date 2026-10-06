@@ -1,0 +1,10 @@
+{
+    "comment": "Honest Hearts: Jed Masterson's Happy Trails Caravan Company is based in Sac-Town, northern NCR (fallout.wiki: Sac-Town)",
+    "markers": [
+        {
+            "name": "Sac-Town",
+            "type": "City",
+            "location": "Sacramento, California"
+        }
+    ]
+}

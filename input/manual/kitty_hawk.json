@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: the North Carolina town named as the site of the Wright Flyer I first flight in 1903 (fallout.wiki: Kitty Hawk)",
+    "markers": [
+        {
+            "name": "Kitty Hawk",
+            "type": "City",
+            "location": "Kitty Hawk, North Carolina"
+        }
+    ]
+}

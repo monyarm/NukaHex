@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Texas capital; Justin Tailor cooked there before the war and Red Eagle Firearms was based there (fallout.wiki: Austin (city)) | Fallout: Brotherhood of Steel 2 design document: Austin, ruled by intellectual super mutant Keats, with a plant-choked power station; canon: no",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Austin",
+            "type": "City",
+            "location": "Austin, Texas"
+        }
+    ]
+}

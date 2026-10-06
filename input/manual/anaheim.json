@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 2: pre-war California city, home of the Anaheim Jets, who beat the Little Rock Saints in Super Bowl CXII in 2075 (fallout.wiki: Anaheim)",
+    "markers": [
+        {
+            "name": "Anaheim",
+            "type": "City",
+            "location": "Anaheim, California"
+        }
+    ]
+}

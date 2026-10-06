@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: West Virginia city with its own Philharmonic (fallout.wiki: Huntington)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Huntington",
+            "type": "City",
+            "location": "Huntington, West Virginia"
+        }
+    ]
+}

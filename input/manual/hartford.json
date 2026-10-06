@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: post-war, Nathan Broadhurst joined a group in Hartford headed for Pittsburgh (via I-90 and I-84 from Boston) (fallout.wiki: Hartford)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Hartford",
+            "type": "City",
+            "location": "Hartford, Connecticut"
+        }
+    ]
+}

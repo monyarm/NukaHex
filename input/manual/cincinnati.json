@@ -1,0 +1,10 @@
+{
+    "comment": "Mothership Zeta and Fallout 76: the Wallace family was abducted from the city; Dontrelle Haines lived there (fallout.wiki: Cincinnati) | Fallout 76: Dontrelle Haines lived in Cincinnati before following his brother to Morgantown (fallout.wiki: Cincinnati)",
+    "markers": [
+        {
+            "name": "Cincinnati",
+            "type": "City",
+            "location": "Cincinnati, Ohio"
+        }
+    ]
+}

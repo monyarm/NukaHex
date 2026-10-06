@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Tactics: pre-war Colorado city around which many robot factories were concentrated (fallout.wiki: Colorado Springs) | Van Buren design doc 03 Boulder.txt:417: ZAX names Colorado Springs, with Denver and Boulder, as a city struck by the 2053 New Plague; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Colorado Springs",
+            "type": "City",
+            "location": "Colorado Springs, Colorado"
+        }
+    ]
+}

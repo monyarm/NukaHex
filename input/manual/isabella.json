@@ -1,0 +1,16 @@
+{
+    "comment": "FNV: Hanlon says the Isabella reservoir is now just mud and dust (fallout.wiki: Isabella)",
+    "markers": [
+        {
+            "name": "Isabella",
+            "type": "Landmark",
+            "location": "35.6400, -118.4700"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "35.6400, -118.4700",
+        "radius_hexes": 6,
+        "terrain_type": "Sand"
+    }
+}

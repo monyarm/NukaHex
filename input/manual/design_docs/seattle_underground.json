@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout Extreme game proposal (14 East, 2000): 'Seattle Underground' in the Pacific Northwest list; Pioneer Square, Seattle; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Seattle Underground",
+            "type": "Landmark",
+            "location": "47.6015, -122.3343"
+        }
+    ]
+}

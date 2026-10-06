@@ -377,8 +377,13 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
                 let high_res_data = high_res_for(area_of(cluster));
 
                 // E) Crop and Export
+                // (By name and place: places that share a name elsewhere are other markers.)
+                let pos = |l: &crate::schema::FixedLocation| l.real_lat.zip(l.real_lon);
                 let hr_locs: Vec<&crate::schema::FixedLocation> = high_res_data.locations.iter()
-                    .filter(|l| cluster_names.contains(&l.name)).collect();
+                    .filter(|l| cluster.iter().any(|c| c.name == l.name && match (pos(c), pos(l)) {
+                        (Some(a), Some(b)) => fixer::same_place(a, b),
+                        _ => true,
+                    })).collect();
                 if hr_locs.is_empty() { return; }
 
                 let min_x = hr_locs.iter().map(|l| l.x).fold(f32::INFINITY, |a, b| a.min(b));

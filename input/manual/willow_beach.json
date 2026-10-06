@@ -1,0 +1,10 @@
+{
+    "comment": "FNV (official guide, early map): NCR camp at Willow Beach, southeast of the Fort, destroyed in the Battle of Willow Beach (fallout.wiki: Willow Beach)",
+    "markers": [
+        {
+            "name": "Willow Beach",
+            "type": "Other",
+            "location": "35.8706, -114.6627"
+        }
+    ]
+}

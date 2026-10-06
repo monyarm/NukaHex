@@ -1,0 +1,16 @@
+{
+    "comment": "Honest Hearts: White Legs home; Ulysses' logs say the lake evaporated after the War, leaving salt beds (fallout.wiki: Great Salt Lake)",
+    "markers": [
+        {
+            "name": "Great Salt Lake",
+            "type": "Landmark",
+            "location": "41.1000, -112.5500"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "41.1000, -112.5500",
+        "radius_hexes": 18,
+        "terrain_type": "Sand"
+    }
+}

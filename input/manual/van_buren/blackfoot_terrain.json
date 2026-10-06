@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 04 Blackfoot & Hangdogs.txt:13,33-35,829: old Utah mining and ski town in a box canyon on a mountainside, cabins on terraced slopes, caves, heavy rain and snow; terrain only, marker already mapped; canon: no",
+    "tier": 4,
+    "markers": [],
+    "terrain": {
+        "type": "circle",
+        "center": "37.6763, -110.4050",
+        "radius_hexes": 6,
+        "terrain_type": "Mountain"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3, Fallout 4, Fallout 76: nuked city whose ruins still hold the Liberty Bell, target of Abraham Washington's expedition (fallout.wiki: Philadelphia) | FO4: pre-War city hit by nukes; Liberty Bell lies in its ruins (fallout.wiki: Philadelphia) | Fallout 76: Yasmin Chowdhury was born and raised in Philadelphia; the State House there is named on the Liberty Bell (fallout.wiki: Philadelphia)",
+    "markers": [
+        {
+            "name": "Philadelphia",
+            "type": "City",
+            "location": "Philadelphia, Pennsylvania"
+        }
+    ]
+}

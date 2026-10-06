@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Nathan Broadhurst and Jim Walker parted from the Pittsburgh-bound group in Altoona (fallout.wiki: Altoona)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Altoona",
+            "type": "City",
+            "location": "Altoona, Pennsylvania"
+        }
+    ]
+}

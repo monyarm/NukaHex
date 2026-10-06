@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: an Enlightened observer found the deserted town of Galax, Virginia (fallout.wiki: Galax)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Galax",
+            "type": "Settlement",
+            "location": "Galax, Virginia"
+        }
+    ]
+}

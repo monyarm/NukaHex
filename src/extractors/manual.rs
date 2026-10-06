@@ -77,7 +77,12 @@ struct ManualMapFile {
     terrain: Option<TerrainBuilder>,
     #[serde(default)]
     rows: Option<Vec<Vec<String>>>,
+    /// Source priority (`schema::tier`): the main tier unless the source says (the Fallout Bible: 5).
+    #[serde(default = "main_tier")]
+    tier: u8,
 }
+
+fn main_tier() -> u8 { crate::schema::tier::MAIN }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ManualMarker {
@@ -242,6 +247,7 @@ impl ManualExtractor {
             width,
             height,
             coordinate_system: map_file.coordinate_system,
+            priority: map_file.tier,
             rows: None, // We've flattened it
             has_grid,
             coordinate_scale: 1.0,
@@ -250,7 +256,6 @@ impl ManualExtractor {
             terrain_data: None,
             world_bounds: None,
             miles_per_unit: Some(self.miles_per_hex),
-            priority: crate::schema::tier::MAIN,
             ..Default::default()
         })
     }

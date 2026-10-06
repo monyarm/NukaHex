@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Grant's Vicksburg campaign, cited at the Whitespring Presidential Cottage museum (fallout.wiki: Vicksburg)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Vicksburg",
+            "type": "City",
+            "location": "Vicksburg, Mississippi"
+        }
+    ]
+}

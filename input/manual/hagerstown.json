@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 3: a UFO crashed in the city in 2062 and a Hagerstown caravan later travelled to Diamond City; placed at the real Maryland town (fallout.wiki: Hagerstown)",
+    "markers": [
+        {
+            "name": "Hagerstown",
+            "type": "City",
+            "location": "Hagerstown, Maryland"
+        }
+    ]
+}

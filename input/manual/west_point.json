@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: Vault 76 guard A. Vince graduated from the academy (fallout.wiki: West Point)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "West Point",
+            "type": "Landmark",
+            "location": "United States Military Academy, West Point, New York"
+        }
+    ]
+}

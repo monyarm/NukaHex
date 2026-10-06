@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: battle of the Vicksburg campaign where Grant lost his sword (fallout.wiki: Champion Hill)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Champion Hill",
+            "type": "Landmark",
+            "location": "Champion Hill, Mississippi"
+        }
+    ]
+}

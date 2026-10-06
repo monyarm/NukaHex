@@ -1,0 +1,10 @@
+{
+    "comment": "Fallout 2 (New Reno pimps mention it when Myron is in the party) and Fallout 3 Operation: Anchorage (Henry Hodges and Molly spent a night there riding a Ferris wheel): pre-war city (fallout.wiki: Cleveland) | Fallout 2 and Operation: Anchorage: New Reno pimps mention the city; Henry Hodges recalls a night and a Ferris wheel ride there (fallout.wiki: Cleveland)",
+    "markers": [
+        {
+            "name": "Cleveland",
+            "type": "City",
+            "location": "Cleveland, Ohio"
+        }
+    ]
+}

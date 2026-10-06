@@ -1,0 +1,17 @@
+{
+    "comment": "Burrows design document (Fallout 1, cut): talking raccoons who fled the Glow (FSEF/West Tek) set up a lush jungle oasis on a river, far from any bomb site, known as the 'Animal Men' near the radiation crater down south. Position computed from The Glow anchor (33.1674, -116.7911): ~20 mi downstream on the San Luis Rey River (which leaves Lake Henshaw beside the Glow) near Pala, CA. Not the Fallout 76 Burrows in West Virginia; canon: no (only a Glow holodisk alludes to the escaped animals)",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "The Burrows",
+            "type": "Settlement",
+            "location": "33.3650, -117.0780"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "33.3650, -117.0780",
+        "radius_hexes": 6,
+        "terrain_type": "Forest"
+    }
+}

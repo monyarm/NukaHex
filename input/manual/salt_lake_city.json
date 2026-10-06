@@ -1,0 +1,16 @@
+{
+    "comment": "Honest Hearts: Randall Clark logs: 13 nukes left craters and scorched earth; FO RPG: radiation scar, New Canaan about 30 miles north (fallout.wiki: Salt Lake City)",
+    "markers": [
+        {
+            "name": "Salt Lake City",
+            "type": "City",
+            "location": "Salt Lake City, Utah"
+        }
+    ],
+    "terrain": {
+        "type": "circle",
+        "center": "Salt Lake City, Utah",
+        "radius_hexes": 12,
+        "terrain_type": "Radiation"
+    }
+}

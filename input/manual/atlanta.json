@@ -1,0 +1,10 @@
+{
+    "comment": "FO4: baseball player Matt Murtagh headed home to Atlanta after the bombs (fallout.wiki: Atlanta) | Fallout 76: ballplayer Matt Murtagh lived in Atlanta and set out for it after the bombs (fallout.wiki: Atlanta)",
+    "markers": [
+        {
+            "name": "Atlanta",
+            "type": "City",
+            "location": "Atlanta, Georgia"
+        }
+    ]
+}

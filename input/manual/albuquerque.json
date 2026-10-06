@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: second stop of 'Shanghai Sally's' carjacking flight east from Las Vegas (fallout.wiki: Albuquerque)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Albuquerque",
+            "type": "City",
+            "location": "Albuquerque, New Mexico"
+        }
+    ]
+}

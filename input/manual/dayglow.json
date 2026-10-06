@@ -1,0 +1,10 @@
+{
+    "comment": "Canon: mentioned in the games. Fallout Bible 6: Dayglow, one of the NCR's five states (Shady, Los Angeles, Maxson, Hub, Dayglow), south of the Republic (Bible 5: Cassidy heads south through NCR and past Dayglow). San Diego.",
+    "markers": [
+        {
+            "name": "Dayglow",
+            "type": "City",
+            "location": "San Diego, California"
+        }
+    ]
+}

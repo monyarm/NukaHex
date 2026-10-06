@@ -1,0 +1,10 @@
+{
+    "comment": "FO4: setting of the film Manzilloid vs. Roborilla (fallout.wiki: Seattle) | Fallout 76: a Vault-Tec University designer moved from Seattle to Morgantown (fallout.wiki: Seattle)",
+    "markers": [
+        {
+            "name": "Seattle",
+            "type": "City",
+            "location": "Seattle, Washington"
+        }
+    ]
+}

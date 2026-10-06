@@ -1,0 +1,11 @@
+{
+    "comment": "Van Buren design doc 03 Boulder.txt:11-12: pre-war toxic-waste dump and weapons store near Denver whose leak sent a poison cloud into Denver; hit in the War, one corner of the 'triangle of death' around Boulder; canon: no",
+    "tier": 4,
+    "markers": [
+        {
+            "name": "Rocky Mountain Arsenal",
+            "type": "Landmark",
+            "location": "39.8333, -104.8667"
+        }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+    "comment": "FNV: a dog tag places the 452nd Battalion in Irvine, California (fallout.wiki: Irvine) | Fallout Tactics (Sgt. James's dog tags) and Fallout: New Vegas: the 452nd Battalion was stationed in Irvine, California (fallout.wiki: Irvine)",
+    "markers": [
+        {
+            "name": "Irvine",
+            "type": "City",
+            "location": "Irvine, California"
+        }
+    ]
+}

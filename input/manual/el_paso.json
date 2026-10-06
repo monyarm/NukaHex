@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: third stop of 'Shanghai Sally's' carjacking flight toward the Gulf (fallout.wiki: El Paso)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "El Paso",
+            "type": "City",
+            "location": "El Paso, Texas"
+        }
+    ]
+}

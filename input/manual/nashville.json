@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: a travelling musician at the Wayward compares Appalachia to Nashville (fallout.wiki: Nashville)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Nashville",
+            "type": "City",
+            "location": "Nashville, Tennessee"
+        }
+    ]
+}

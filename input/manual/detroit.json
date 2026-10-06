@@ -1,0 +1,10 @@
+{
+    "comment": "FO4, Far Harbor: Guns and Bullets #4 Street Guns of Detroit; Roborilla built there (fallout.wiki: Detroit) | Fallout 76: Solomon Hardy's family lived in Detroit for generations (fallout.wiki: Detroit)",
+    "markers": [
+        {
+            "name": "Detroit",
+            "type": "City",
+            "location": "Detroit, Michigan"
+        }
+    ]
+}

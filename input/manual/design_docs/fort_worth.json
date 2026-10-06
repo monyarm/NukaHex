@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout: Brotherhood of Steel 2 design document: Fort Worth, the biggest Brotherhood outpost in the area, overrun by the Jackals; canon: no",
+    "tier": 5,
+    "markers": [
+        {
+            "name": "Fort Worth",
+            "type": "Settlement",
+            "location": "32.7555, -97.3308"
+        }
+    ]
+}

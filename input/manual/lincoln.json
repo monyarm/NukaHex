@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: the Brotherhood First Expeditionary Force was estimated near Lincoln after crossing the Rockies (fallout.wiki: Lincoln (location))",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Lincoln",
+            "type": "City",
+            "location": "Lincoln, Nebraska"
+        }
+    ]
+}

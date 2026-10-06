@@ -30,6 +30,10 @@ impl IconType {
         
         if name_lower == "landmark" {
             IconType::Landmark
+        } else if name_lower == "settlement" {
+            IconType::Settlement
+        } else if name_lower == "monument" {
+            IconType::Monument
         } else if name_lower.contains("vault") {
             IconType::Vault
         } else if name_lower.contains("store") || name_lower.contains("shop") || name_lower.contains("market") {

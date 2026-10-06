@@ -1,0 +1,11 @@
+{
+    "comment": "Fallout 76: battlefield named in the game's opening speech (fallout.wiki: Antietam)",
+    "tier": 2,
+    "markers": [
+        {
+            "name": "Antietam",
+            "type": "Landmark",
+            "location": "Antietam National Battlefield, Sharpsburg, Maryland"
+        }
+    ]
+}

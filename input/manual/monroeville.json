@@ -1,0 +1,10 @@
+{
+    "comment": "The Pitt: Everett says the Mauler killed trogs and ghouls from the Pitt to Monroeville (fallout.wiki: Monroeville)",
+    "markers": [
+        {
+            "name": "Monroeville",
+            "type": "City",
+            "location": "Monroeville, Pennsylvania"
+        }
+    ]
+}

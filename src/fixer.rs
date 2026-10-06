@@ -32,7 +32,7 @@ const REAL_COORDS: &[(&str, &str)] = &[
     ("New Reno", "39.5294665,-119.89379880000001"),
     ("Broken Hills", "39.5380233,-118.9489428"),
     // Van Buren (real places on its world map; the rest are fictional and placed by the warp)
-    ("Denver", "Denver, Colorado"),
+    ("Dog City", "Denver, Colorado"),
     ("Boulder", "Boulder, Colorado"),
     ("Hoover Dam", "Hoover Dam"),
     ("Grand Canyon", "Grand Canyon Village, Arizona"), // South Rim
@@ -341,6 +341,12 @@ fn tier(map: &RawMapData) -> u8 { map.priority.clamp(crate::schema::tier::MAIN, 
 /// Markers of one name within this distance of each other are one place (see the merge rule in
 /// `fix_translation_only`); farther apart they are different places sharing a name.
 const SAME_PLACE_MILES: f32 = 25.0;
+
+/// Whether two sightings of one name, at (lat, lon) `a` and `b`, are the same place (see `SAME_PLACE_MILES`).
+pub fn same_place(a: (f32, f32), b: (f32, f32)) -> bool {
+    let (dy, dx) = ((a.0 - b.0) * MILES_PER_DEGREE_LAT, (a.1 - b.1) * MILES_PER_DEGREE_LAT * a.0.to_radians().cos());
+    dx.hypot(dy) <= SAME_PLACE_MILES
+}
 
 /// Marks a source's LOD land (`RawTile::lod`) as a source of its own (see `resolve_hex`).
 const LOD_SOURCE: usize = 1 << (usize::BITS - 1);
@@ -721,7 +727,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         for (name, lat, lon, icon) in locs {
             if far { true_position.insert(name.to_lowercase(), (lat, lon)); }
             let (glat, glon) = to_inset(lat, lon);
-            all_fixed_locations.push((name, glat, glon, icon, priority_weight(cluster.priority), false));
+            all_fixed_locations.push((name, glat, glon, icon, priority_weight(cluster.priority), false, false));
         }
         for (t_type, lat, lon, lod) in tiles {
             let (glat, glon) = to_inset(lat, lon);
@@ -733,6 +739,13 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     // Process manual maps: absolute ones are projected as-is (no translation offset);
     // relative ones are placed afterwards from their markers already placed by name.
     let n_clusters = game_clusters.len(); // sources: clusters, then manual maps
+    // Manual maps with at most one hex of terrain (a marker, a small circle) do not set the map's extent:
+    // they are trimmed with it.
+    let trimmable: HashSet<usize> = manual_maps.iter().enumerate().filter(|(_, m)| {
+        let land = m.tiles.iter().filter(|t| t.tile_type != "unknown");
+        if m.coordinate_system == crate::schema::CoordinateSystem::Relative { return land.count() <= 1; }
+        land.filter_map(|t| Some(to_grid(t.real_lat?, t.real_lon?, resolution))).map(|(x, y)| hex_at(x, y)).collect::<HashSet<_>>().len() <= 1
+    }).map(|(j, _)| n_clusters + j).collect();
     for (j, manual) in manual_maps.iter().enumerate().filter(|(_, m)| m.coordinate_system != crate::schema::CoordinateSystem::Relative) {
         let manual_idx = n_clusters + j;
         for loc in &manual.locations {
@@ -740,7 +753,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                 warnings.push(format!("Manual marker '{}' has no lat/lon; not placed", loc.name));
                 continue;
             };
-            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), true));
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), true, trimmable.contains(&manual_idx)));
         }
         for tile in &manual.tiles {
             if let (Some(t_lat), Some(t_lon)) = (tile.real_lat, tile.real_lon) {
@@ -757,7 +770,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         for loc in &manual.locations {
             if placed.contains_key(&loc.name.to_lowercase()) { continue; } // anchors are already placed
             let (lat, lon) = transform(loc.x, loc.y);
-            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), false));
+            all_fixed_locations.push((loc.name.clone(), lat, lon, loc.icon_type, priority_weight(manual.priority), false, trimmable.contains(&manual_idx)));
         }
         for tile in &manual.tiles {
             let (lat, lon) = transform(tile.x as f32, tile.y as f32);
@@ -774,16 +787,17 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         let (dy, dx) = ((a.0 - b.0) * MILES_PER_DEGREE_LAT, (a.1 - b.1) * MILES_PER_DEGREE_LAT * a.0.to_radians().cos());
         dx.hypot(dy)
     };
-    type Sighting = (f32, f32, crate::schema::IconType, f32, bool); // lat, lon, icon, weight, manual
+    type Sighting = (f32, f32, crate::schema::IconType, f32, bool, bool); // lat, lon, icon, weight, manual, trimmable
     let mut places: Vec<(String, Vec<Sighting>)> = Vec::new(); // in first-seen order
-    for (name, lat, lon, icon, w, manual) in all_fixed_locations {
-        let near = places.iter_mut().find(|(n, ps)| n.eq_ignore_ascii_case(&name) && ps.iter().any(|p| miles_apart((p.0, p.1), (lat, lon)) <= SAME_PLACE_MILES));
+    for (name, lat, lon, icon, w, manual, trim) in all_fixed_locations {
+        let near = places.iter_mut().find(|(n, ps)| n.eq_ignore_ascii_case(&name) && ps.iter().any(|p| same_place((p.0, p.1), (lat, lon))));
         match near {
-            Some((_, ps)) => ps.push((lat, lon, icon, w, manual)),
-            None => places.push((name, vec![(lat, lon, icon, w, manual)])),
+            Some((_, ps)) => ps.push((lat, lon, icon, w, manual, trim)),
+            None => places.push((name, vec![(lat, lon, icon, w, manual, trim)])),
         }
     }
-    let mut merged: Vec<(String, f32, f32, crate::schema::IconType)> = Vec::new();
+    // (A place is trimmable only if every source of it is.)
+    let mut merged: Vec<(String, f32, f32, crate::schema::IconType, bool)> = Vec::new();
     for (name, all) in places {
         let ps: Vec<_> = if all.iter().any(|p| p.4) { all.iter().filter(|p| p.4).collect() } else { all.iter().collect() };
         let wsum: f32 = ps.iter().map(|p| p.3).sum();
@@ -795,13 +809,15 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             warnings.push(msg);
         }
         let top = ps.iter().max_by(|a, b| a.3.total_cmp(&b.3)).unwrap();
-        merged.push((name, lat, lon, top.2));
+        merged.push((name, lat, lon, top.2, all.iter().all(|p| p.5)));
     }
 
     // Now convert these absolute (Lat, Lon) points into the final grid
     let mut grid_locations = Vec::new();
+    let mut location_trimmable = Vec::new();
 
-    for (name, lat, lon, icon) in merged {
+    for (name, lat, lon, icon, trim) in merged {
+        location_trimmable.push(trim);
         let (gx, gy) = to_grid(lat, lon, resolution);
         let (real_lat, real_lon) = true_position.get(&name.to_lowercase()).copied().unwrap_or((lat, lon));
         grid_locations.push(FixedLocation {
@@ -816,10 +832,12 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     let mut votes: HashMap<(i32, i32), HashMap<usize, SourceVotes>> = HashMap::new();
     let mut water: HashMap<(i32, i32), ((i32, i32), bool)> = HashMap::new(); // water: 1 mi hex -> (output hex, LOD)
     let mut inset_cells: HashMap<usize, (i32, i32, i32, i32)> = HashMap::new(); // cluster -> grid box
+    let mut extent_cells: HashSet<(i32, i32)> = HashSet::new(); // cells a non-trimmable source has land in
     for (t_type, lat, lon, w, source, tier) in all_fixed_tiles {
         if t_type == "unknown" { continue; } // no data: must not outvote data from other sources
         let (gx, gy) = to_grid(lat, lon, resolution);
         let cell = hex_at(gx, gy);
+        if !trimmable.contains(&(source & !LOD_SOURCE)) { extent_cells.insert(cell); }
         if insets.iter().any(|(c, _)| *c == source & !LOD_SOURCE) {
             let b = inset_cells.entry(source & !LOD_SOURCE).or_insert((cell.0, cell.1, cell.0, cell.1));
             *b = (b.0.min(cell.0), b.1.min(cell.1), b.2.max(cell.0), b.3.max(cell.1));
@@ -837,12 +855,14 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
     keep_water_bodies(&water, &mut grid_tiles_map, resolution);
 
     // Every placed tile and every marker (a marker off the grid would be lost), and room for each
-    // inset's frame (two hexes around it).
+    // inset's frame (two hexes around it); trimmable sources' tiles and markers only within that (none
+    // trimmable when nothing else is placed).
     let frames = || inset_cells.values().flat_map(|&(x0, y0, x1, y1)| [(x0 - 2, y0 - 2), (x1 + 2, y1 + 2)]);
-    let xs = grid_tiles_map.keys().map(|k| k.0).chain(grid_locations.iter().map(|l| l.x.round() as i32)).chain(frames().map(|p| p.0));
-    let ys = grid_tiles_map.keys().map(|k| k.1).chain(grid_locations.iter().map(|l| l.y.round() as i32)).chain(frames().map(|p| p.1));
-    let (min_x, max_x) = xs.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
-    let (min_y, max_y) = ys.fold((i32::MAX, i32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    let all_trimmable = extent_cells.is_empty() && location_trimmable.iter().all(|&t| t);
+    let cells = grid_tiles_map.keys().filter(|k| all_trimmable || extent_cells.contains(k)).copied()
+        .chain(grid_locations.iter().zip(&location_trimmable).filter(|(_, t)| all_trimmable || !**t).map(|(l, _)| (l.x.round() as i32, l.y.round() as i32)))
+        .chain(frames());
+    let (min_x, max_x, min_y, max_y) = cells.fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(a, b, c, d), (x, y)| (a.min(x), b.max(x), c.min(y), d.max(y)));
     // Grid bounds: exactly the placed tiles and markers (nothing that does not exist is drawn).
     let (min_x, max_x, min_y, max_y) = if min_x > max_x { (0, 0, 0, 0) } else { (min_x, max_x, min_y, max_y) };
     let min_y = min_y - min_y.rem_euclid(2); // even, so local and world row parity agree
@@ -870,7 +890,8 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
         }
     }
 
-    let final_locations = grid_locations.into_iter().map(|mut l| {
+    let inside = |l: &FixedLocation| (min_x..=max_x).contains(&(l.x.round() as i32)) && (min_y..=max_y).contains(&(l.y.round() as i32));
+    let final_locations = grid_locations.into_iter().zip(location_trimmable).filter(|(l, t)| !t || inside(l)).map(|(mut l, _)| {
         l.x -= min_x as f32;
         l.y -= min_y as f32;
         l
@@ -2034,6 +2055,24 @@ mod invariant_tests {
             vec![src(1, vec![("Mountain", 0.0)]), src(3, vec![("Rock", 0.0), ("Rock", 0.001)])], vec![], 6.0, None);
         let land: Vec<&str> = fixed.tiles.iter().map(|t| t.tile_type.as_str()).filter(|t| *t != "unknown").collect();
         assert_eq!(land, vec!["Mountain"]);
+    }
+
+    /// A manual map with no terrain (a lone marker) does not stretch the map: it is trimmed with it,
+    /// while one inside the land stays.
+    #[test]
+    fn lone_manual_markers_are_trimmed() {
+        let marker = |name: &str, lat: f32, lon: f32| crate::schema::RawLocation { name: name.into(), x: 0.0, y: 0.0,
+            icon_type: crate::schema::IconType::City, real_lat: Some(lat), real_lon: Some(lon), terrain_override: None, anchor: None };
+        let tile = |dlon: f32| crate::schema::RawTile { x: 0, y: 0, tile_type: "Sand".into(), real_lat: Some(37.0),
+            real_lon: Some(-118.0 + dlon), weight: 1.0, anchor: None, lod: false };
+        let cluster = RawMapData { locations: vec![marker("Anchor", 37.0, -118.0)], tiles: (0..20).map(|i| tile(i as f32 * 0.1)).collect(),
+            coordinate_scale: 1.0, priority: 1, ..Default::default() };
+        let lone = |name: &str, lat: f32, lon: f32| RawMapData { locations: vec![marker(name, lat, lon)], coordinate_scale: 1.0,
+            coordinate_system: crate::schema::CoordinateSystem::Absolute, ..Default::default() };
+        let fixed = fix_translation_only(vec![cluster], vec![lone("Far", 47.6, -122.3), lone("Near", 37.0, -117.5)], 6.0, None);
+        let names: Vec<&str> = fixed.locations.iter().map(|l| l.name.as_str()).collect();
+        assert!(names.contains(&"Near") && !names.contains(&"Far"), "{:?}", names);
+        assert!(fixed.height < 10, "the far marker must not stretch the map: height {}", fixed.height);
     }
 
     /// Map scale: distances measured on the hex grid (column step = 1 hex, row step = sqrt(3)/2)

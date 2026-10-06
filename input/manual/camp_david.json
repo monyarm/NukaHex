@@ -1,0 +1,10 @@
+{
+    "comment": "FO4: Boston Bugle article: presidential retreat a few miles from Raven Rock (fallout.wiki: Camp David)",
+    "markers": [
+        {
+            "name": "Camp David",
+            "type": "Landmark",
+            "location": "Camp David, Maryland"
+        }
+    ]
+}

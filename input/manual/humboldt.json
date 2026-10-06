@@ -1,0 +1,10 @@
+{
+    "comment": "Mothership Zeta: Oregon town of Banfield College, where Prof. Rand was abducted; the real Humboldt is a Portland neighbourhood (fallout.wiki: Humboldt)",
+    "markers": [
+        {
+            "name": "Humboldt",
+            "type": "City",
+            "location": "Humboldt, Portland, Oregon"
+        }
+    ]
+}
