@@ -77,6 +77,15 @@ where
     where
         F: FnOnce() -> T,
     {
+        self.run_if(generator, |_| true)
+    }
+
+    /// As `run`, but a result `keep` rejects is not saved (a failure to retry next time).
+    pub fn run_if<F, K>(self, generator: F, keep: K) -> T
+    where
+        F: FnOnce() -> T,
+        K: FnOnce(&T) -> bool,
+    {
         let final_hash = {
              let mut hasher = Sha256::new();
              hasher.update(self.deps_hash.as_bytes());
@@ -102,6 +111,10 @@ where
         info!("[Cache: {}] Miss. Running generation...", self.id);
         let data = generator();
 
+        if !keep(&data) {
+            info!("[Cache: {}] Not saved (failed).", self.id);
+            return data;
+        }
         if let Ok(json) = serde_json::to_vec(&data) {
             let _ = fs::write(&cache_file, json);
             let _ = fs::write(&hash_file, final_hash.clone());
@@ -122,6 +135,21 @@ where
         };
         
         let data = self.run(generator);
+        (data, final_hash)
+    }
+
+    /// As `run_with_hash`, with `run_if`'s `keep`.
+    pub fn run_with_hash_if<F, K>(self, generator: F, keep: K) -> (T, String)
+    where
+        F: FnOnce() -> T,
+        K: FnOnce(&T) -> bool,
+    {
+        let final_hash = {
+             let mut hasher = Sha256::new();
+             hasher.update(self.deps_hash.as_bytes());
+             hex::encode(hasher.finalize())
+        };
+        let data = self.run_if(generator, keep);
         (data, final_hash)
     }
 }

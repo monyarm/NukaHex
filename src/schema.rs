@@ -124,6 +124,9 @@ pub struct RawMapData {
     /// Extractor-derived anchors (e.g. drawn state borders), in game coordinates.
     #[serde(default)]
     pub control_points: Vec<RawControlPoint>,
+    /// The cluster it belongs to (set by the pipeline): which of the fixer's real places anchor it.
+    #[serde(default)]
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

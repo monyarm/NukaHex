@@ -83,7 +83,7 @@ impl Extractor for FalloutInterplayExtractor {
     }
 
     fn get_cluster_id(&self) -> String {
-        if self.variant.is_mod() { format!("mod_{}", self.variant.id_str()) } else { "interplay".to_string() }
+        if self.variant.is_mod() { format!("mod_fallout2_{}", self.variant.id_str()) } else { "fallout_interplay".to_string() }
     }
 
     /// Mods: the manifest (their files are fetched and verified against it).

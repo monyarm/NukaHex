@@ -48,7 +48,7 @@ pub struct VanBurenExtractor;
 impl Extractor for VanBurenExtractor {
     fn get_id(&self) -> &str { "van_buren" }
     fn get_code_path(&self) -> &str { "src/extractors/van_buren.rs" }
-    fn get_cluster_id(&self) -> String { "van_buren".to_string() }
+    fn get_cluster_id(&self) -> String { "fallout_van_buren".to_string() }
     fn get_source_paths(&self) -> Vec<String> {
         demo_path().map(|p| vec![p.to_string_lossy().into_owned()]).unwrap_or_default()
     }

@@ -12,7 +12,7 @@ corner; their own cluster maps are at the real place.
 ✅ on the map · ⬜ to do · ⏸ deferred · ➖ nothing to place (no geography, or an interior/simulation)
 
 ## Fallout (1997) — tier 1
-- ✅ Southern California world map (`interplay.rs`; with Fallout 2 in the `interplay` cluster)
+- ✅ Southern California world map (`interplay.rs`; with Fallout 2 in the `fallout_interplay` cluster)
 
 ## Fallout 2 (1998) — tier 1
 - ✅ Northern California / Oregon / Nevada world map (`interplay.rs`)
@@ -138,7 +138,7 @@ markers only anchor the warp; their terrain adds detail. Nexus files are downloa
 `~/Downloads` (a run names the missing files and their pages), then copied and checked like the rest.
 GamePressure mirrors of Nexus files are acceptable where they exist.
 
-### Fallout 2 engine (`interplay.rs`; cluster maps `mod_<id>`)
+### Fallout 2 engine (`interplay.rs`; cluster maps `mod_fallout2_<id>`)
 - ✅ Fallout: Nevada — Nevada and Utah before Fallout 1 (Reno to Salt Lake City and Las Vegas)
 - ✅ Fallout: Sonora — Arizona, Sonora and Baja California (Phoenix to Hermosillo)
 - ✅ Fallout 1.5: Resurrection — New Mexico between Fallout 1 and 2 (ModDB's EN 1.5 installer, over Fallout
@@ -181,26 +181,85 @@ GamePressure mirrors of Nexus files are acceptable where they exist.
   Project Safehouse, Fallout Resurrection (Tactics) — not released
 
 ### Bethesda games
-- ⬜ Next: Fallout: New California (terrain; ModDB's full installer BETA 231, or GOG's build)
+Plugins are loaded after the game's masters (Mutagen); a mod's own world keeps only where it is built,
+and a mod extending a game's worldspace keeps only the cells it adds or reshapes. Anchors are written
+per source (`REAL_COORDS` is grouped by cluster).
 - ➖ Out of scope: Fallout: London, Sakhalin (outside the US)
 
 ### New Vegas: new land at real places (terrain + markers, anchorable)
-- Fallout: New California — Black Bear Mountain National Forest, Vault 18 in the Cajon Pass
-  (San Bernardino Mountains, CA); a worldspace ~65% the Mojave's size; Nexus 45138, ModDB
-  (`falloutprojectbrazil`: full installer BETA 231, 2018), free on GOG with a one-click install
-- Fallout: The Frontier — Portland, Oregon (snowbound); larger than the Mojave; Nexus only (its ModDB
-  page has no files)
-- Long 15 – NCR Expansion — the Long 15 before Lonesome Road's nuke, and NCR lands in California;
-  Nexus 94306
-- Dry Wells – Legion Expansion — Dry Wells before the nuke, and Legion lands in Arizona; Nexus 88180
-- Nova Arizona – A Legion Lands Expansion — the land east of the Colorado River; Nexus 85915
-- Salt Lake Stories — around the Great Salt Lake (15 small worldspaces); Nexus 63332
-- Tales of New Reno – Episode Zero — a New Reno worldspace (Reno, NV; Fallout 2's New Reno);
-  GamePressure mirror
-- Fallout: Atlanta — Atlanta, GA (alpha, in development since 2016; v0.6.0 on GamePressure, 2026)
-- Sun Valley — NCR, Legion and Khans in "Sun Valley" with Hoover City, by tunnel from New Vegas
-  (v0.45 beta, 2011; ModDB); real place to check
-- ➖ Fallout: Nuevo Mexico — New Mexico; cancelled (January 2025)
+- ✅ Fallout: New California — the Pass: the San Bernardino Mountains from the Cajon Pass to Big Bear
+  Lake, anchored by 7 real places (I-15 from Hesperia through the pass, Barstow, the Mormon Rocks, SR-138
+  to Crestline, Big Bear Lake), only the land within 3 cells of them (its world stretches ~135 mi); radiation
+  only from its markers of 10 rads or more (not its ambient zones). Read from ModDB's BETA 222 patch (86 MB), whose NewCalifornia.esm is the
+  whole mod's plugin, not the 7.9 GB installer (BETA 231; also Nexus 45138, GamePressure, GOG)
+- ✅ Fallout Atlanta (alpha 0.65, ModDB; also Nexus 61872) — Atlanta, GA, anchored by 12 real places
+  (Stone Mountain, Westview Cemetery, Vine City, Grant Park, East Lake, Riverdale...)
+- ➖ Fallout: Free Cheyenne (demo 1.0.2, ModDB) — Cheyenne, WY: dropped. Its town spreads downtown
+  places that lie within 0.6 mi of each other over ~4 mi: anchored, it shrinks to one hex; placed by the
+  town alone, it is larger than the real city
+- ➖ Sun Valley (v0.45, ModDB) — "Hoover City" and Beavercreek, through a tunnel from the Mojave's
+  north-west: no real place to anchor it
+- ✅ Mojave National Preserve (Ghoulville; Nexus 57373) — the land south of Nipton it adds to the Mojave,
+  placed by the Mojave's warp and Kelso and the Dead Mountains
+- ✅ Beyond the Borders – New Lands (Nexus 39427) — the land past the Mojave's borders (cells it adds or
+  reshapes), placed by the Mojave's warp
+- ✅ Arizona Expedition (Nexus 60866) — the Arizona bank of the Colorado, placed by the Mojave's warp and
+  Willow Beach and Bullhead City
+- ✅ Beyond Boulder Dome (Nexus 46907; its ESM file) — Boulder, Colorado: the city, dome and the wastes
+  around it (child worlds of Boulder Mountain Park), placed by Boulder (not Outer Nevada, nor the
+  battle copy of Inner Boulder)
+- ✅ Dog City Denver (Nexus 41751) — Dog City (Van Buren's Denver), placed by Denver
+- ✅ BFM Denver (Nexus 58761; its ESM) — Denver, placed by the city (not its Elitch Gardens world, ~10 mi
+  around a park of a few blocks, over Denver itself, nor its stadium); needs Speedy Resources (39551)
+- ✅ BFM San Francisco (Nexus 60152) — San Francisco's outskirts and bay, placed by the city; needs Speedy
+  Resources
+- ➖ Project Pacific (Nexus 50789) — Anacapa Island, one of California's Channel Islands: dropped; at the
+  game's scale its island is ~270 sq mi (the real one ~1), over Santa Cruz Island too
+- ✅ Nova Arizona (Nexus 85915) — the Arizona side of the Colorado it adds to the Mojave, placed by the
+  Mojave's warp and 10 real places (Willow Beach, Arizona Hot Spring, Temple Bar, White Hills, Dolan
+  Springs, Chloride, Grasshopper Junction...)
+- ✅ Zion Trail (Nexus 61939) — the walk from the Desert National Wildlife Refuge to Zion, anchored by
+  Corn Creek on US 95, Mormon Well, Hayford Peak and Zion's entrance and lodge
+- ✅ Havasu Blues (Nexus 76680) — Lake Havasu City, anchored by Pittsburg Point and the airport (Catfish
+  Bay and Site Six are real but not found to place)
+- ✅ San Fran (pre-alpha; Nexus 70128) — San Francisco's north-east waterfront and the bay's islands,
+  anchored by 14 real places (Ferry Building, Embarcadero, Telegraph Hill, Coit Tower, Pier 39, North
+  Beach, Yerba Buena and Treasure Islands...); its Chinatown ("Shi-town") placed by its name
+- ✅ Fallout Chicago (demo; Nexus 96929, its ESM only) — the Loop and Near North Side, anchored by Willis
+  Tower, Chinatown, Cabrini-Green, the Second City, Stanton Park, Marina City, Portillo's; built near street
+  scale (~5x4 real mi). Not Millennium Park (~1.9 mi east of Willis Tower at the others' scale, 0.7 in reality)
+- ✅ Russell (Nexus 50107) — Caruthers Canyon in the New York Mountains (Mojave National Preserve), placed
+  by its name; needs the Someguy Series master (48925)
+- ✅ Long 15 – NCR Expansion (Nexus 94306) — the Long 15 before Lonesome Road's nuke: Baker, California
+  and the land east of it, anchored by Baker, the Hollow Hills and Kelso
+- ➖ New Vegas Bounties III (Nexus 55744) — the Deep Creek Mountains, Utah (its dialogue: "up to Utah"):
+  dropped; its world is a snowy valley ringed by mountains (~24 mi) with fictional places, nothing to
+  match the real north-south range by
+- ✅ NWCE – Necropolis Addon (Nexus 54537) — its Carson City, Nevada, placed by its name (~8x5 mi, as the
+  real city); not its Necropolis (~20x35 mi at the game's scale for a ruined town, under a mile at its true
+  size) nor its other districts (separate worlds, no stated layout)
+- ✅ The Empire Wasteland – Project Big Apple (alpha; Nexus 53343) — New York, anchored by the George
+  Washington Bridge, Washington Heights (168th St), Times Square and Jersey City (not its Hoboken, "Mile
+  Square City": ~170 sq mi at the game's scale for a city of one)
+- ✅ Fallout: The Frontier (Nexus 68009; its plugin alone from archive.org's upload of the original
+  release, 249 MB of a 13 GB archive) — Portland, Oregon, anchored by 14 real places (Burnside Bridge,
+  Skidmore Fountain, Pearl District, Old Town, Nob Hill, Goose Hollow, Council Crest, Irvington, the
+  Convention Center, the Marquam Bridge...), only the land around them (its world is 128 cells square)
+- ➖ Not doing: Los Angeles (two markers in a 1,775-cell world), Caesar's 5th Cohort ("Reno Valley Basin":
+  1,849 cells, little built), New Vegas Railroads (Bullhead) and Baker in the Sun (small worlds), North
+  Nevada Open (Russian-only markers), Into the Deep (6 cells by Ivanpah), AEW (needs Invisible Wall Remover), Tales
+  from the Burning Sands (its own world is a fictional campus), Path to Canaan (a fictional Utah valley),
+  Project Mojave (the New Reno Pass, few real places; needs Mojave Master Plugin), Skidge's Quest
+  Pack (24 cells of the Mojave), Dry Wells – Legion Expansion (Dry Wells is unplaced: "along Interstate
+  40" at most; its places are fictional), Salt Lake Stories (its worlds' places are fictional; its
+  Bonneville world is a bare heightmap, its Stansbury Bay ~20x20 mi for a ~11x4 mi island; its travel map
+  has no markers), Tales of New Reno Episodes Zero to Two (Zero's "No Man's Land" has no markers
+  or stated place; One's own worlds are a fictional listening post and a dream, its Mojave edits fictional;
+  Two's "Canyonlands" scatters real Utah names freely: Springdale, Zion's tunnel, Big Spring Canyon, Thompson
+  and Wellington in an order reality contradicts)
+- ➖ Rig City Areas — needs several other mods' masters (MoMod, Mothership Zeta Content Restored...)
+- ➖ Not released: Up Country (Michigan), Enclave City: New Cincinnati, Broken City, Oregon's Grand
+  Vault; Fallout: Nuevo Mexico (cancelled, January 2025)
 
 ### New Vegas: new land with no stated real place (terrain; placement needs canon/fan theory)
 - Median Valley — a quest mod in its own worldspace; Nexus 61568 (setting not found)

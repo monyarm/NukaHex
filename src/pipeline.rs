@@ -94,7 +94,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
     }
 
     // --- STAGE 2: CLUSTERING (Game Data Only) ---
-    // Each extractor names its cluster map (e.g. FO1 and FO2 share "interplay"); games are combined
+    // Each extractor names its cluster map (e.g. FO1 and FO2 share "fallout_interplay"); games are combined
     // across clusters only in the overview maps.
     let cluster_ids: Vec<String> = game_extractors.iter().map(|e| e.get_cluster_id()).collect();
     let mut clusters: std::collections::HashMap<usize, Vec<(RawMapData, String, String)>> = std::collections::HashMap::new();
@@ -135,7 +135,7 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             let tmj = raw_dir.join(format!("{}_{}.tmj", prefix, id));
             add_render(tmj.clone(), tmj.with_extension("png"));
         }
-        let tmj = output_dir.join(format!("cluster_{}.tmj", cluster_names[root_id]));
+        let tmj = output_dir.join(format!("{}.tmj", cluster_names[root_id]));
         add_render(tmj.clone(), tmj.with_extension("png"));
     }
     let fixed_clusters: Vec<(RawMapData, String)> = timed("fix clusters", || clusters.par_iter().map(|(root_id, maps)| {
@@ -149,9 +149,10 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             cluster_step = cluster_step.add_dependency_hash(hash);
         }
 
-        let (cluster_data, cluster_hash) = cluster_step.run_with_hash(|| {
+        // (A cluster that came out empty failed upstream: retried next run, not cached.)
+        let (mut cluster_data, cluster_hash) = cluster_step.run_with_hash_if(|| {
             info!("Fixing cluster: {}", cluster_name);
-            let raw_cluster_maps: Vec<RawMapData> = maps.iter().map(|(d, _, _)| d.clone()).collect();
+            let raw_cluster_maps: Vec<RawMapData> = maps.iter().map(|(d, _, _)| RawMapData { source: cluster_name.clone(), ..d.clone() }).collect();
             
             // Generate debug views for raw maps in this cluster
             let gid_map = map_gen::generate_tsj(output_dir).expect("Failed to generate TSJ");
@@ -173,23 +174,25 @@ pub fn run_pipeline(game_extractors: Vec<Box<dyn Extractor>>, manual_extractors:
             // User requested: Save clusters themselves as TMJ
             // Important: Use 6.0 mi/hex for the visual debug TMJ so it's not multi-gigabyte/invalid
             let debug_fixed_for_tmj = fixer::fix(vec![fixed_raw.clone()], vec![], Some(6.0), None);
-            let cluster_tmj_name = format!("cluster_{}.tmj", cluster_name);
+            let cluster_tmj_name = format!("{}.tmj", cluster_name);
             if let Err(e) = map_gen::generate_tmj(output_dir, &cluster_tmj_name, &debug_fixed_for_tmj, &gid_map, Some(LOCAL_MAP_TYPES), "generic.tsj") {
                 warn!("Warning: Failed to generate cluster TMJ for {}: {}", cluster_name, e);
             }
 
             fixed_raw
-        });
+        }, |d| !(d.tiles.is_empty() && d.locations.is_empty()));
+
+        cluster_data.source = cluster_name.clone(); // also for clusters cached before it was recorded
 
         // Write out per-cluster markers
-        let cluster_marker_file = output_dir.join(format!("cluster_{}_markers.json", cluster_name));
+        let cluster_marker_file = output_dir.join(format!("{}_markers.json", cluster_name));
         if let Ok(json) = serde_json::to_string_pretty(&cluster_data.locations) {
             let _ = fs::write(&cluster_marker_file, json);
         }
 
         // Write out per-cluster warnings if they exist
         if !cluster_data.warnings.is_empty() {
-            let log_file = output_dir.join(format!("cluster_{}.log", cluster_name));
+            let log_file = output_dir.join(format!("{}.log", cluster_name));
             let mut log_content = String::new();
             for w in &cluster_data.warnings {
                 log_content.push_str(w);
@@ -478,10 +481,11 @@ fn extract_one(extractor: &Box<dyn Extractor>, intermediate_dir: &Path) -> (RawM
     for path in extractor.get_source_paths() {
         step = step.add_dependency_file(&path);
     }
+    step = step.add_dependency_hash(&extractor.get_config());
     
-    let (data, hash) = step.run_with_hash(|| {
-        extractor.extract()
-    });
+    // An extraction that produced nothing failed (a missing install or download, a fetch error): retried
+    // next run, not cached.
+    let (data, hash) = step.run_with_hash_if(|| extractor.extract(), |d| !(d.tiles.is_empty() && d.locations.is_empty()));
     
     // Collect links for clustering
     let mut links = Vec::new();

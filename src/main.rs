@@ -101,14 +101,14 @@ fn main() -> std::io::Result<()> {
     // Alton IL: Alton, Illinois, placed by the town at Fallout 3's scale (its places are laid out
     // freely: its Godfrey lies south of the river, the real one north); its other worlds, each on its own
     // coordinates, by the real places they name (not Belleview nor the BoS Nature Preserve: fictional).
-    for (name, world) in [("Alton", "AltonDowntownWorld"), ("New Godfrey", "AltonBoneyardWorld"), ("Dulles International Airport", "AltonPlaneDiscovery")] {
-        game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "alton_il", &["Alton, IL.esm"], name, &[world]).placed_by_name()));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "alton_il", &["Alton, IL.esm"], "Alton", &["AltonDowntownWorld"]).placed_by_name()));
+    for (name, world) in [("New Godfrey", "AltonBoneyardWorld"), ("Dulles International Airport", "AltonPlaneDiscovery")] {
+        game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "alton_il", &["Alton, IL.esm"], name, &[world]).another_world().placed_by_name()));
     }
     // Project Eastern Wasteland: Riverdale, Maryland, the town and the wasteland around it, separate worlds
     // (not its Eastern Ruins: a 64-cell square of default land, built in a few rows).
-    for (name, world) in [("Riverdale", "Riverdale"), ("Riverdale Wasteland", "RiverdaleWasteland")] {
-        game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "eastern_wasteland", &["Eastern Ruins.esp"], name, &[world]).placed_by_name()));
-    }
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "eastern_wasteland", &["Eastern Ruins.esp"], "Riverdale", &["Riverdale"]).placed_by_name()));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout3, "eastern_wasteland", &["Eastern Ruins.esp"], "Riverdale Wasteland", &["RiverdaleWasteland"]).another_world().placed_by_name()));
     // DC Anniversary: the cut DC and Virginia districts restored, child worlds on the Wasteland's coordinates.
     game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "dc_anniversary", &["DCAnniversary.esm"], &[
         "Wasteland", "DCworld02", "DCworld04", "DCworld07", "DCworld13", "DCworld14", "DCworld16", "DCworld19", "DCworld20",
@@ -119,6 +119,57 @@ fn main() -> std::io::Result<()> {
     game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "vault_89", &["Fallout 3 Vault 89 Mod - Master.esp"], &["Wasteland"])));
     game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout3, "northwest_forest", &["Northwest Forest Redone.esp"], &["Wasteland"])));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::FalloutNV, "WastelandNV")));
+    // New Vegas mods (tier 6). New California: the Pass, the San Bernardino Mountains from the Cajon Pass to
+    // Big Bear Lake, anchored by its real places; only the land within 3 cells of them (its world stretches
+    // ~135 mi, far past the real places it depicts). Its radiation only from markers of 10 rads or more: 21 of
+    // its markers are ambient zones of 5 rads over ~3 mi each, which would paint ~350 sq mi.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "new_california", &["NewCalifornia.esm"], "New California", &["00BlackBearCanyon01"]).radiation_from(10.0).within_anchors(3)));
+    // Fallout Atlanta: Atlanta, Georgia (its city centre a child world on its coordinates), anchored by its real places.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "atlanta", &["Atlanta.esm"], "Atlanta", &["Atlanta", "AtlantaCityCentral"])));
+    // Land added to the Mojave, placed by its own warp: the Mojave National Preserve south of Nipton
+    // (Ghoulville), the land beyond its borders, and Arizona east of the Colorado.
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::FalloutNV, "ghoulville", &["Ghoulville.esp"], &["WastelandNV"])));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::FalloutNV, "beyond_the_borders", &["BTB - Beyond the Borders.esp"], &["WastelandNV"])));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::FalloutNV, "arizona_expedition", &["Arizona.esp"], &["WastelandNV"])));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::FalloutNV, "nova_arizona", &["NovaArizona.esm"], &["WastelandNV"])));
+    // Zion Trail: the walk from the Mojave to Zion (Nevada's Desert Wildlife Refuge to Zion National Park).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "zion_trail", &["ZionTrail.esm"], "Zion Trail", &["ZionTrail"])));
+    // Havasu Blues: Lake Havasu City, Arizona.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "havasu_blues", &["havasublues.esm"], "Lake Havasu", &["RadWorld01"])));
+    // San Fran: San Francisco's north-east waterfront and the islands in the bay; its Chinatown ("Shi-town") a
+    // world on its own coordinates, placed by its name.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "san_fran", &["SanFran.esm"], "San Francisco", &["SanFranWasteland"])));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "san_fran", &["SanFran.esm"], "Chinatown", &["SanFranChinatownWorld"]).another_world().placed_by_name()));
+    // Fallout Chicago (demo): the Loop and the Near North Side, with Union Station's railyard on its coordinates.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "fallout_chicago", &["Fallout Chicago V050.esm"], "Chicago", &["ChicagoWorld", "ModUnionStationExt"])));
+    // Long 15 – NCR Expansion: the Long 15 before Lonesome Road's nuke, Baker, California and the land east of
+    // it (with SR-127 north, a child world on its coordinates).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "long_15", &["Long15Reloaded.esm"], "Long 15", &["ALLong15", "ALLong15NorthRoadWorld"])));
+    // NWCE – Necropolis: its Carson City, Nevada, placed by its name at the game's scale (~8x5 mi, as the real
+    // city). Not its Necropolis: at the game's scale ~20x35 mi for a ruined town, its true size under a mile.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "nwce", &["NWCEMod.esm"], "Carson City", &["CarsonCity"]).placed_by_name()));
+    // The Empire Wasteland: New York (the Big Apple, with Washington Heights, Times Square, Jersey City and the
+    // Polis Badlands as child worlds on its coordinates), anchored by its real places. Not its Hoboken ("Mile
+    // Square City"): ~170 sq mi at the game's scale for a city of one.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "empire_wasteland", &["TheBigAppleMergedNew.esp"], "New York", &[
+        "BigApple", "BigAppleStreetLevel", "BigAppleTimesSquare", "BigAppleJerseyCity", "BigAppleBadlands",
+    ])));
+    // The Frontier: Portland, Oregon, anchored by its real places; only the land within 3 cells of them (its
+    // world is 128 cells square).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "the_frontier", &["The Frontier.esm"], "Portland", &["thefrontier"]).within_anchors(3)));
+    // Russell: Caruthers Canyon, in the New York Mountains of the Mojave National Preserve.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "russell", &["SomeguySeries.esm", "Russell.esp"], "Caruthers Canyon", &["aaCaruthersCanyonWorld"]).placed_by_name()));
+    // Beyond Boulder Dome: Boulder, Colorado (a Van Buren place), its city, dome and the wastes around it,
+    // child worlds of Boulder Mountain Park; not the Inner Boulder battle copy nor Outer Nevada.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "beyond_boulder_dome", &["domecity.esm"], "Boulder", &[
+        "abBoulderLands1", "abDomeCity", "AJVInnerCity", "abCWastes", "abBrainCenterEXT", "abIANovaIndExt", "abIAMojaveExit", "DF1", "DF3TheAbyss",
+    ]).placed_by_name()));
+    // Denver: Dog City (Van Buren's name for it), and BFM Denver (not its Elitch Gardens, a world of ~10 mi
+    // around a park of a few blocks, over Denver itself, nor its stadium, "the Haunted Sands"); BFM San
+    // Francisco's outskirts. Their worlds have no markers: each is placed by its name.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "dog_city", &["Dog_City3.esp"], "Dog City", &["DogCityWorld"]).placed_by_name()));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "bfm_denver", &["SpeedyResources.esm", "Denver.esm"], "Denver", &["DenverWorld"]).placed_by_name()));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::FalloutNV, "bfm_san_francisco", &["SpeedyResources.esm", "San Francisco.esp"], "San Francisco", &["SanFranMainWorld"]).placed_by_name()));
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout4, "Commonwealth"))); // Boston
     // Far Harbor: the Island, Mount Desert Island in Maine (not the DLC03VRWorldspace simulation).
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout4, "Far Harbor", &["DLC03FarHarbor"])));

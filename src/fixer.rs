@@ -4,274 +4,468 @@ use crate::geocoding;
 use std::collections::{HashMap, HashSet};
 use log::{info, warn};
 
-// User-provided real-world coordinates
-// Each entry can be either:
-// - Numeric coordinates: ("Name", "37.376,-118.482")
-// - Place name/address: ("Name", "Griffith Observatory, Los Angeles")
-const REAL_COORDS: &[(&str, &str)] = &[
-    // (name, coordinates_or_address)
-    ("Shady Sands", "37.3767525,-118.4820828"),
-    ("Mariposa Military Base", "36.624861300000006,-121.78344730000002"), 
-    ("Lost Hill Bunker", "35.6081873,-119.3829345"),  
-    ("Junktown", "35.65363980000001,-117.4329572"),
-    ("The Hub", "34.1391501,-117.2897652"),  
-    ("Necropolis", "34.913266,-117.015381"),  
-    ("The Boneyard", "34.2070709,-118.3117676"),
-    ("The Cathedral", "33.8088202,-118.32000730000001"),
-    ("The Glow", "33.1467502,-116.85058590000001"),
-    ("Vault 13", "37.3679428,-118.9736945"),
-    ("Vault 15", "37.3964654,-118.2568593"),
-    // Fallout 2
-    ("Navarro", "38.8623645,-123.485783"),
-    ("San Francisco", "37.7924224,-122.42614750000001"), 
-    ("Redding", "40.5847565,-122.3876953"),
-    ("Klamath", "41.5281142,-124.03907770000002"),
-    ("Vault City", "41.1793239,-119.29021499999999"),
-    ("Gecko", "41.7063278,-118.93786470000002"),
-    ("Modoc", "41.6727239,-120.899064"),
-    ("New Reno", "39.5294665,-119.89379880000001"),
-    ("Broken Hills", "39.5380233,-118.9489428"),
-    // Van Buren (real places on its world map; the rest are fictional and placed by the warp)
-    ("Dog City", "Denver, Colorado"),
-    ("Boulder", "Boulder, Colorado"),
-    ("Hoover Dam", "Hoover Dam"),
-    ("Grand Canyon", "Grand Canyon Village, Arizona"), // South Rim
-    ("Mesa Verde", "Spruce Tree House, Colorado"), // Chapin Mesa, Mesa Verde NP
-    // Fallout Tactics (keys are the game's spellings; values the real towns). Not anchored:
-    // Newton and Canyon City, whose in-game positions are 170-210 mi from their namesakes
-    // (Canyon City sits in western Kansas); the warp places them.
-    ("Freeport", "Freeport, Illinois"),
-    ("Rock Falls", "Rock Falls, Illinois"),
-    ("Macomb", "Macomb, Illinois"),
-    ("Preoria", "Peoria, Illinois"),
-    ("Quincy", "Quincy, Illinois"),
-    ("Springfield", "Springfield, Illinois"),
-    ("St.Louis", "St. Louis, Missouri"),
-    ("Jefferson", "Jefferson City, Missouri"),
-    ("Kansas City", "Kansas City, Missouri"),
-    ("Osceolla", "Osceola, Missouri"),
-    ("Junction City", "Junction City, Kansas"),
-    ("Great Bend", "Great Bend, Kansas"),
-    ("Coldwater", "Coldwater, Kansas"),
-    ("Scott City", "Scott City, Kansas"),
-    ("Beuna Vista", "Buena Vista, Colorado"),
-    ("Cheyenne Mountain", "Cheyenne Mountain Complex"),
-    // Fallout: New Vegas (keys are the game's marker names; values the real places they depict).
-    // Not anchored: fictional sites (Novac, Freeside, HELIOS One...) and sites whose real counterpart is
-    // ambiguous (Jacobstown, Hidden Valley) or too close to another anchor (Techatticup Mine/Nelson).
-    ("New Vegas", "Las Vegas Strip"),
-    ("Goodsprings", "Goodsprings, Nevada"),
-    ("Primm", "Primm, Nevada"),
-    ("Nipton", "Nipton, California"),
-    ("Jean Sky Diving", "Jean, Nevada"),
-    ("Sloan", "Sloan, Nevada"),
-    ("Ivanpah Dry Lake", "Ivanpah Lake, California"),
-    ("Camp Searchlight", "Searchlight, Nevada"),
-    ("Searchlight Airport", "Searchlight Airport, Nevada"),
-    ("Cottonwood Cove", "Cottonwood Cove, Nevada"),
-    ("Nelson", "Nelson, Nevada"),
-    ("El Dorado Dry Lake", "Eldorado Dry Lake, Nevada"),
-    ("Boulder City", "Boulder City, Nevada"),
-    ("Black Mountain", "Black Mountain, Clark County, Nevada"),
-    ("Boulder Beach Campground", "Boulder Beach, Lake Mead"),
-    ("The Fort", "Fortification Hill, Arizona"),
-    ("Lake Las Vegas", "Lake Las Vegas, Nevada"),
-    ("Callville Bay", "Callville Bay, Nevada"),
-    ("Camp McCarran", "Harry Reid International Airport"),
-    ("Nellis Air Force Base", "Nellis Air Force Base"),
-    ("Red Rock Canyon", "Red Rock Canyon Visitor Center, Nevada"),
-    ("Bonnie Springs", "Bonnie Springs, Nevada"),
-    ("Spring Mt. Ranch State Park", "Spring Mountain Ranch State Park"),
-    // Honest Hearts (Zion Canyon worldspace: Zion National Park, Utah). The canyon-floor places lie
-    // almost in a line, so the off-axis Narrows (Sorrows Camp is in them) and Three Marys keep the
-    // warp from squashing the game's map. Not anchored: Old Rockville Bridge, which the game puts
-    // north-west of the park entrance while Rockville lies south-west of it.
-    ("Zion Valley Welcome Booth", "Zion Canyon Visitor Center"),
-    ("Pine Creek Tunnel", "Zion-Mount Carmel Tunnel"),
-    ("Patriarchs' Campground", "Court of the Patriarchs"),
-    ("Zion Fishing Lodge", "Zion Lodge"),
-    ("Sorrows Camp", "Temple of Sinawava"),             // mouth of the Narrows
-    ("Three Marys", "37.2083156,-113.0118854"),         // Wikipedia; the name geocodes elsewhere
-    // Lonesome Road (the Divide; fictional). Canon: devastated land in the north-western Mojave, near
-    // the California/Nevada border, along Route 127 (the NCR's northern supply route), with Big MT to
-    // its south. 127 crosses the border at Death Valley Junction.
-    ("The Divide", "Death Valley Junction, California"),
-    // Old World Blues (Big MT; fictional, its location deliberately unstated). South of the Divide
-    // (Hopeville, in its south-west corner) and beside Route 127, which the NCR "couldn't take north"
-    // past the Divide and the Big Empty: the south end of the Resting Spring Range, at Shoshone.
-    ("Big MT", "Shoshone, California"),
-    // Dead Money (the Sierra Madre; fictional, location never stated). "A mystic place close to the
-    // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
-    // Desert meets the Grand Canyon, at Grand Canyon West.
-    ("Sierra Madre", "Grand Canyon West, Arizona"),
+// Real places the games' markers depict, by source: each group lists the clusters it anchors (a
+// cluster id, or its prefix before a `_`: "fallout3" covers "fallout3_thepitt"), so a name only
+// anchors the sources it was written for (Alton's "The Divide" is not Lonesome Road's). Each value is
+// either coordinates ("37.376,-118.482") or a place name/address, geocoded.
+const REAL_COORDS: &[(&[&str], &[(&str, &str)])] = &[
+    (&["fallout_interplay", "mod_fallout2_fallout_nevada", "mod_fallout2_fallout_sonora", "mod_fallout2_fallout_resurrection"], &[
+    // Fallout 1
+        ("Shady Sands", "37.3767525,-118.4820828"),
+        ("Mariposa Military Base", "36.624861300000006,-121.78344730000002"), 
+        ("Lost Hill Bunker", "35.6081873,-119.3829345"),  
+        ("Junktown", "35.65363980000001,-117.4329572"),
+        ("The Hub", "34.1391501,-117.2897652"),  
+        ("Necropolis", "34.913266,-117.015381"),  
+        ("The Boneyard", "34.2070709,-118.3117676"),
+        ("The Cathedral", "33.8088202,-118.32000730000001"),
+        ("The Glow", "33.1467502,-116.85058590000001"),
+        ("Vault 13", "37.3679428,-118.9736945"),
+        ("Vault 15", "37.3964654,-118.2568593"),
+        // Fallout 2
+        ("Navarro", "38.8623645,-123.485783"),
+        ("San Francisco", "37.7924224,-122.42614750000001"), 
+        ("Redding", "40.5847565,-122.3876953"),
+        ("Klamath", "41.5281142,-124.03907770000002"),
+        ("Vault City", "41.1793239,-119.29021499999999"),
+        ("Gecko", "41.7063278,-118.93786470000002"),
+        ("Modoc", "41.6727239,-120.899064"),
+        ("New Reno", "39.5294665,-119.89379880000001"),
+        ("Broken Hills", "39.5380233,-118.9489428"),
+    // Their names are the same places for the Fallout 2-engine mods set in that world (Vault City, New Reno).
+    ]),
+    (&["fallout_van_buren"], &[
+        // Van Buren (real places on its world map; the rest are fictional and placed by the warp)
+        ("Dog City", "Denver, Colorado"),
+        ("Boulder", "Boulder, Colorado"),
+        ("Hoover Dam", "Hoover Dam"),
+        ("Grand Canyon", "Grand Canyon Village, Arizona"), // South Rim
+        ("Mesa Verde", "Spruce Tree House, Colorado"), // Chapin Mesa, Mesa Verde NP
+    ]),
+    (&["fallout_tactics"], &[
+        // Fallout Tactics (keys are the game's spellings; values the real towns). Not anchored:
+        // Newton and Canyon City, whose in-game positions are 170-210 mi from their namesakes
+        // (Canyon City sits in western Kansas); the warp places them.
+        ("Freeport", "Freeport, Illinois"),
+        ("Rock Falls", "Rock Falls, Illinois"),
+        ("Macomb", "Macomb, Illinois"),
+        ("Preoria", "Peoria, Illinois"),
+        ("Quincy", "Quincy, Illinois"),
+        ("Springfield", "Springfield, Illinois"),
+        ("St.Louis", "St. Louis, Missouri"),
+        ("Jefferson", "Jefferson City, Missouri"),
+        ("Kansas City", "Kansas City, Missouri"),
+        ("Osceolla", "Osceola, Missouri"),
+        ("Junction City", "Junction City, Kansas"),
+        ("Great Bend", "Great Bend, Kansas"),
+        ("Coldwater", "Coldwater, Kansas"),
+        ("Scott City", "Scott City, Kansas"),
+        ("Beuna Vista", "Buena Vista, Colorado"),
+        ("Cheyenne Mountain", "Cheyenne Mountain Complex"),
+    ]),
+    (&["falloutnv", "mod_falloutnv_ghoulville", "mod_falloutnv_beyond_the_borders", "mod_falloutnv_arizona_expedition", "mod_falloutnv_nova_arizona"], &[
+        // Fallout: New Vegas (keys are the game's marker names; values the real places they depict).
+        // Not anchored: fictional sites (Novac, Freeside, HELIOS One...) and sites whose real counterpart is
+        // ambiguous (Jacobstown, Hidden Valley) or too close to another anchor (Techatticup Mine/Nelson).
+        ("New Vegas", "Las Vegas Strip"),
+        ("Hoover Dam", "Hoover Dam"),
+        ("Goodsprings", "Goodsprings, Nevada"),
+        ("Primm", "Primm, Nevada"),
+        ("Nipton", "Nipton, California"),
+        ("Jean Sky Diving", "Jean, Nevada"),
+        ("Sloan", "Sloan, Nevada"),
+        ("Ivanpah Dry Lake", "Ivanpah Lake, California"),
+        ("Camp Searchlight", "Searchlight, Nevada"),
+        ("Searchlight Airport", "Searchlight Airport, Nevada"),
+        ("Cottonwood Cove", "Cottonwood Cove, Nevada"),
+        ("Nelson", "Nelson, Nevada"),
+        ("El Dorado Dry Lake", "Eldorado Dry Lake, Nevada"),
+        ("Boulder City", "Boulder City, Nevada"),
+        ("Black Mountain", "Black Mountain, Clark County, Nevada"),
+        ("Boulder Beach Campground", "Boulder Beach, Lake Mead"),
+        ("The Fort", "Fortification Hill, Arizona"),
+        ("Lake Las Vegas", "Lake Las Vegas, Nevada"),
+        ("Callville Bay", "Callville Bay, Nevada"),
+        ("Camp McCarran", "Harry Reid International Airport"),
+        ("Nellis Air Force Base", "Nellis Air Force Base"),
+        ("Red Rock Canyon", "Red Rock Canyon Visitor Center, Nevada"),
+        ("Bonnie Springs", "Bonnie Springs, Nevada"),
+        ("Spring Mt. Ranch State Park", "Spring Mountain Ranch State Park"),
+        // Honest Hearts (Zion Canyon worldspace: Zion National Park, Utah). The canyon-floor places lie
+        // almost in a line, so the off-axis Narrows (Sorrows Camp is in them) and Three Marys keep the
+        // warp from squashing the game's map. Not anchored: Old Rockville Bridge, which the game puts
+        // north-west of the park entrance while Rockville lies south-west of it.
+        ("Zion Valley Welcome Booth", "Zion Canyon Visitor Center"),
+        ("Pine Creek Tunnel", "Zion-Mount Carmel Tunnel"),
+        ("Patriarchs' Campground", "Court of the Patriarchs"),
+        ("Zion Fishing Lodge", "Zion Lodge"),
+        ("Sorrows Camp", "Temple of Sinawava"),             // mouth of the Narrows
+        ("Three Marys", "37.2083156,-113.0118854"),         // Wikipedia; the name geocodes elsewhere
+        // Lonesome Road (the Divide; fictional). Canon: devastated land in the north-western Mojave, near
+        // the California/Nevada border, along Route 127 (the NCR's northern supply route), with Big MT to
+        // its south. 127 crosses the border at Death Valley Junction.
+        ("The Divide", "Death Valley Junction, California"),
+        // Old World Blues (Big MT; fictional, its location deliberately unstated). South of the Divide
+        // (Hopeville, in its south-west corner) and beside Route 127, which the NCR "couldn't take north"
+        // past the Divide and the Big Empty: the south end of the Resting Spring Range, at Shoshone.
+        ("Big MT", "Shoshone, California"),
+        // Dead Money (the Sierra Madre; fictional, location never stated). "A mystic place close to the
+        // Grand Canyon" (the Vault wiki) and "part of the Mojave" (the add-on's intro): where the Mojave
+        // Desert meets the Grand Canyon, at Grand Canyon West.
+        ("Sierra Madre", "Grand Canyon West, Arizona"),
+    ]),
     // Fallout 2-engine mods (tier 6; keys are their in-game area names, map.msg 1500+). Their markers
     // only anchor the warp. Names shared with Fallout 2 (Vault City, New Reno) are the same places.
-    // Fallout: Sonora. Dayglow is San Diego in canon.
-    ("Flagstaff", "Flagstaff, Arizona"),
-    ("Phoenix", "Phoenix, Arizona"),
-    ("Casa Grande", "Casa Grande, Arizona"),
-    ("Quartzsite", "Quartzsite, Arizona"),
-    ("Hermosillo", "Hermosillo, Sonora, Mexico"),
-    ("Puerto", "Puerto Peñasco, Sonora, Mexico"),          // "Puerto Penasco" in its worldmap text
-    ("Santa Ana", "Santa Ana, Sonora, Mexico"),
-    ("San Felipe", "San Felipe, Baja California, Mexico"),
-    ("Dayglow", "San Diego, California"),
-    // Fallout: Nevada. Baydie and Ailie are its translation's spellings of Beatty and Ely. Not
-    // anchored: fictional sites (Wind of War, the Sigma base, Uranium City, Old Rabbi...).
-    ("Las Vegas", "Las Vegas, Nevada"),
-    ("Area 51", "Area 51, Nevada"),
-    ("Baydie", "Beatty, Nevada"),
-    ("Ailie", "Ely, Nevada"),
-    ("Hawthorne Military Base", "Hawthorne Army Depot"),
-    ("Bridgeport", "Bridgeport, California"),
-    ("Lovelock", "Lovelock, Nevada"),
-    ("Gerlach", "Gerlach, Nevada"),
-    ("Black Rock", "Black Rock Point, Nevada"),
-    ("Battle Mountain", "Battle Mountain, Nevada"),
-    ("Wendover", "Wendover, Utah"),
-    ("Salt Lake City", "Salt Lake City, Utah"),
-    ("Provo District", "Provo, Utah"),
-    // Fallout 1.5: Resurrection (New Mexico). Rat Hole is Kirtland ("Kirtland... I mean Rat Hole, that's
-    // what it's called now"; the town north-west of Albuquerque, as the game draws it, not Albuquerque's
-    // Kirtland Air Force Base). Not anchored: its fictional towns (New Hope, Sedit, Corath...).
-    ("Albuquerque", "Albuquerque, New Mexico"),
-    ("Rat Hole", "36.7342,-108.3593"),                   // Kirtland, New Mexico
-    // Fallout Tactics: Crusade (the Texas Gulf Coast). Not anchored: Garcitas Creek (a creek, no one point:
-    // 12 mi off the fit), La Salle and Guada (not placeable), its fictional sites.
-    ("Victoria", "28.8053,-97.0036"),                    // Victoria, Texas (the city; the query finds the county)
-    ("Bloomington", "Bloomington, Texas"),
-    ("Port Lavaca", "Port Lavaca, Texas"),
-    ("Vanderbilt", "Vanderbilt, Texas"),
-    // Fallout 3 (keys are the game's marker names; values the real places they depict). DC's ruins
-    // (child worldspaces) share the Wasteland's coordinates. Not anchored: fictional places (Megaton,
-    // Rivet City, the vaults...), and the Jefferson Memorial, the Capitol and the White House, 1-2 mi from
-    // the Mall's two anchors in reality but 5+ mi in the game: the warp overshoots (folds) between them.
-    ("The Citadel", "The Pentagon"),
-    ("Lincoln Memorial", "Lincoln Memorial"),
-    ("The Washington Monument", "Washington Monument"),
-    ("Georgetown North", "Georgetown, Washington, D.C."),
-    ("Anacostia Crossing", "Anacostia, Washington, D.C."),
-    ("Takoma Park", "Takoma Park, Maryland"),
-    ("Friendship Heights", "Friendship Heights Village, Montgomery County, Maryland"),
-    ("Bethesda Ruins", "Bethesda, Maryland"),
-    ("Wheaton Armory", "Wheaton, Maryland"),
-    ("Old Olney", "Olney, Maryland"),
-    ("Germantown Police HQ", "Germantown, Maryland"),
-    ("Dickerson Tabernacle Chapel", "Dickerson, Maryland"),
-    ("Falls Church Metro", "Falls Church, Virginia"),
-    ("Fairfax Ruins", "Fairfax, Virginia"),
-    ("Alexandria Arms", "Alexandria, Virginia"),
-    ("Raven Rock", "Raven Rock Mountain Complex"),
-    // The Pitt (its districts are child worlds sharing its frame) and Point Lookout (with the Sacred
-    // Bog): each placed by one real place at Fallout 3's scale.
-    ("The Pitt", "Downtown Pittsburgh"),                  // the game's Pitt Downtown
-    ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
-    // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
-    ("Operation Anchorage", "Anchorage, Alaska"),
-    // Fallout 3 mods. Vault 89 (the Burkittsville vault of Hamilton's Hideaway's cut logs), past the
-    // Wasteland's north-western border. Into the Ark's Newark (not anchored: its fictional places, and
-    // stations and buildings within a few blocks of these).
-    ("Vault 89", "Burkittsville, Maryland"),
-    ("Alton", "Alton, Illinois"),
-    ("New Godfrey", "Godfrey, Illinois"),
-    ("Dulles International Airport", "Washington Dulles International Airport"),
-    ("Riverdale", "Riverdale Park, Maryland"),
-    ("Riverdale Wasteland", "Riverdale Park, Maryland"),
-    ("Military Park", "Military Park, Newark"),
-    ("Newark Penn Station", "Newark Penn Station"),
-    ("Broad St. Station", "Newark Broad Street Station"),
-    ("Essex Community College", "Essex County College, Newark"),
-    ("Krating Daeng Stadium", "40.7368,-74.1503"),           // Red Bull Arena, Harrison (Krating Daeng: Thai Red Bull)
-    ("Ironbound Entrance", "Ironbound, Newark"),
-    // Fallout 4 (keys are the game's marker names; values the real places they depict). Not anchored:
-    // fictional places; downtown landmarks within a mile of these; Rocky Narrows Park (the game's is
-    // north-west of Boston, the real one in Sherborn to the south-west, ~13 mi off); Fort Strong (the
-    // game's is 5 mi north of Spectacle Island, the real one 1 mi south-east of it); and buildings standing
-    // for a town (Natick Banks, Milton General Hospital), which fold the warp against the real places beside.
-    ("Diamond City", "Fenway Park"),
-    ("Goodneighbor", "Old State House, Boston"),
-    ("Boston Common", "Boston Common"),
-    ("Bunker Hill", "Bunker Hill Monument"),
-    ("USS Constitution", "USS Constitution Museum"),
-    ("C.I.T. Ruins", "Massachusetts Institute of Technology"),
-    ("The Castle", "Castle Island, Boston"),
-    ("Boston Airport", "Boston Logan International Airport"),
-    ("Concord", "Concord, Massachusetts"),
-    ("Lexington", "Lexington, Massachusetts"),
-    ("Bedford Station", "Bedford, Massachusetts"),
-    ("Walden Pond", "Walden Pond"),
-    ("Salem", "Salem, Massachusetts"),
-    ("Lynn Woods", "Lynn Woods Reservation"),
-    ("Breakheart Banks", "Breakheart Reservation"),
-    ("Saugus Ironworks", "Saugus Iron Works National Historic Site"),
-    ("Lake Quannapowitt", "Lake Quannapowitt"),
-    ("Malden Center", "Malden, Massachusetts"),
-    ("Medford Memorial Hospital", "Medford, Massachusetts"),
-    ("Revere Beach Station", "Revere Beach"),
-    ("Nahant Wharf", "Nahant, Massachusetts"),
-    ("Spectacle Island", "Spectacle Island, Boston"),
-    ("Weston Water Treatment Plant", "Weston, Massachusetts"),
-    ("Lake Cochituate", "Lake Cochituate"),
-    ("Chestnut Hillock Reservoir", "Chestnut Hill Reservoir"),
-    ("Jamaica Plain", "Jamaica Plain, Boston"),
-    ("Hyde Park", "Hyde Park, Boston"),
-    ("Quincy Ruins", "Quincy, Massachusetts"),
-    // Far Harbor: the Island is Mount Desert Island, Maine, its places at their real counterparts (the town of
-    // Far Harbor is Bar Harbor; Acadia's observatory is on the island's central summit). Not anchored:
-    // Brooke's Head Lighthouse, whose real counterpart would be a guess.
-    ("Far Harbor", "Bar Harbor, Maine"),
-    ("Southwest Harbor", "Southwest Harbor, Maine"),
-    ("Echo Lake Lumber", "44.3197,-68.3375"),                   // Echo Lake (Wikipedia); its name geocodes elsewhere
-    ("Cranberry Island Docks", "Great Cranberry Island"),
-    ("National Park Visitor's Center", "Hulls Cove Visitor Center"),
-    ("Acadia", "Cadillac Mountain"),
-    // Fallout 76: Appalachia rearranges West Virginia (it puts Grafton, Clarksburg, Philippi and Prickett's
-    // Fort north of Morgantown, and its Cranberry Bog east of Harpers Ferry), so its warp is loosened until it
-    // does not fold and these anchors drift a little (see `RubberSheet::new_fold_free`). Not anchored:
-    // Skyline Valley (Shenandoah: Rapidan Camp, Old Rag, Stony Man), which the game adds along the south of
-    // its map while the real one lies north-east of the Cranberry Glades, a move rather than drift; and lesser
-    // sites the game sets against these towns, which would only add drift (Grafton itself, Monongah,
-    // Philippi, Huntersville, Sugar Grove, Green Bank, Spruce Knob, Organ Cave, the New River Gorge Bridge,
-    // Big Bend Tunnel, Fort Steuben, Dolly Sods, Logan).
-    ("Morgantown", "Morgantown, West Virginia"),
-    ("Flatwoods", "Flatwoods, West Virginia"),
-    ("Point Pleasant", "Point Pleasant, West Virginia"),
-    ("Welch", "Welch, West Virginia"),
-    ("Beckley", "Beckley, West Virginia"),
-    ("Berkeley Springs", "Berkeley Springs, West Virginia"),
-    ("The Whitespring Resort", "The Greenbrier"),
-    ("Cranberry Glade", "Cranberry Glades Botanical Area"),  // the Cranberry Bog
-    ("Charleston Capitol Building", "West Virginia State Capitol"),
-    ("Clarksburg", "Clarksburg, West Virginia"),
-    ("Grafton Dam", "Tygart Lake"),
-    ("Prickett's Fort", "39.5154,-80.0998"),             // Prickett's Fort State Park (Wikipedia)
-    ("Harpers Ferry", "Harpers Ferry, West Virginia"),
-    ("Lewisburg", "Lewisburg, West Virginia"),
-    ("Summersville Dam", "Summersville Dam"),
-    ("Sutton", "Sutton, West Virginia"),
-    ("Helvetia", "Helvetia, West Virginia"),
-    ("Seneca Rocks", "Seneca Rocks"),
-    ("Tyler County Fairgrounds", "Middlebourne, West Virginia"),
-    ("Athens", "Athens, Ohio"),                          // Burning Springs
-    ("Albany", "Albany, Ohio"),
-    // Fallout 76's expeditions: each zone at its real counterpart; zones with none (the Pitt's districts,
-    // the flooded downtown, marked as the city, and its community center) at their city's centre.
-    ("The Pitt - Industrial", "Pittsburgh, Pennsylvania"),
-    ("The Foundry", "Pittsburgh, Pennsylvania"),
-    ("The Pitt - Trench", "Pittsburgh, Pennsylvania"),
-    ("Sanctum", "Pittsburgh, Pennsylvania"),
-    ("Steel Tower", "U.S. Steel Tower"),
-    ("The Boardwalk", "Boardwalk Hall, Atlantic City"),
-    ("Showman's Pier", "Steel Pier, Atlantic City"),
-    ("Aquarium of the Atlantic", "Atlantic City Aquarium"),
-    ("Casino Quarter", "Caesars Atlantic City"),
-    ("Atlantic City Hall", "1301 Bacharach Boulevard, Atlantic City"),
-    ("Atlantic City", "Atlantic City, New Jersey"),
-    ("Atlantic City Community Center", "Atlantic City, New Jersey"),
-    // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
-    // at the real theme park there (its map has the river with an island and a north-south interstate).
-    ("Nuka-World", "Six Flags New England"),
+    (&["mod_fallout2_fallout_sonora"], &[
+        // Fallout: Sonora. Dayglow is San Diego in canon.
+        ("Flagstaff", "Flagstaff, Arizona"),
+        ("Phoenix", "Phoenix, Arizona"),
+        ("Casa Grande", "Casa Grande, Arizona"),
+        ("Quartzsite", "Quartzsite, Arizona"),
+        ("Hermosillo", "Hermosillo, Sonora, Mexico"),
+        ("Puerto", "Puerto Peñasco, Sonora, Mexico"),          // "Puerto Penasco" in its worldmap text
+        ("Santa Ana", "Santa Ana, Sonora, Mexico"),
+        ("San Felipe", "San Felipe, Baja California, Mexico"),
+        ("Dayglow", "San Diego, California"),
+    ]),
+    (&["mod_fallout2_fallout_nevada"], &[
+        // Fallout: Nevada. Baydie and Ailie are its translation's spellings of Beatty and Ely. Not
+        // anchored: fictional sites (Wind of War, the Sigma base, Uranium City, Old Rabbi...).
+        ("Las Vegas", "Las Vegas, Nevada"),
+        ("Area 51", "Area 51, Nevada"),
+        ("Baydie", "Beatty, Nevada"),
+        ("Ailie", "Ely, Nevada"),
+        ("Hawthorne Military Base", "Hawthorne Army Depot"),
+        ("Bridgeport", "Bridgeport, California"),
+        ("Lovelock", "Lovelock, Nevada"),
+        ("Gerlach", "Gerlach, Nevada"),
+        ("Black Rock", "Black Rock Point, Nevada"),
+        ("Battle Mountain", "Battle Mountain, Nevada"),
+        ("Wendover", "Wendover, Utah"),
+        ("Salt Lake City", "Salt Lake City, Utah"),
+        ("Provo District", "Provo, Utah"),
+    ]),
+    (&["mod_fallout2_fallout_resurrection"], &[
+        // Fallout 1.5: Resurrection (New Mexico). Rat Hole is Kirtland ("Kirtland... I mean Rat Hole, that's
+        // what it's called now"; the town north-west of Albuquerque, as the game draws it, not Albuquerque's
+        // Kirtland Air Force Base). Not anchored: its fictional towns (New Hope, Sedit, Corath...).
+        ("Albuquerque", "Albuquerque, New Mexico"),
+        ("Rat Hole", "36.7342,-108.3593"),                   // Kirtland, New Mexico
+    ]),
+    (&["mod_fallout_tactics_fot_crusade"], &[
+        // Fallout Tactics: Crusade (the Texas Gulf Coast). Not anchored: Garcitas Creek (a creek, no one point:
+        // 12 mi off the fit), La Salle and Guada (not placeable), its fictional sites.
+        ("Victoria", "28.8053,-97.0036"),                    // Victoria, Texas (the city; the query finds the county)
+        ("Bloomington", "Bloomington, Texas"),
+        ("Port Lavaca", "Port Lavaca, Texas"),
+        ("Vanderbilt", "Vanderbilt, Texas"),
+    ]),
+    (&["fallout3", "mod_fallout3_dc_anniversary", "mod_fallout3_vault_89", "mod_fallout3_northwest_forest"], &[
+        // Fallout 3 (keys are the game's marker names; values the real places they depict). DC's ruins
+        // (child worldspaces) share the Wasteland's coordinates. Not anchored: fictional places (Megaton,
+        // Rivet City, the vaults...), and the Jefferson Memorial, the Capitol and the White House, 1-2 mi from
+        // the Mall's two anchors in reality but 5+ mi in the game: the warp overshoots (folds) between them.
+        ("The Citadel", "The Pentagon"),
+        ("Lincoln Memorial", "Lincoln Memorial"),
+        ("The Washington Monument", "Washington Monument"),
+        ("Georgetown North", "Georgetown, Washington, D.C."),
+        ("Anacostia Crossing", "Anacostia, Washington, D.C."),
+        ("Takoma Park", "Takoma Park, Maryland"),
+        ("Friendship Heights", "Friendship Heights Village, Montgomery County, Maryland"),
+        ("Bethesda Ruins", "Bethesda, Maryland"),
+        ("Wheaton Armory", "Wheaton, Maryland"),
+        ("Old Olney", "Olney, Maryland"),
+        ("Germantown Police HQ", "Germantown, Maryland"),
+        ("Dickerson Tabernacle Chapel", "Dickerson, Maryland"),
+        ("Falls Church Metro", "Falls Church, Virginia"),
+        ("Fairfax Ruins", "Fairfax, Virginia"),
+        ("Alexandria Arms", "Alexandria, Virginia"),
+        ("Raven Rock", "Raven Rock Mountain Complex"),
+        // The Pitt (its districts are child worlds sharing its frame) and Point Lookout (with the Sacred
+        // Bog): each placed by one real place at Fallout 3's scale.
+        ("The Pitt", "Downtown Pittsburgh"),                  // the game's Pitt Downtown
+        ("Point Lookout Lighthouse", "Point Lookout Lighthouse, Maryland"),
+        // Operation Anchorage: the simulated liberation of Anchorage, Alaska (2077).
+        ("Operation Anchorage", "Anchorage, Alaska"),
+    // Also the mods extending the Wasteland (DC Anniversary, Vault 89, Northwest Forest), whose land follows
+    // the game's own warp.
+    ]),
+    // Fallout 3 mods.
+    (&["mod_fallout3_vault_89"], &[
+    // Vault 89: the Burkittsville vault of Hamilton's Hideaway's cut logs, past the Wasteland's north-western border.
+        ("Vault 89", "Burkittsville, Maryland"),
+    ]),
+    (&["mod_fallout3_alton_il"], &[
+        ("Alton", "Alton, Illinois"),
+        ("New Godfrey", "Godfrey, Illinois"),
+        ("Dulles International Airport", "Washington Dulles International Airport"),
+    ]),
+    (&["mod_fallout3_eastern_wasteland"], &[
+        ("Riverdale", "Riverdale Park, Maryland"),
+        ("Riverdale Wasteland", "Riverdale Park, Maryland"),
+    ]),
+    (&["mod_fallout3_into_the_ark"], &[
+    // Newark (not anchored: its fictional places, and stations and buildings within a few blocks of these).
+        ("Military Park", "Military Park, Newark"),
+        ("Newark Penn Station", "Newark Penn Station"),
+        ("Broad St. Station", "Newark Broad Street Station"),
+        ("Essex Community College", "Essex County College, Newark"),
+        ("Krating Daeng Stadium", "40.7368,-74.1503"),           // Red Bull Arena, Harrison (Krating Daeng: Thai Red Bull)
+        ("Ironbound Entrance", "Ironbound, Newark"),
+    ]),
+    // New Vegas mods.
+    (&["mod_falloutnv_new_california"], &[
+        // The Pass, laid out as the real one: I-15 north from the Cajon Pass to Hesperia, Barstow beyond, the
+        // Mormon Rocks below the pass, SR-138 east from I-15 to its junction with SR-18 at Crestline, Big Bear
+        // Lake east (its two markers, on the lake's shores, merged). Not anchored: the I-138/I-15 Beltway (a
+        // second spot for the same interchange), Big Bear Wharf (on the game's west shore; the real village is
+        // on the south-east), the SR-18 forks (which junctions is unclear), Rice Army Airfield (the real one
+        // lies 150 mi east, in the Colorado Desert) and its fictional places (Athens, Pinehaven, Union City...).
+        ("Big Bear Lake", "Big Bear Lake, California"),
+        ("I-15 Cajon Pass Bridge", "Cajon Pass, California"),
+        ("I-15 - I-138 Black Bear Junction", "Cajon Junction, California"),
+        ("Mormon Rocks", "Mormon Rocks, California"),
+        ("The Junction", "Crestline, California"),
+        ("I-15 North Bridge to Hesperia", "Hesperia, California"),
+        ("Barstow", "Barstow, California"),
+    ]),
+    (&["mod_falloutnv_atlanta"], &[
+        // Atlanta's neighbourhoods, parks and landmarks. Not anchored: its fictional sites (Bridge Town, the
+        // caves...), and Windy Hill and Oakcliff, which the game puts south and west while the real ones (Smyrna,
+        // Doraville) lie north-west and north-east.
+        ("Stone Mountain", "Stone Mountain, Georgia"),
+        ("Westview Cemetery", "Westview Cemetery, Atlanta"),
+        ("Grant Park", "Grant Park, Atlanta"),
+        ("East Lake Golf Club", "East Lake Golf Club, Atlanta"),
+        ("Vine City", "Vine City, Atlanta"),
+        ("People's Town", "Peoplestown, Atlanta"),
+        ("Forest Park", "Forest Park, Georgia"),
+        ("Riverdale", "Riverdale, Georgia"),
+        ("Washington", "Washington Park, Atlanta"),
+        ("Evergreen Lakeside Resort", "33.7994,-84.1302"),           // Atlanta Evergreen Lakeside Resort, Stone Mountain Park
+        ("Starlight Drive-In", "33.7027,-84.3470"),                   // Starlight Drive-In, 2000 Moreland Ave SE
+        ("North Clayton High School", "33.6096,-84.4396"),
+    ]),
+    (&["mod_falloutnv_ghoulville"], &[
+        // The Mojave National Preserve: Kelso and the Dead Mountains, east of it, as in reality.
+        ("Kelso", "Kelso Depot, California"),
+        ("Dead Mountains", "Dead Mountains, California"),
+    ]),
+    (&["mod_falloutnv_arizona_expedition"], &[
+        // Down the Arizona bank of the Colorado: Willow Beach below Hoover Dam, Bullhead City far south.
+        ("Camp Willow", "Willow Beach, Arizona"),
+        ("Bullhead Ruins", "Bullhead City, Arizona"),
+    ]),
+    (&["mod_falloutnv_nova_arizona"], &[
+        // The Arizona side of the Colorado, laid out as the real one: Willow Beach, Arizona Hot Spring and the
+        // Liberty Bell Arch by the river, Temple Bar on Lake Mead to the north, White Hills, Dolan Springs, then
+        // Chloride and Grasshopper Junction to the south-east, Windy Point in the Cerbats. Not anchored: its
+        // fictional sites, and the mines and camps whose real counterparts are unclear.
+        ("Camp Willow", "Willow Beach, Arizona"),
+        ("Arizona Hot Spring", "Arizona Hot Springs"),
+        ("Liberty Bell Arch", "Liberty Bell Arch, Arizona"),
+        ("Temple Bar Marina", "36.0344,-114.3223"),                  // Temple Bar, on Lake Mead
+        ("White Hills", "White Hills, Arizona"),
+        ("Dolan Springs", "Dolan Springs, Arizona"),
+        ("Chloride", "Chloride, Arizona"),
+        ("Grasshopper Junction", "Grasshopper Junction, Arizona"),
+        ("Mount Perkins", "Mount Perkins, Arizona"),
+        ("Windy Point Campground", "35.4362,-114.1604"),              // Windy Point, Cerbat Mountains
+    ]),
+    (&["mod_falloutnv_zion_trail"], &[
+        // US 95 at the Desert National Wildlife Refuge's gate (Corn Creek), Mormon Well and Hayford Peak in the
+        // refuge, Zion's south entrance and the park. Not anchored: Sawmill Junction (east of the refuge in the
+        // game; the real Sawmill Canyon is north of Mormon Well) and its fictional places.
+        ("Route 95 Check Point", "Corn Creek, Nevada"),
+        ("Mormon Wells Campground", "Mormon Well, Nevada"),
+        ("Hayford", "Hayford Peak, Nevada"),
+        ("Zion Park Gates", "Zion Canyon Visitor Center"),
+        ("Zion National Park", "Zion Lodge, Utah"),
+    ]),
+    (&["mod_falloutnv_havasu_blues"], &[
+        // Lake Havasu City: Pittsburg Point (the island) and the airport north-east of it. Not anchored: Catfish
+        // Bay and Site Six (real, but not found to place), the town's gates and its fictional sites.
+        ("Pittsburg Point", "Pittsburg Point, Lake Havasu City"),
+        ("Havasu Airstrip", "34.5714,-114.3591"),                     // Lake Havasu City Airport
+    ]),
+    (&["mod_falloutnv_san_fran"], &[
+        // San Francisco's north-east waterfront and the bay. Not anchored: Pier 34 (beside Pier 33 in the game,
+        // south of the Bay Bridge in reality), the Bay Bridge's tower (no one spot) and its fictional sites.
+        ("Ferry Building", "Ferry Building, San Francisco"),
+        ("The Embarcadero", "The Embarcadero, San Francisco"),
+        ("BART Embarcadero Station", "Embarcadero station, San Francisco"),
+        ("Pier 24 warehouse", "Pier 24, San Francisco"),
+        ("Pier 33 warehouse", "Pier 33, San Francisco"),
+        ("Pier 39", "Pier 39, San Francisco"),
+        ("Telegraph Hill", "Telegraph Hill, San Francisco"),
+        ("Coit tower apts", "Coit Tower, San Francisco"),
+        ("North Beach", "North Beach, San Francisco"),
+        ("Leavenworth St Station", "37.8055,-122.4186"),              // Leavenworth St at Fisherman's Wharf
+        ("maritime park visitor center", "37.8075,-122.4205"),        // San Francisco Maritime Visitor Center, 499 Jefferson St
+        ("Yerba Buena Island", "Yerba Buena Island"),
+        ("Treasure Island", "Treasure Island, San Francisco"),
+        ("Chinatown", "Chinatown, San Francisco"),
+    ]),
+    (&["mod_falloutnv_fallout_chicago"], &[
+        // The Loop and the Near North Side, built near street scale (~5x4 real mi). Not anchored: Millennium Park
+        // (~1.9 mi east of Willis Tower at the others' scale, 0.7 in reality), the Theater District (south of
+        // Willis Tower in the game, north in reality), Trinity Hospital and the police headquarters (north in the game, on the South
+        // Side in reality), Grand station, the signposts ("To Union Station", "To O'hare") and its fictional sites.
+        ("Willis Tower", "Willis Tower, Chicago"),
+        ("ChinaTown", "Chinatown, Chicago"),
+        ("Cabrini Green", "Cabrini-Green, Chicago"),
+        ("The Second City", "The Second City, Chicago"),
+        ("Stanton Park", "Stanton Park, Chicago"),
+        ("Marina", "Marina City, Chicago"),
+        ("Portillos Barnelli's", "Portillo's, 100 West Ontario Street, Chicago"),
+    ]),
+    (&["mod_falloutnv_long_15"], &[
+        // Baker and the land east of it, as the real: the Hollow Hills north-east, Kelso south-east. Not anchored:
+        // Cima's cinder mines (a volcanic field, no one point), Soda Springs (east of Baker in the game; the real one, Zzyzx, is south-west),
+        // Baker's streets and buildings (within a mile of each other; they would shrink the town) and its
+        // fictional sites.
+        ("Baker", "Baker, California"),
+        ("Hollow Hills, North", "Hollow Hills Wilderness, California"),
+        ("Kelso Crater", "Kelso, California"),
+    ]),
+    (&["mod_falloutnv_nwce"], &[("Carson City", "Carson City, Nevada")]),
+    (&["mod_falloutnv_empire_wasteland"], &[
+        // As the real city: the George Washington Bridge in Washington Heights, Times Square south of them, Jersey
+        // City south-west across the Hudson. Not anchored: the Market District overpass and the Polis Badlands
+        // (fictional).
+        ("George Washington Bridge", "George Washington Bridge"),
+        ("168 Washington Heights", "168th Street station, New York"),
+        ("Time Square", "Times Square, New York"),
+        ("Jersey City", "Jersey City, New Jersey"),
+    ]),
+    (&["mod_falloutnv_the_frontier"], &[
+        // Portland, as the real one: Skidmore Fountain at the Burnside Bridge's west end, the Pearl District,
+        // Old Town and Slabtown north of it, Nob Hill, Arlington Heights and Goose Hollow west, Council Crest
+        // south-west, the Convention Center and Irvington north-east, the Marquam Bridge south. Not anchored:
+        // South Waterfront (east in the game, on the west bank in reality), Lloyd Center (south; really
+        // north-east), the airport (south-west; PDX is north-east), Buckman (north of Burnside; really south),
+        // the White Stag sign (at the Burnside Bridge, already anchored), Hosford-Abernathy (not found to
+        // place) and its fictional places.
+        ("Burnside Bridge", "Burnside Bridge, Portland"),
+        ("Skidmore Fountain", "Skidmore Fountain, Portland"),
+        ("Pearl District", "Pearl District, Portland"),
+        ("Old Town", "Old Town Chinatown, Portland"),
+        ("Ground Kontrol Arcade", "Ground Kontrol, Portland"),
+        ("Slab Town", "Slabtown, Portland"),
+        ("Nob Hill", "Nob Hill, Portland"),
+        ("Arlington Heights", "Arlington Heights, Portland"),
+        ("Goose Hollow", "Goose Hollow, Portland"),
+        ("Council Crest Park Facility", "Council Crest Park, Portland"),
+        ("Portland Library", "Multnomah County Central Library"),
+        ("Oregon Convention Centre", "Oregon Convention Center"),
+        ("Irvington", "Irvington, Portland"),
+        ("Marquam Bridge Interstate 5", "Marquam Bridge"),
+    ]),
+    (&["mod_falloutnv_russell"], &[("Caruthers Canyon", "Caruthers Canyon, California")]),
+    (&["mod_falloutnv_beyond_boulder_dome"], &[("Boulder", "Boulder, Colorado")]),
+    (&["mod_falloutnv_dog_city"], &[("Dog City", "Denver, Colorado")]),
+    (&["mod_falloutnv_bfm_denver"], &[("Denver", "Denver, Colorado")]),
+    (&["mod_falloutnv_bfm_san_francisco"], &[("San Francisco", "San Francisco, California")]),
+    (&["fallout4"], &[
+        // Fallout 4 (keys are the game's marker names; values the real places they depict). Not anchored:
+        // fictional places; downtown landmarks within a mile of these; Rocky Narrows Park (the game's is
+        // north-west of Boston, the real one in Sherborn to the south-west, ~13 mi off); Fort Strong (the
+        // game's is 5 mi north of Spectacle Island, the real one 1 mi south-east of it); and buildings standing
+        // for a town (Natick Banks, Milton General Hospital), which fold the warp against the real places beside.
+        ("Diamond City", "Fenway Park"),
+        ("Goodneighbor", "Old State House, Boston"),
+        ("Boston Common", "Boston Common"),
+        ("Bunker Hill", "Bunker Hill Monument"),
+        ("USS Constitution", "USS Constitution Museum"),
+        ("C.I.T. Ruins", "Massachusetts Institute of Technology"),
+        ("The Castle", "Castle Island, Boston"),
+        ("Boston Airport", "Boston Logan International Airport"),
+        ("Concord", "Concord, Massachusetts"),
+        ("Lexington", "Lexington, Massachusetts"),
+        ("Bedford Station", "Bedford, Massachusetts"),
+        ("Walden Pond", "Walden Pond"),
+        ("Salem", "Salem, Massachusetts"),
+        ("Lynn Woods", "Lynn Woods Reservation"),
+        ("Breakheart Banks", "Breakheart Reservation"),
+        ("Saugus Ironworks", "Saugus Iron Works National Historic Site"),
+        ("Lake Quannapowitt", "Lake Quannapowitt"),
+        ("Malden Center", "Malden, Massachusetts"),
+        ("Medford Memorial Hospital", "Medford, Massachusetts"),
+        ("Revere Beach Station", "Revere Beach"),
+        ("Nahant Wharf", "Nahant, Massachusetts"),
+        ("Spectacle Island", "Spectacle Island, Boston"),
+        ("Weston Water Treatment Plant", "Weston, Massachusetts"),
+        ("Lake Cochituate", "Lake Cochituate"),
+        ("Chestnut Hillock Reservoir", "Chestnut Hill Reservoir"),
+        ("Jamaica Plain", "Jamaica Plain, Boston"),
+        ("Hyde Park", "Hyde Park, Boston"),
+        ("Quincy Ruins", "Quincy, Massachusetts"),
+        // Far Harbor: the Island is Mount Desert Island, Maine, its places at their real counterparts (the town of
+        // Far Harbor is Bar Harbor; Acadia's observatory is on the island's central summit). Not anchored:
+        // Brooke's Head Lighthouse, whose real counterpart would be a guess.
+        ("Far Harbor", "Bar Harbor, Maine"),
+        ("Southwest Harbor", "Southwest Harbor, Maine"),
+        ("Echo Lake Lumber", "44.3197,-68.3375"),                   // Echo Lake (Wikipedia); its name geocodes elsewhere
+        ("Cranberry Island Docks", "Great Cranberry Island"),
+        ("National Park Visitor's Center", "Hulls Cove Visitor Center"),
+        ("Acadia", "Cadillac Mountain"),
+        // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
+        // at the real theme park there (its map has the river with an island and a north-south interstate).
+        ("Nuka-World", "Six Flags New England"),
+    ]),
+    (&["fallout76"], &[
+        // Fallout 76: Appalachia rearranges West Virginia (it puts Grafton, Clarksburg, Philippi and Prickett's
+        // Fort north of Morgantown, and its Cranberry Bog east of Harpers Ferry), so its warp is loosened until it
+        // does not fold and these anchors drift a little (see `RubberSheet::new_fold_free`). Not anchored:
+        // Skyline Valley (Shenandoah: Rapidan Camp, Old Rag, Stony Man), which the game adds along the south of
+        // its map while the real one lies north-east of the Cranberry Glades, a move rather than drift; and lesser
+        // sites the game sets against these towns, which would only add drift (Grafton itself, Monongah,
+        // Philippi, Huntersville, Sugar Grove, Green Bank, Spruce Knob, Organ Cave, the New River Gorge Bridge,
+        // Big Bend Tunnel, Fort Steuben, Dolly Sods, Logan).
+        ("Morgantown", "Morgantown, West Virginia"),
+        ("Flatwoods", "Flatwoods, West Virginia"),
+        ("Point Pleasant", "Point Pleasant, West Virginia"),
+        ("Welch", "Welch, West Virginia"),
+        ("Beckley", "Beckley, West Virginia"),
+        ("Berkeley Springs", "Berkeley Springs, West Virginia"),
+        ("The Whitespring Resort", "The Greenbrier"),
+        ("Cranberry Glade", "Cranberry Glades Botanical Area"),  // the Cranberry Bog
+        ("Charleston Capitol Building", "West Virginia State Capitol"),
+        ("Clarksburg", "Clarksburg, West Virginia"),
+        ("Grafton Dam", "Tygart Lake"),
+        ("Prickett's Fort", "39.5154,-80.0998"),             // Prickett's Fort State Park (Wikipedia)
+        ("Harpers Ferry", "Harpers Ferry, West Virginia"),
+        ("Lewisburg", "Lewisburg, West Virginia"),
+        ("Summersville Dam", "Summersville Dam"),
+        ("Sutton", "Sutton, West Virginia"),
+        ("Helvetia", "Helvetia, West Virginia"),
+        ("Seneca Rocks", "Seneca Rocks"),
+        ("Tyler County Fairgrounds", "Middlebourne, West Virginia"),
+        ("Athens", "Athens, Ohio"),                          // Burning Springs
+        ("Albany", "Albany, Ohio"),
+        // Fallout 76's expeditions: each zone at its real counterpart; zones with none (the Pitt's districts,
+        // the flooded downtown, marked as the city, and its community center) at their city's centre.
+        ("The Pitt - Industrial", "Pittsburgh, Pennsylvania"),
+        ("The Foundry", "Pittsburgh, Pennsylvania"),
+        ("The Pitt - Trench", "Pittsburgh, Pennsylvania"),
+        ("Sanctum", "Pittsburgh, Pennsylvania"),
+        ("Steel Tower", "U.S. Steel Tower"),
+        ("The Boardwalk", "Boardwalk Hall, Atlantic City"),
+        ("Showman's Pier", "Steel Pier, Atlantic City"),
+        ("Aquarium of the Atlantic", "Atlantic City Aquarium"),
+        ("Casino Quarter", "Caesars Atlantic City"),
+        ("Atlantic City Hall", "1301 Bacharach Boulevard, Atlantic City"),
+        ("Atlantic City", "Atlantic City, New Jersey"),
+        ("Atlantic City Community Center", "Atlantic City, New Jersey"),
+    ]),
 ];
+
+/// The real places anchoring `source` (a cluster id; see `REAL_COORDS`).
+pub fn real_coords(source: &str) -> impl Iterator<Item = &'static (&'static str, &'static str)> + '_ {
+    REAL_COORDS.iter()
+        .filter(move |(scopes, _)| scopes.iter().any(|s| source.strip_prefix(s).is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))))
+        .flat_map(|(_, places)| places.iter())
+}
 
 const MILES_PER_DEGREE_LAT: f32 = 69.0;
 
@@ -669,7 +863,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
                 let mut ideal_lat = la;
                 let mut ideal_lon = lo;
                 
-                for (name, coords_str) in REAL_COORDS {
+                for (name, coords_str) in real_coords(&cluster.source) {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             ideal_lat = la;
@@ -683,7 +877,7 @@ pub fn fix_translation_only(game_clusters: Vec<RawMapData>, manual_maps: Vec<Raw
             } else {
                 let mut fallback_lat = 0.0;
                 let mut fallback_lon = 0.0;
-                for (name, coords_str) in REAL_COORDS {
+                for (name, coords_str) in real_coords(&cluster.source) {
                     if name.eq_ignore_ascii_case(&anchor.name) {
                         if let Ok((la, lo)) = geocoding::parse_coords(coords_str) {
                             fallback_lat = la;
@@ -953,6 +1147,7 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
     
     // We'll use a high-resolution intermediate fix (1.0 miles/hex)
     let resolution = 1.0;
+    let source = raw_maps.first().map(|m| m.source.clone()).unwrap_or_default();
     // A merged cluster keeps the best (lowest) priority tier among its sources.
     let priority = raw_maps.iter().map(|m| m.priority.max(1)).min().unwrap_or(1);
     let fixed = fix_with_terrain_inverse_warping(raw_maps, 0, resolution, None);
@@ -1005,6 +1200,7 @@ pub fn fix_to_raw(raw_maps: Vec<RawMapData>) -> RawMapData {
         priority,
         anchor_only_markers: false, // anchor-only markers were never placed
         control_points: Vec::new(),
+        source,
     }
 }
 
@@ -1099,15 +1295,6 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
         tier: u8,
     }
     
-    // Map Real World Coords for lookup (parse coordinates or geocode addresses)
-    // Key: lowercase name, Value: (lat, lon, canonical_name)
-    let mut real_coords_map: HashMap<String, (f32, f32, String)> = HashMap::new();
-    for (name, coords_str) in REAL_COORDS.iter() {
-        if let Ok((lat, lon)) = geocoding::parse_coords(coords_str) {
-            let canonical = name.to_string();
-            real_coords_map.insert(canonical.to_lowercase(), (lat, lon, canonical));
-        }
-    }
 
     let mut manual_points_bins: HashMap<(i32, i32), Vec<ManualPoint>> = HashMap::new();
     let mut manual_projected_lats = Vec::new();
@@ -1165,17 +1352,13 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             game_coords.insert(loc.name.to_lowercase(), (loc.x, loc.y));
         }
 
-        // 1. Build control points strictly from hardcoded anchors
+        // 1. Build control points strictly from the real places written for this source (parsed
+        // coordinates, or geocoded addresses).
         let mut control_points = Vec::new();
-        for (name_lower, (lat, lon, _canonical)) in &real_coords_map {
-            if let Some((gx, gy)) = game_coords.get(name_lower) {
-                control_points.push(ControlPoint {
-                    name: name_lower.clone(),
-                    game_x: *gx,
-                    game_y: *gy,
-                    real_lat: *lat,
-                    real_lon: *lon,
-                });
+        for (name, coords_str) in real_coords(&map.source) {
+            let name_lower = name.to_lowercase();
+            if let (Some((gx, gy)), Ok((lat, lon))) = (game_coords.get(&name_lower), geocoding::parse_coords(coords_str)) {
+                control_points.push(ControlPoint { name: name_lower, game_x: *gx, game_y: *gy, real_lat: lat, real_lon: lon });
             }
         }
 
@@ -1190,7 +1373,8 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
 
         // A map placed by one anchor and a known scale (a fictional DLC worldspace set at a canon or
         // fan-theory location): north-up at that scale, via two synthetic anchors east and south of it.
-        if let (1..=2, Some(mpu)) = (control_points.len(), map.miles_per_unit) {
+        // With two anchors their distance gives the scale (below), known or not.
+        if let (1, Some(mpu)) = (control_points.len(), map.miles_per_unit) {
             let c = control_points[0].clone();
             let d = 10_000.0f32; // game units; any distance gives the same similarity
             let (dlat, dlon) = (d * mpu / MILES_PER_DEGREE_LAT, d * mpu / (MILES_PER_DEGREE_LAT * c.real_lat.to_radians().cos()));
@@ -1198,7 +1382,7 @@ fn fix_with_terrain_inverse_warping(raw_maps: Vec<RawMapData>, dense_maps: usize
             control_points.push(ControlPoint { name: format!("{} (east)", c.name), game_x: c.game_x + d, game_y: c.game_y, real_lat: c.real_lat, real_lon: c.real_lon + dlon });
             control_points.push(ControlPoint { name: format!("{} (south)", c.name), game_x: c.game_x, game_y: c.game_y + d, real_lat: c.real_lat - dlat, real_lon: c.real_lon });
         } else if control_points.len() == 2 {
-            // Two anchors and no known scale (Fallout 1.5: Resurrection): the similarity through them
+            // Two anchors (Fallout 1.5: Resurrection, New California): the similarity through them
             // (their distance gives the scale, their bearing the rotation), via a third point at right
             // angles to the pair on both sides. Game y grows south, so real points are taken as (east,
             // south) miles from the first anchor to keep the same handedness.
@@ -1943,7 +2127,7 @@ mod invariant_tests {
     fn game(v: GameVariant) -> RawMapData { FalloutInterplayExtractor::new(v).extract() }
 
     fn anchors() -> HashMap<String, (f32, f32)> {
-        REAL_COORDS.iter()
+        real_coords("fallout_interplay")
             .map(|(n, c)| (n.to_lowercase(), geocoding::parse_coords(c).unwrap()))
             .collect()
     }
@@ -2154,7 +2338,7 @@ mod invariant_tests {
             real_lat: None, real_lon: None, weight: 1.0, anchor: None, lod: false })).collect();
         // Game units: Albuquerque at (300, 300), Rat Hole up-left; the probe at right angles (down-left).
         let map = RawMapData { locations: vec![loc("Albuquerque", 300.0, 300.0), loc("Rat Hole", 150.0, 150.0), loc("Probe", 150.0, 450.0)],
-            tiles, width: 40, height: 40, coordinate_scale: 10.0, priority: 1, ..Default::default() };
+            tiles, width: 40, height: 40, coordinate_scale: 10.0, priority: 1, source: "mod_fallout2_fallout_resurrection".into(), ..Default::default() };
         let fixed = fix_with_terrain_inverse_warping(vec![map], 0, 1.0, None);
         let at = |n: &str| fixed.locations.iter().find(|l| l.name == n).and_then(|l| l.real_lat.zip(l.real_lon)).unwrap();
         let ((la, lo), (lr, lor), (lp, lop)) = (at("Albuquerque"), at("Rat Hole"), at("Probe"));

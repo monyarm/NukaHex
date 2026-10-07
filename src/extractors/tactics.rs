@@ -29,7 +29,7 @@ impl Extractor for TacticsExtractor {
     fn get_id(&self) -> &str { match self { Self::Main => "fallout_tactics", Self::Mod(id) => id } }
     fn get_code_path(&self) -> &str { "src/extractors/tactics.rs" }
     fn get_cluster_id(&self) -> String {
-        match self { Self::Main => "fallout_tactics".to_string(), Self::Mod(id) => format!("mod_{}", id) }
+        match self { Self::Main => "fallout_tactics".to_string(), Self::Mod(id) => format!("mod_fallout_tactics_{}", id) }
     }
     fn get_source_paths(&self) -> Vec<String> {
         match self {

@@ -69,5 +69,162 @@
         "source": { "nexus": { "game": "fallout3", "mod": 16183, "file": 80139 } },
         "file": "Alpha Bugfix V2 DL THIS ONE NOT OLD ONE-16183.rar",
         "sha256": "0766f9b38d378d1c10ce642d09a0f573d0f90f0a6eff6e58b0b116035fdc7ee0"
+    },
+    {
+        "id": "new_california",
+        "name": "Fallout: New California BETA 222 patch (New Vegas; its NewCalifornia.esm is the whole mod's plugin)",
+        "source": { "moddb": 180652 },
+        "file": "FalloutNewCaliforniaBETA222Patch.7z",
+        "md5": "3b4a78498185bfc328a96c1cb0e697f4",
+        "unpack": ["NewCalifornia.esm"]
+    },
+    {
+        "id": "atlanta",
+        "name": "Fallout Atlanta Alpha 0.65 (New Vegas)",
+        "source": { "moddb": 302487 },
+        "file": "Fallout_Atlanta_0.65.zip",
+        "md5": "6e870247cafd0016eca10149917a5db8",
+        "unpack": ["Atlanta.esm"]
+    },
+    {
+        "id": "speedy_resources",
+        "name": "Speedy Resources V3.1 (New Vegas; a modder's resource the BFM mods name as a master)",
+        "source": { "nexus": { "game": "newvegas", "mod": 39551, "file": 96104 } },
+        "file": "Speedy Resource Pack V3_1-39551-3-1.zip",
+        "sha256": "413e91a1c9655604dccacd07931b2f720a41ccb44755176f2e304a91122cc2ae",
+        "unpack": ["SpeedyResources.esm"]
+    },
+    {
+        "id": "ghoulville",
+        "name": "Mojave National Preserve (Ghoulville) 2.0 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 57373, "file": 1000037613 } },
+        "file": "Ghoulville.esp-57373-2-0.zip",
+        "sha256": "aa44fe5f62a6c1224705ce7338f7e8db8ccfb414fc88ddb4dab8a3082ae9e34c"
+    },
+    {
+        "id": "beyond_the_borders",
+        "name": "Beyond the Borders - New Lands, final version (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 39427, "file": 87671 } },
+        "file": "Final version-39427-1.7z",
+        "sha256": "b7467b51a2a2703e89b82a4514530757500330f7c1530b4943811f183a427ba5"
+    },
+    {
+        "id": "arizona_expedition",
+        "name": "Arizona Expedition V3 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 60866, "file": 1000034448 } },
+        "file": "Arizona V3-60866-13.rar",
+        "sha256": "0cdf0d685b85168decf3782cf0ed0972258d8a570ac186c57268f9d59f02da75"
+    },
+    {
+        "id": "beyond_boulder_dome",
+        "name": "Beyond Boulder Dome, file 05: ESM and misc (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 46907, "file": 1000002427 } },
+        "file": "BBD - File 05 - ESM and Misc-46907-1-0.7z",
+        "sha256": "7ba33fda51b342859e4c921d828f395fd2f54689bf110bc8415d60cd3e4ab204"
+    },
+    {
+        "id": "dog_city",
+        "name": "Dog City Denver V2 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 41751, "file": 90873 } },
+        "file": "Dog City V2-41751.zip",
+        "sha256": "34b6908ba66f48278241afac8f147beee0fdbcbb93f3c60ed464d2b3c9df1f31"
+    },
+    {
+        "id": "bfm_denver",
+        "name": "BFM Denver, ESM version (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 58761, "file": 1000027644 } },
+        "file": "BFM Denver Esm-58761-.zip",
+        "sha256": "35a390ecce19b926a900a42b7aef293a89bcc3fa77e259bf914175dcefbee211",
+        "requires": ["speedy_resources"]
+    },
+    {
+        "id": "bfm_san_francisco",
+        "name": "BFM San Francisco 4.0 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 60152, "file": 1000031612 } },
+        "file": "BFM San Francisco 4.0-60152-4-0.zip",
+        "sha256": "de6884fb311de22807f82810b61012fa7f171f79859021a571d6ac476c4604d1",
+        "requires": ["speedy_resources"]
+    },
+    {
+        "id": "nova_arizona",
+        "name": "Nova Arizona - A Legion Lands Expansion 0.27 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 85915, "file": 1000173392 } },
+        "file": "Nova Arizona - A Legion Lands Expansion-85915-0-27-1775866285.zip",
+        "sha256": "0f2cd6f9d0d381bc666667aa763cd218ca9cddee55da59adbdbb6472d639e707",
+        "unpack": ["NovaArizona.esm"]
+    },
+    {
+        "id": "zion_trail",
+        "name": "Zion Trail 1.05b (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 61939, "file": 1000037562 } },
+        "file": "Zion Trail-61939-1-05b.zip",
+        "sha256": "e2a5cf1ff4e31a81c6d1951d68f8731cd2af3f975945e4cd0452a54cfc9051d5"
+    },
+    {
+        "id": "san_fran",
+        "name": "San Fran pre-alpha (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 70128, "file": 1000066502 } },
+        "file": "San Fran Pre-Alpha-70128-0-0-1602874114.7z",
+        "sha256": "20d71972bcae48609e498be6ba7cbf9fd0e68261f62f52b99947b69ea0439402"
+    },
+    {
+        "id": "havasu_blues",
+        "name": "Havasu Blues 1.5 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 76680, "file": 1000094455 } },
+        "file": "Havasu Blues Main File-76680-1-5-1655475033.7z",
+        "sha256": "2eb1a1a78cc2425b5c2041f52931f1d77da045a2f391211ca9c445db9f35747f"
+    },
+    {
+        "id": "fallout_chicago",
+        "name": "Fallout Chicago demo: its ESM (with quest markers; the assets are a separate 1.9 GB file) (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 96929, "file": 1000181022 } },
+        "file": "Quest Markers Esm 96929 1 2026-09-08T01-19Z YpisGABt.rar",
+        "sha256": "b85016d60b0baaaaea22064c88bf413793a68e0288bf77a4d9571745feca36d0"
+    },
+    {
+        "id": "someguy_series",
+        "name": "The Someguy Series 2.0 master (New Vegas; Russell's master)",
+        "source": { "nexus": { "game": "newvegas", "mod": 48925, "file": 1000019870 } },
+        "file": "Someguy Series 2 dot 0-48925-2-0.rar",
+        "sha256": "721ca4fd295eff0698bf7875b85d1e098279ce64268342c99a7ce0de3a849ba6"
+    },
+    {
+        "id": "russell",
+        "name": "Russell 1.17 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 50107, "file": 1000021709 } },
+        "file": "Russell Version 1.17-50107-1-17.rar",
+        "sha256": "71c3789f808ade2e274895018e13de741cbe4787c3741a23fa339847c50fee7a",
+        "requires": ["someguy_series"]
+    },
+    {
+        "id": "long_15",
+        "name": "Long 15 - NCR Expansion 1.5 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 94306, "file": 1000179889 } },
+        "file": "Long 15 - NCR Expansion 94306 1.5 2026-08-17T01-42Z uUoQ9Kyf.7z",
+        "sha256": "83e844d466ff19f577a2f8a7e53ec3ebe4b36395d223b3ca64964fba87871ee0",
+        "unpack": ["Long15Reloaded.esm"]
+    },
+    {
+        "id": "nwce",
+        "name": "New West Coast Enclave - Necropolis Addon 1.0 (New Vegas; its NWCEMod.esm)",
+        "source": { "nexus": { "game": "newvegas", "mod": 54537, "file": 1000015632 } },
+        "file": "New West Cost Enclave - Necropolis Addon-54537-1-0.rar",
+        "sha256": "1f8f88bbd11bffd7724ab307428143a3d0c6f46482a652af8ee373f60f7dea1c",
+        "unpack": ["NWCEMod.esm"]
+    },
+    {
+        "id": "empire_wasteland",
+        "name": "The Empire Wasteland - Project Big Apple, alpha 05.2 (New Vegas)",
+        "source": { "nexus": { "game": "newvegas", "mod": 53343, "file": 1000041709 } },
+        "file": "EmpireWastelandALPHA 05.2-53343-5-2.zip",
+        "sha256": "42670479cfa2ba05073a99d61a10cf773c5727dd7198f512bed392706f11a8a8",
+        "unpack": ["BigAppleUpdated/data/TheBigAppleMergedNew.esp"]
+    },
+    {
+        "id": "the_frontier",
+        "name": "Fallout: The Frontier, original release: its plugin alone, from archive.org's upload (New Vegas)",
+        "source": { "url": "https://archive.org/download/fallout-the-frontier.-7z/Fallout%20%20-%20The%20Frontier.7z/The%20Frontier.esm" },
+        "file": "The Frontier.esm",
+        "sha256": "f736bc3e8badf796216ebdeebc12d9224b17abb89ed137ecc10e8da762d8f1f8"
     }
 ]

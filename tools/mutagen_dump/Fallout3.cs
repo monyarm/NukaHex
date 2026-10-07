@@ -82,7 +82,7 @@ static class Fallout3Dump
                 ["layer"] = l.Header.LayerNumber,
                 ["texture"] = l.Header.Texture.IsNull ? null : Key(l.Header.Texture.FormKey),
                 // Alpha layers: (vertex index within the 17x17 quadrant, opacity); base layers have none.
-                ["alpha"] = l is IAlphaLayerGetter a ? a.AlphaLayerData.Select(d => new object[] { d.Position, MathF.Round(d.Opacity, 3) }).ToArray() : null,
+                ["alpha"] = l is IAlphaLayerGetter { AlphaLayerData: { } alpha } ? alpha.Select(d => new object[] { d.Position, MathF.Round(d.Opacity, 3) }).ToArray() : null, // (some mods' alpha layers carry no data)
             }).ToArray();
         }
 

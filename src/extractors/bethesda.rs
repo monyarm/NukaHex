@@ -112,6 +112,7 @@ impl BethesdaGameVariant {
     }
 }
 
+#[derive(Debug)]
 pub struct BethesdaExtractor {
     variant: BethesdaGameVariant,
     /// The worldspaces placed together as one map (several for a place split over exteriors).
@@ -136,6 +137,12 @@ pub struct BethesdaExtractor {
     /// Placed by its name alone (a mod's freely laid-out place): its other markers, which could share
     /// names with real places elsewhere (Alton's "The Divide"), do not anchor it.
     by_name: bool,
+    /// Radiation markers weaker than this (rads per second) leave the ground as it is: a mod's wide
+    /// ambient zones (New California's), unlike the games' own.
+    min_rads: Option<f32>,
+    /// Only the land within this many cells of the box around its anchored markers: a mod's world
+    /// stretching far past the real places it depicts (New California's).
+    anchor_margin: Option<i32>,
 }
 
 /// Miles per game unit at the size things are built (a unit is about 1.43 cm), for places the game does
@@ -148,7 +155,7 @@ impl BethesdaExtractor {
     }
 
     fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
-        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false, mod_plugins: None, added_only: false, by_name: false }
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false, mod_plugins: None, added_only: false, by_name: false, min_rads: None, anchor_margin: None }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
@@ -180,8 +187,23 @@ impl BethesdaExtractor {
     /// mod, its markers only anchor its terrain.
     /// `name` names it on the main maps, as for `dlc_group`.
     pub fn from_mod(variant: BethesdaGameVariant, mod_id: &'static str, plugins: &'static [&'static str], name: &'static str, worldspaces: &[&'static str]) -> Self {
-        let place: String = name.to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-        Self { id: format!("mod_{}_{}", mod_id, place), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), ..Self::dlc_group(variant, name, worldspaces) }
+        Self { id: format!("mod_{}_{}", variant.id_str(), mod_id), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), ..Self::dlc_group(variant, name, worldspaces) }
+    }
+
+    /// Another world of the same mod, placed apart (each on its own coordinates): its id adds its name.
+    pub fn another_world(self) -> Self {
+        let place: String = self.summary_name.unwrap_or_default().to_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        Self { id: format!("{}_{}", self.id, place), ..self }
+    }
+
+    /// Radiation only from markers of at least `rads` (see `min_rads`).
+    pub fn radiation_from(self, rads: f32) -> Self {
+        Self { min_rads: Some(rads), ..self }
+    }
+
+    /// Only the land around its anchors (see `anchor_margin`).
+    pub fn within_anchors(self, cells: i32) -> Self {
+        Self { anchor_margin: Some(cells), ..self }
     }
 
     /// Placed by its name alone (see `by_name`).
@@ -192,7 +214,7 @@ impl BethesdaExtractor {
     /// The cells a mod adds to a game's worldspaces (and the child worlds it adds on their coordinates),
     /// placed by the game's own anchors (see `added_only`).
     pub fn mod_extension(variant: BethesdaGameVariant, mod_id: &'static str, plugins: &'static [&'static str], worldspaces: &[&'static str]) -> Self {
-        Self { id: format!("mod_{}", mod_id), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), added_only: true, ..Self::parts(variant, worldspaces) }
+        Self { id: format!("mod_{}_{}", variant.id_str(), mod_id), tier: crate::schema::tier::MODS, anchor_only: true, mod_plugins: Some((mod_id, plugins)), added_only: true, ..Self::parts(variant, worldspaces) }
     }
 
     /// A source of another priority tier (e.g. Operation Anchorage, a simulation of the past).
@@ -211,7 +233,7 @@ impl BethesdaExtractor {
     /// Data, or for a mod a folder in its cache linking the game's masters and the mod's plugins.
     fn load_dir(&self, data_dir: &Path) -> Result<(PathBuf, Vec<String>), String> {
         let Some((mod_id, plugins)) = self.mod_plugins else { return Ok((data_dir.to_path_buf(), vec![])) };
-        let files = crate::mods::fetch(mod_id)?;
+        let dirs = crate::mods::fetch_with_requirements(mod_id)?;
         // Shared by the mod's extractors, which run in parallel: links are made once, never rebuilt.
         let dir = Path::new(".cache/mods").join(mod_id).join("data");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -224,7 +246,7 @@ impl BethesdaExtractor {
             if name.to_lowercase().ends_with(".esm") { link(&e.path(), &name)?; }
         }
         for plugin in plugins {
-            let found = crate::mods::find_dir_with(&files, plugin).ok_or_else(|| format!("{} not found in {}", plugin, files.display()))?;
+            let found = dirs.iter().find_map(|d| crate::mods::find_dir_with(d, plugin)).ok_or_else(|| format!("{} not found in {} or the mods it requires", plugin, mod_id))?;
             let name = std::fs::read_dir(&found).map_err(|e| e.to_string())?.flatten().map(|e| e.file_name())
                 .find(|f| f.eq_ignore_ascii_case(plugin)).unwrap();
             link(&found.join(name), plugin)?;
@@ -258,8 +280,11 @@ impl BethesdaExtractor {
         let _ = std::fs::remove_file(&out); // the extractor's own output is what gets cached
         dump.map(|mut d: Dump| {
             if self.variant == BethesdaGameVariant::Fallout4 { d.lod = super::lod::cell_brightness(data_dir, worldspace); }
-            // A mod's added cells lie past the game's map (that is what they add): all of them are shown.
-            if self.added_only { (d.worldspace.map_nw_cell, d.worldspace.map_se_cell) = (None, None); }
+            // A mod's land is all shown: its added cells lie past the game's map (that is what they add), and its
+            // own worlds' map frames are often unset (worlds entered by a door: NWCE's Necropolis frames 2 of its
+            // ~110 cells), their filler cut by `built_extent` instead.
+            if self.mod_plugins.is_some() { (d.worldspace.map_nw_cell, d.worldspace.map_se_cell) = (None, None); }
+            if let Some(min) = self.min_rads { d.radiation.retain(|r| r.radiation.is_none_or(|v| v >= min)); }
             // A mod's own world: only where it is built (see `built_extent`).
             if self.mod_plugins.is_some() && !self.added_only {
                 if let Some((x0, x1, y0, y1)) = built_extent(&d) { d.cells.retain(|c| (x0..=x1).contains(&c.x) && (y0..=y1).contains(&c.y)); }
@@ -273,6 +298,7 @@ impl Extractor for BethesdaExtractor {
     fn get_id(&self) -> &str { &self.id }
     fn get_code_path(&self) -> &str { "src/extractors/bethesda.rs" }
     fn get_cluster_id(&self) -> String { self.id.clone() }
+    fn get_config(&self) -> String { format!("{:?}", self) }
 
     /// Every master in Data (the helper picks the official ones) plus the helper's source.
     fn get_source_paths(&self) -> Vec<String> {
@@ -289,6 +315,7 @@ impl Extractor for BethesdaExtractor {
             paths.extend(btd);
         }
         if self.mod_plugins.is_some() { paths.push(crate::mods::MANIFEST.into()); }
+        if self.anchor_margin.is_some() { paths.push("src/fixer.rs".into()); } // its anchors
         if let Some(dir) = self.data_dir() {
             let mut esms: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten()
                 .map(|e| e.path())
@@ -312,10 +339,17 @@ impl Extractor for BethesdaExtractor {
         match dumps {
             Ok(dumps) => {
                 let mut map = build(&dumps, self.variant, self.summarized.then(|| self.summary_name), if self.interior.is_some() { TRUE_MILES_PER_UNIT } else { self.variant.miles_per_unit() });
-                // A mod's land beyond its map is unbuilt filler (Alton's 80-cell square around a 30-cell
-                // town), not the far view of real land the games' LOD is.
-                if self.mod_plugins.is_some() { map.tiles.retain(|t| !t.lod); }
                 if let (true, Some(name)) = (self.by_name, self.summary_name) { map.locations.retain(|l| l.name == name); }
+                if let Some(margin) = self.anchor_margin {
+                    let anchors: HashSet<String> = crate::fixer::real_coords(&self.id).map(|(n, _)| n.to_lowercase()).collect();
+                    let at: Vec<(f32, f32)> = map.locations.iter().filter(|l| anchors.contains(&l.name.to_lowercase())).map(|l| (l.x / QUAD, l.y / QUAD)).collect();
+                    if !at.is_empty() {
+                        let m = (margin * 2) as f32; // quadrants
+                        let lo = (at.iter().map(|p| p.0).fold(f32::MAX, f32::min) - m, at.iter().map(|p| p.1).fold(f32::MAX, f32::min) - m);
+                        let hi = (at.iter().map(|p| p.0).fold(f32::MIN, f32::max) + m, at.iter().map(|p| p.1).fold(f32::MIN, f32::max) + m);
+                        map.tiles.retain(|t| (lo.0..=hi.0).contains(&(t.x as f32)) && (lo.1..=hi.1).contains(&(t.y as f32)));
+                    }
+                }
                 RawMapData { priority: self.tier, anchor_only_markers: self.anchor_only, ..map }
             }
             Err(e) => failed(e),
@@ -379,6 +413,9 @@ struct DumpMarker {
 struct DumpChildMarker {
     #[serde(flatten)]
     marker: DumpMarker,
+    /// Editor ID of the child worldspace it is in.
+    #[serde(default)]
+    worldspace: Option<String>,
     map_scale: Option<f32>,
     map_offset: Option<[f32; 2]>,
 }
@@ -388,6 +425,9 @@ struct DumpRadiation {
     /// Fallout 4's placed hazards: the effect they apply (radiation, or e.g. fire).
     #[serde(default)]
     effect: Option<String>,
+    /// Its strength (rads per second), where the game records one (Fallout 3 and New Vegas).
+    #[serde(default)]
+    radiation: Option<f32>,
     radius: Option<f32>,
     x: f32,
     y: f32,
@@ -979,9 +1019,13 @@ fn build(dumps: &[Dump], variant: BethesdaGameVariant, summary: Option<Option<&s
 
     let mut locations: Vec<RawLocation> = Vec::new();
     let mut members: HashMap<String, usize> = HashMap::new(); // gates merged so far, per place
+    // Child worldspaces placed in this frame themselves bring their own markers; the parent's copies of those
+    // (through the game's map offsets, for children shown on their parent's map) would only duplicate them,
+    // and in New Vegas, offset elsewhere.
+    let in_frame: HashSet<&str> = dumps.iter().filter_map(|d| d.worldspace.edid.as_deref()).collect();
     for dump in dumps {
         // Markers of child worldspaces (Freeside, DC...) on this map (see `child_map_offset`).
-        let child = dump.child_markers.iter().map(|m| {
+        let child = dump.child_markers.iter().filter(|m| !m.worldspace.as_deref().is_some_and(|w| in_frame.contains(w))).map(|m| {
             let (scale, [ox, oy]) = match lists.child_map_offset {
                 true => (m.map_scale.unwrap_or(1.0), m.map_offset.unwrap_or([0.0, 0.0])),
                 false => (1.0, [0.0, 0.0]),
@@ -1149,7 +1193,7 @@ mod tests {
             worldspace: DumpWorld { name: Some("Test World".into()), edid: None, default_water_height: None, default_land_height: None, map_nw_cell: None, map_se_cell: None, default_ground: None },
             markers: vec![marker("Goodsprings", 1000.0, 3000.0)],
             // A child worldspace marker at (100, 200), scale 0.5, offset (2000, 1000) -> world (2050, 1100).
-            child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
+            child_markers: vec![DumpChildMarker { marker: marker("Gate", 100.0, 200.0), worldspace: Some("Child".into()), map_scale: Some(0.5), map_offset: Some([2000.0, 1000.0]) }],
             radiation: vec![],
             statics: vec![],
             water_planes: vec![],

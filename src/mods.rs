@@ -26,6 +26,9 @@ struct ModEntry {
     /// Archive members to unpack (7z wildcards); all of it when absent.
     #[serde(default)]
     unpack: Vec<String>,
+    /// Mods whose files it needs too (a resource pack its plugins name as masters).
+    #[serde(default)]
+    requires: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -35,6 +38,8 @@ enum Source {
     Mediafire(String),
     /// A Nexus file, downloaded by hand (Nexus serves files to free accounts only through its site).
     Nexus { game: String, #[serde(rename = "mod")] mod_id: u64, file: u64 },
+    /// A direct link (e.g. one file inside an archive.org upload's archive).
+    Url(String),
 }
 
 /// Where hand-downloaded files are looked for: the XDG downloads folder, else `~/Downloads`.
@@ -86,10 +91,27 @@ fn hex_digest<D: Digest>(path: &Path) -> Result<String, String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// The unpacked files of mod `id` (fetching and unpacking them first if needed).
+fn manifest() -> Result<Vec<ModEntry>, String> {
+    serde_json::from_slice(&std::fs::read(MANIFEST).map_err(|e| format!("{}: {}", MANIFEST, e))?).map_err(|e| format!("{}: {}", MANIFEST, e))
+}
+
+/// The unpacked files of mod `id` and of the mods it requires, it first (fetching them as needed).
+pub fn fetch_with_requirements(id: &str) -> Result<Vec<PathBuf>, String> {
+    let requires = manifest()?.into_iter().find(|m| m.id == id).map(|m| m.requires).unwrap_or_default();
+    std::iter::once(id).chain(requires.iter().map(String::as_str)).map(fetch).collect()
+}
+
+/// The unpacked files of mod `id` (fetching and unpacking them first if needed). One fetch per mod at a
+/// time: a mod's worlds are extracted in parallel and share its files.
 pub fn fetch(id: &str) -> Result<PathBuf, String> {
-    let manifest: Vec<ModEntry> = serde_json::from_slice(&std::fs::read(MANIFEST).map_err(|e| format!("{}: {}", MANIFEST, e))?)
-        .map_err(|e| format!("{}: {}", MANIFEST, e))?;
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>>> = std::sync::OnceLock::new();
+    let lock = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).entry(id.to_string()).or_default().clone();
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    fetch_unlocked(id)
+}
+
+fn fetch_unlocked(id: &str) -> Result<PathBuf, String> {
+    let manifest = manifest()?;
     let m = manifest.iter().find(|m| m.id == id).ok_or_else(|| format!("{} is not in {}", id, MANIFEST))?;
     let dir = Path::new(".cache/mods").join(id);
     let (archive, unpacked) = (dir.join(&m.file), dir.join("files"));
@@ -102,7 +124,10 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
             return Err(format!("download https://www.nexusmods.com/{}/mods/{}?tab=files&file_id={} by hand into {} (as {})",
                 game, mod_id, file, downloads_dir().display(), m.file));
         }
-        std::fs::copy(&downloaded, &archive).map_err(|e| format!("copying {}: {}", downloaded.display(), e))?;
+        // Through a part file, like a download: an interrupted copy is never taken for the archive.
+        let part = dir.join(format!("{}.part", m.file));
+        std::fs::copy(&downloaded, &part).map_err(|e| format!("copying {}: {}", downloaded.display(), e))?;
+        std::fs::rename(&part, &archive).map_err(|e| e.to_string())?;
     }
     if !archive.exists() {
         let (url, extra): (String, &[&str]) = match &m.source {
@@ -111,6 +136,7 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
                 (moddb_mirror(&start).ok_or("no mirror link on ModDB's download page (bot check or layout change)")?, MODDB_CURL)
             }
             Source::Mediafire(url) => (mediafire_direct(&page(&[], url)?).unwrap_or_else(|| url.clone()), &[]),
+            Source::Url(url) => (url.clone(), &[]),
             Source::Nexus { .. } => unreachable!("copied above"),
         };
         info!("[Mods] downloading {} ({})", m.file, id);
@@ -131,20 +157,31 @@ pub fn fetch(id: &str) -> Result<PathBuf, String> {
         return Err(format!("{} does not match its recorded hash ({} != {})", m.file, actual, expected));
     }
 
-    // 7z reads zip/7z/rar and NSIS installers; innoextract reads Inno Setup installers (Nevada's).
+    // 7z reads zip/7z/rar and NSIS installers; innoextract reads Inno Setup installers (Nevada's). Into a
+    // part folder, renamed when complete: an interrupted unpack is never taken for the files.
     info!("[Mods] unpacking {}", m.file);
+    let part = dir.join("files.part");
+    let _ = std::fs::remove_dir_all(&part);
+    // A plugin fetched on its own (not in an archive) is the mod's files as it is.
+    if Path::new(&m.file).extension().is_some_and(|e| e.eq_ignore_ascii_case("esm") || e.eq_ignore_ascii_case("esp")) {
+        std::fs::create_dir_all(&part).map_err(|e| e.to_string())?;
+        std::fs::copy(&archive, part.join(&m.file)).map_err(|e| e.to_string())?;
+        std::fs::rename(&part, &unpacked).map_err(|e| e.to_string())?;
+        return Ok(unpacked);
+    }
     let quiet = || std::process::Stdio::null();
-    let sevenzip = Command::new("7z").arg("x").arg("-y").arg(format!("-o{}", unpacked.display())).arg(&archive)
+    let sevenzip = Command::new("7z").arg("x").arg("-y").arg(format!("-o{}", part.display())).arg(&archive)
         .args(&m.unpack).stdout(quiet()).stderr(quiet()).status().is_ok_and(|s| s.success());
     if !sevenzip {
-        let _ = std::fs::remove_dir_all(&unpacked);
-        let inno = Command::new("innoextract").arg("--silent").arg("--output-dir").arg(&unpacked).arg(&archive)
+        let _ = std::fs::remove_dir_all(&part);
+        let inno = Command::new("innoextract").arg("--silent").arg("--output-dir").arg(&part).arg(&archive)
             .stdout(quiet()).status().is_ok_and(|s| s.success());
         if !inno {
-            let _ = std::fs::remove_dir_all(&unpacked);
+            let _ = std::fs::remove_dir_all(&part);
             return Err(format!("unpacking {} failed (neither 7z nor innoextract can read it)", m.file));
         }
     }
+    std::fs::rename(&part, &unpacked).map_err(|e| e.to_string())?;
     Ok(unpacked)
 }
 

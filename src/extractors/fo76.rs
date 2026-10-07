@@ -153,7 +153,7 @@ impl Placed {
         let s = scale.get(&id).copied().unwrap_or(1.0);
         if rec == "PHZD" {
             if let Some((r, what)) = bases.hazards.get(&base) {
-                self.radiation.push(DumpRadiation { effect: Some(what.clone()), radius: Some(r * s), x, y });
+                self.radiation.push(DumpRadiation { effect: Some(what.clone()), radiation: None, radius: Some(r * s), x, y });
             }
         } else if base == MAP_MARKER {
             // (Fallout 76's marker types are its own numbers: the kind is left out.)
