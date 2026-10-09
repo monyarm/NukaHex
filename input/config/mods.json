@@ -226,5 +226,62 @@
         "source": { "url": "https://archive.org/download/fallout-the-frontier.-7z/Fallout%20%20-%20The%20Frontier.7z/The%20Frontier.esm" },
         "file": "The Frontier.esm",
         "sha256": "f736bc3e8badf796216ebdeebc12d9224b17abb89ed137ecc10e8da762d8f1f8"
+    },
+    {
+        "id": "vermont",
+        "name": "Fallout Vermont 1.4 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 86755, "file": 330868 } },
+        "file": "Fallout Vermont 1.4-86755-1-4-1724094039.7z",
+        "sha256": "90137568eba5b33d185c5255ab13a15aa4d6f3f27c1370e914c610dc47d38072"
+    },
+    {
+        "id": "new_hampshire",
+        "name": "Fallout New Hampshire 1.0 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 87381, "file": 332895 } },
+        "file": "Fallout New Hampshire-87381-1-0-1725556062.7z",
+        "sha256": "44438ceb884738ae28b5949d305cf8053f5218d595a681007c3687ca57214495"
+    },
+    {
+        "id": "connecticut",
+        "name": "Connecticut 1.1 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 93927, "file": 357310 } },
+        "file": "ConnecticutUpdated-93927-1-1-1748290989.7z",
+        "sha256": "21e620892ea72cb33e7f74362c2dc8c8b1a3de4b9fa39fa43b15ad2902c3ae98"
+    },
+    {
+        "id": "project_empire",
+        "name": "Project Empire build 0130 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 12890, "file": 70670 } },
+        "file": "Build 0130-12890-0130.rar",
+        "sha256": "1b24852090257ccb296af61468a15ae7c3ea696860b1501d3604d2c37e60e909"
+    },
+    {
+        "id": "massachusetts_project",
+        "name": "Massachusetts Project beta 2.2 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 64655, "file": 352931 } },
+        "file": "Massachusetts Project Beta-64655-2-2-1743840396.7z",
+        "sha256": "5155e5103bd60e412fa926069e65f8b3ec07c416e6352ca4ba6ee5b9e6020f6b"
+    },
+    {
+        "id": "borders_of_the_world",
+        "name": "The Borders Of The World 0.02 (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 72600, "file": 287195 } },
+        "file": "The Borders Of The World V0.02-72600-0-02g-1692411485.rar",
+        "sha256": "0df18fefa1408cc31f6698c84c0281caf11c5f2d0ece5482b872e012cda86fed"
+    },
+    {
+        "id": "beyond_the_borders_fo4",
+        "name": "Beyond the Borders - New Lands, V4 bug fixes (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 17255, "file": 69907 } },
+        "file": "BTB V 4 bug fixes-17255-4.zip",
+        "sha256": "6066ef4b5df3c49e69e2f20e0fc30710d5c67f049892022e913c0cf9f668aa01",
+        "unpack": ["BTB- Beyond the Borders FO4.esp"]
+    },
+    {
+        "id": "fallout_miami",
+        "name": "Fallout Miami (Early Version) update 1.03: its plugin is the whole mod's (Fallout 4)",
+        "source": { "nexus": { "game": "fallout4", "mod": 24737, "file": 164026 } },
+        "file": "Update 1.03-24737-1-03-1565293244.7z",
+        "sha256": "d72544b5c5cd85cac9eb6b0668a03190e4772ca8b08b30818b496cdda8365a00"
     }
 ]

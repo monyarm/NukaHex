@@ -68,7 +68,8 @@ mentions go to `input/manual` at that game's tier.
   is left out
 - ✅ The Pitt — Pittsburgh (the Pitt and its three districts, which share its frame; at Downtown
   Pittsburgh)
-- ⬜ Broken Steel — extends the Capital Wasteland (no new worldspace of note)
+- ✅ Broken Steel — extends the Capital Wasteland (no new worldspace of note); loaded with the game's
+  plugins in its own order, so its changes are in the Wasteland we read
 - ✅ Point Lookout — Maryland (with the Sacred Bog; its lighthouse at the real one)
 - ➖ Mothership Zeta — in orbit
 
@@ -261,30 +262,13 @@ per source (`REAL_COORDS` is grouped by cluster).
 - ➖ Not released: Up Country (Michigan), Enclave City: New Cincinnati, Broken City, Oregon's Grand
   Vault; Fallout: Nuevo Mexico (cancelled, January 2025)
 
-### New Vegas: new land with no stated real place (terrain; placement needs canon/fan theory)
-- Median Valley — a quest mod in its own worldspace; Nexus 61568 (setting not found)
-- Fallout: Forgotten Valley — a fictional valley (2011, Russian; English translation 2026)
-
-### New Vegas: more of the Mojave (markers, some terrain, in worldspaces we already map)
-- Beyond the Borders – New Lands — opens the Mojave's borders: ~20 dungeons, a town, an NCR base
-  in the land outside them (edits WastelandNV itself)
-- A World of Pain — ~170 new locations across the Mojave
-- Uncut Wasteland / New Vegas Uncut — restored cut locations and NPCs; Freeside Open reworks the
-  Freeside worldspace
-- Simple Open Strip — merges the Strip into the Mojave (removes the gates)
-
-### New Vegas: quest mods the guides recommend that bring their own land
-- New Vegas Bounties III (Someguy series) — a frigid new worldspace in Utah
-- Russell (Someguy series) — companion mod with a "Mesquite Valley" worldspace (the Mesquite
-  Mountains west of Goodsprings, or Mesquite, NV? to check)
-- Beyond Boulder Dome — three worldspaces at Boulder, Colorado (a Van Buren location); GamePressure
-  mirror
-- Fallout: The New West (formerly Revelation Blues) — recreates Black Isle's cancelled Fallout 3
-  (Van Buren) in New Vegas (demos released, Nexus)
-- Havasu Blues — a ghoul settlement in Arizona (Lake Havasu? to check)
-- Into the Deep — a new town, Shamble, by Ivanpah Dry Lake near Nipton
-- Skidge Quest Pack — twelve quests and a new town, Sue Town (location to check)
-- Tales from the Burning Sands — serialized chapters, each with a new location (land to check)
+### New Vegas: other mods
+- ➖ Fallout: The New West (formerly Revelation Blues) — Black Isle's cancelled Fallout 3 (Van Buren)
+  recreated in New Vegas (demos released, Nexus): the Van Buren map already covers its land
+- ⬜ More of the Mojave (being checked for land they add): A World of Pain, MoreMojave, Westside Suburbs
+  Uncut, Primm South Uncut, Mojave Outpost Car Apocalypse Uncut, Southern Mojave Expanded (Nipton, Nelson,
+  Quarry Junction), New Vegas Uncut (A Wilder Wasteland, Outside Bets, Freeside Open), Simple Open Strip
+- ➖ Median Valley (Nexus 61568; setting not found), Fallout: Forgotten Valley (a fictional valley)
 
 ### New Vegas: nothing to place
 - Autumn Leaves (a library by Novac), Garden of Ethan (a pre-war facility by Nellis): enclosed
@@ -300,9 +284,9 @@ per source (`REAL_COORDS` is grouped by cluster).
 - ✅ Into the Ark — Newark, New Jersey (and the Ironbound), anchored by its real sights; its Philadelphia
   has no landscape; Nexus 21780
 - ➖ Wrong Turn — fictional hill country in West Virginia, no place to anchor it: skipped; Nexus 17526
-- Anchorage Aftermath (Nexus 22034), Back to Anchorage (10720), Anchorage - 2277 (21677, unfinished) —
+- ➖ Anchorage Aftermath (Nexus 22034), Back to Anchorage (10720), Anchorage - 2277 (21677, unfinished) —
   Anchorage after the war: the land Operation Anchorage's simulation already maps
-- The Scourge 2255 — the Pitt in 2255 (its worldspaces copied and expanded); Nexus 27029
+- ➖ The Scourge 2255 — the Pitt in 2255 (its worldspaces copied and expanded); Nexus 27029
 - ✅ Fallout 3 Anniversary - District of Columbia — the 13 cut DC worldspaces restored and placed where they
   were meant to be; Nexus 27168
 - ✅ Beyond the Wasteland's borders (cells they add to or reshape in the Wasteland): Vault 89 -
@@ -318,12 +302,39 @@ per source (`REAL_COORDS` is grouped by cluster).
   Operation: Kingpin (New Owen Sound, Ontario, ~110 mi from Michigan; never released)
 - ➖ Unreleased: Fallout remake (Fallout 1 in Fallout 3), The Deep South
 
+### Fallout 4 (worldspaces; Nexus files downloaded by hand)
+- ✅ Project Empire (Nexus 12890) — Puget Sound, Washington (its world is called "Northwest Commonwealth"):
+  its heightmap of the sound kept whole around 31 real towns (Seattle, Tacoma, Olympia, Everett, Bremerton,
+  Port Angeles, Victoria...)
+- ✅ Massachusetts Project (beta; Nexus 64655) — Cape Ann, the land it adds past the Commonwealth's
+  north-east border: the Commonwealth's warp and 8 real places (Rockport, Gloucester, Eastern Point,
+  Annisquam, Manchester-by-the-Sea, Agassiz Rock, Crane Estate, Newbury), one per locale
+- ✅ Fallout Vermont (Nexus 86755) — central Vermont, Montpelier to Tunbridge (9 anchors)
+- ✅ Fallout New Hampshire (Nexus 87381) — southern New Hampshire, Nashua to Manchester (7 anchors)
+- ✅ Connecticut (Nexus 93927) — north-central Connecticut, Cromwell to Andover (6 anchors)
+- ✅ The Borders of the World (Nexus 72600), Beyond the Borders – New Lands (Nexus 17255) — land past the
+  Commonwealth's borders, placed by its warp (their places are fictional)
+- ✅ Fallout Miami (early version; Nexus 24737, its 1.03 update: the plugin is the whole mod's) — Miami, placed by the
+  city (its places are laid out freely: its Liberty District east of Lincoln Road, the real Liberty City
+  west of Miami Beach)
+- ⬜ Being checked: Miami Misadventures (Nexus 58073; Miami, episodic), Endless Hypetrain (21903; Chicago)
+- ➖ Operation Manhattan (24216; New York, which The Empire Wasteland covers), DLC76 (36118; Charleston and
+  Vault 76, land Fallout 76 maps)
+- ➖ Northern Springs (Nexus 32911) — fictional throughout (Wolfendale, Sanatogan, Hillsgrove...), reached
+  from the Commonwealth's north-west corner
+- ➖ Isles of New England: Boon Island (Nexus 84449, ~11 mi at the game's scale for a ~0.1 mi rock),
+  Misery Island (87983, ~24 mi for a ~0.5 mi island); Thompson Island (13469, its harbour islands freely
+  arranged: Moon Island north of Long Island)
+- ➖ Fallout 4 – Point Lookout, Project Mojave — ports of land Fallout 3 and New Vegas map; Fallout: Vault 13
+  (demo, ModDB) — Fallout 1's land, a 5 GB archive
+- ➖ Fictional: Fusion City Rising, Outcasts and Remnants, Penn's Woods and many islands; outside the US:
+  Fallout: London, Sakhalin, Fallout – Costa Rica
+- ⏸ Not released: Fallout: Cascadia (Seattle), Fallout Miami (full), Fallout 4: New Vegas, Fallout 4: The
+  Capital Wasteland, Kanawha, Niagara, Wyoming, Billings, North Star (Minnesota), New York, Chicago,
+  Ouachita, Red Menace
+
 ### Other engines (world maps we could read)
 - ➖ Fallout Tactics engine: Fallout: The Sum — not set in the Fallout universe
-- Fallout 4, new land at real places: Northern Springs (northern Massachusetts; Nexus); not released:
-  Fallout: Cascadia (Seattle), Fallout Miami, Fallout: Vault 13 (Fallout 1 remade), Fallout 4: New
-  Vegas, Fallout 4: The Capital Wasteland, Kanawha (West Virginia), Niagara, Wyoming, Billings
-- ➖ Fallout 4: Fallout: London, Sakhalin — outside the US, out of scope
 
 ## Next
 From the remaining games, Fallout 76 is nearest to what is mapped: Burning Springs (southern Ohio)

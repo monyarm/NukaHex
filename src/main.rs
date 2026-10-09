@@ -174,6 +174,24 @@ fn main() -> std::io::Result<()> {
     // Far Harbor: the Island, Mount Desert Island in Maine (not the DLC03VRWorldspace simulation).
     game_extractors.push(Box::new(BethesdaExtractor::dlc_group(BethesdaGameVariant::Fallout4, "Far Harbor", &["DLC03FarHarbor"])));
     game_extractors.push(Box::new(BethesdaExtractor::dlc(BethesdaGameVariant::Fallout4, "NukaWorld"))); // Nuka-World
+    // Fallout 4 mods (tier 6). Land added to the Commonwealth, placed by its own warp: Cape Ann (the
+    // Massachusetts Project, only around the anchors: it also reshapes the Commonwealth's far edges) and the
+    // land past its borders (The Borders of the World).
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout4, "massachusetts_project", &["MSTP_MassachusettsProject.esp"], &["Commonwealth"]).within_anchors(3)));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout4, "borders_of_the_world", &["Mozenrath - The Borders Of The World.esp"], &["Commonwealth"])));
+    game_extractors.push(Box::new(BethesdaExtractor::mod_extension(BethesdaGameVariant::Fallout4, "beyond_the_borders_fo4", &["BTB- Beyond the Borders FO4.esp"], &["Commonwealth"])));
+    // Fallout Miami (early version; the 1.03 update, whose plugin is the whole mod's): Miami, placed by the city at
+    // Fallout 4's scale (its places are laid out freely: its Liberty District east of Lincoln Road, the real
+    // Liberty City west of Miami Beach).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout4, "fallout_miami", &["FalloutMiami.esp"], "Miami", &["Miami"]).placed_by_name()));
+    // New England's states, each a world of its own, anchored by its real towns.
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout4, "vermont", &["VermontWorld.esp"], "Vermont", &["VermontWorld1"])));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout4, "new_hampshire", &["newhampshireworld.esp"], "New Hampshire", &["newhampshireworld"])));
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout4, "connecticut", &["falloutconnecticut.esp"], "Connecticut", &["connecticutworld"])));
+    // Project Empire: Puget Sound, Washington (its world is called "Northwest Commonwealth"), anchored by its
+    // towns. Its land is a heightmap of the sound, sparsely built: all of it, trimmed to around its towns (its
+    // world is 129 cells square).
+    game_extractors.push(Box::new(BethesdaExtractor::from_mod(BethesdaGameVariant::Fallout4, "project_empire", &["ProjectEmpire-Merge.esm", "ProjectEmpire.esp"], "Puget Sound", &["ProjectEmpire"]).real_terrain().within_anchors(3)));
     // Fallout 76: Appalachia (West Virginia, with Skyline Valley and Burning Springs).
     game_extractors.push(Box::new(BethesdaExtractor::new(BethesdaGameVariant::Fallout76, "APPALACHIA").with_tier(crate::schema::tier::FALLOUT_76)));
     // Fallout 76's expeditions: interior zones dressed as outdoors, each placed at its real counterpart by its

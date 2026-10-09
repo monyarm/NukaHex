@@ -140,9 +140,13 @@ pub struct BethesdaExtractor {
     /// Radiation markers weaker than this (rads per second) leave the ground as it is: a mod's wide
     /// ambient zones (New California's), unlike the games' own.
     min_rads: Option<f32>,
-    /// Only the land within this many cells of the box around its anchored markers: a mod's world
-    /// stretching far past the real places it depicts (New California's).
+    /// Only the land within this many cells of the box around its own anchored markers (not ones it
+    /// shares with the game it extends): a mod's world stretching far past the real places it depicts
+    /// (New California's), or reshaping a game's worldspace far from them (the Massachusetts Project's).
     anchor_margin: Option<i32>,
+    /// A mod's world whose land is the real place's (Project Empire's heightmap of Puget Sound), not a town in
+    /// generated filler: all of it kept (see `built_extent`), trimmed by its anchors instead.
+    real_terrain: bool,
 }
 
 /// Miles per game unit at the size things are built (a unit is about 1.43 cm), for places the game does
@@ -155,7 +159,7 @@ impl BethesdaExtractor {
     }
 
     fn group(variant: BethesdaGameVariant, id: &str, worldspaces: &[&'static str]) -> Self {
-        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false, mod_plugins: None, added_only: false, by_name: false, min_rads: None, anchor_margin: None }
+        Self { variant, worldspaces: worldspaces.to_vec(), id: format!("{}_{}", variant.id_str(), id), summarized: false, summary_name: None, tier: crate::schema::tier::MAIN, interior: None, anchor_only: false, mod_plugins: None, added_only: false, by_name: false, min_rads: None, anchor_margin: None, real_terrain: false }
     }
 
     /// A DLC worldspace, summarized on the main maps by one marker named after it.
@@ -206,6 +210,11 @@ impl BethesdaExtractor {
         Self { anchor_margin: Some(cells), ..self }
     }
 
+    /// Its land is the real place's (see `real_terrain`).
+    pub fn real_terrain(self) -> Self {
+        Self { real_terrain: true, ..self }
+    }
+
     /// Placed by its name alone (see `by_name`).
     pub fn placed_by_name(self) -> Self {
         Self { by_name: true, ..self }
@@ -241,9 +250,11 @@ impl BethesdaExtractor {
             Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => Err(format!("linking {}: {}", name, e)),
             _ => Ok(()),
         };
+        // Everything the game has, not just its masters: Fallout 4's are localized, their names in string tables
+        // inside its archives (or a Strings folder), so without those its markers would have none.
         for e in std::fs::read_dir(data_dir).map_err(|e| e.to_string())?.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if name.to_lowercase().ends_with(".esm") { link(&e.path(), &name)?; }
+            if !plugins.iter().any(|p| p.eq_ignore_ascii_case(&name)) { link(&e.path(), &name)?; }
         }
         for plugin in plugins {
             let found = dirs.iter().find_map(|d| crate::mods::find_dir_with(d, plugin)).ok_or_else(|| format!("{} not found in {} or the mods it requires", plugin, mod_id))?;
@@ -286,7 +297,7 @@ impl BethesdaExtractor {
             if self.mod_plugins.is_some() { (d.worldspace.map_nw_cell, d.worldspace.map_se_cell) = (None, None); }
             if let Some(min) = self.min_rads { d.radiation.retain(|r| r.radiation.is_none_or(|v| v >= min)); }
             // A mod's own world: only where it is built (see `built_extent`).
-            if self.mod_plugins.is_some() && !self.added_only {
+            if self.mod_plugins.is_some() && !self.added_only && !self.real_terrain {
                 if let Some((x0, x1, y0, y1)) = built_extent(&d) { d.cells.retain(|c| (x0..=x1).contains(&c.x) && (y0..=y1).contains(&c.y)); }
             }
             d
@@ -341,7 +352,7 @@ impl Extractor for BethesdaExtractor {
                 let mut map = build(&dumps, self.variant, self.summarized.then(|| self.summary_name), if self.interior.is_some() { TRUE_MILES_PER_UNIT } else { self.variant.miles_per_unit() });
                 if let (true, Some(name)) = (self.by_name, self.summary_name) { map.locations.retain(|l| l.name == name); }
                 if let Some(margin) = self.anchor_margin {
-                    let anchors: HashSet<String> = crate::fixer::real_coords(&self.id).map(|(n, _)| n.to_lowercase()).collect();
+                    let anchors: HashSet<String> = crate::fixer::own_real_coords(&self.id).map(|(n, _)| n.to_lowercase()).collect();
                     let at: Vec<(f32, f32)> = map.locations.iter().filter(|l| anchors.contains(&l.name.to_lowercase())).map(|l| (l.x / QUAD, l.y / QUAD)).collect();
                     if !at.is_empty() {
                         let m = (margin * 2) as f32; // quadrants

@@ -366,7 +366,7 @@ const REAL_COORDS: &[(&[&str], &[(&str, &str)])] = &[
     (&["mod_falloutnv_dog_city"], &[("Dog City", "Denver, Colorado")]),
     (&["mod_falloutnv_bfm_denver"], &[("Denver", "Denver, Colorado")]),
     (&["mod_falloutnv_bfm_san_francisco"], &[("San Francisco", "San Francisco, California")]),
-    (&["fallout4"], &[
+    (&["fallout4", "mod_fallout4_massachusetts_project", "mod_fallout4_borders_of_the_world", "mod_fallout4_beyond_the_borders_fo4"], &[
         // Fallout 4 (keys are the game's marker names; values the real places they depict). Not anchored:
         // fictional places; downtown landmarks within a mile of these; Rocky Narrows Park (the game's is
         // north-west of Boston, the real one in Sherborn to the south-west, ~13 mi off); Fort Strong (the
@@ -412,6 +412,88 @@ const REAL_COORDS: &[(&[&str], &[(&str, &str)])] = &[
         // Nuka-World: no canon location. Fan research places it south of Springfield on the Connecticut River,
         // at the real theme park there (its map has the river with an island and a north-south interstate).
         ("Nuka-World", "Six Flags New England"),
+    ]),
+    // Fallout 4 mods.
+    (&["mod_fallout4_massachusetts_project"], &[
+        // Cape Ann, past the Commonwealth's north-east border: one anchor per locale (Rockport's harbour and
+        // town hall, Annisquam's church, Manchester's town hall and beach, all within half a mile of these but
+        // thousands of units apart in the game, fold the warp). Not anchored: Motif No. 1 (not found to place)
+        // and its fictional sites.
+        ("RockPort", "Rockport, Massachusetts"),
+        ("Eastern Point Lighthouse", "Eastern Point Light, Gloucester"),
+        ("Glouchester City Hall", "Gloucester City Hall, Massachusetts"),
+        ("Annisquam Lighthouse", "Annisquam Harbor Light"),
+        ("Manchester", "Manchester-by-the-Sea, Massachusetts"),
+        ("Agassiz Rock", "Agassiz Rock, Manchester-by-the-Sea"),
+        ("Crane Estate", "42.6859,-70.7787"),                       // Castle Hill, Ipswich, Massachusetts (the name finds England's)
+        ("Newbury", "Newbury, Massachusetts"),
+    ]),
+    (&["mod_fallout4_fallout_miami"], &[("Miami", "Miami, Florida")]),
+    (&["mod_fallout4_vermont"], &[
+        // Central Vermont, from Montpelier and Barre to Roxbury, Brookfield and Tunbridge (its route exits at
+        // the towns they serve).
+        ("Tunbridge", "Tunbridge, Vermont"),
+        ("Barre", "Barre, Vermont"),
+        ("East Montpelier", "East Montpelier, Vermont"),
+        ("West Montpelier", "Montpelier, Vermont"),
+        ("Roxbury", "Roxbury, Vermont"),
+        ("Brookfield", "Brookfield, Vermont"),
+        ("Allis Park", "Allis State Park, Vermont"),
+        ("State Route 110 Exit", "Chelsea, Vermont"),
+        ("State Route 65 Exit", "Brookfield, Vermont"),
+    ]),
+    (&["mod_fallout4_new_hampshire"], &[
+        // Southern New Hampshire, from Nashua to Manchester.
+        ("Nashua", "Nashua, New Hampshire"),
+        ("Milford", "Milford, New Hampshire"),
+        ("Merrimack Village", "Merrimack, Hillsborough County, New Hampshire"),
+        ("Londonderry", "Londonderry, New Hampshire"),
+        ("Auburn", "Auburn, New Hampshire"),
+        ("Downtown Manchester", "Manchester, New Hampshire"),
+        ("Bedford", "Bedford, New Hampshire"),
+    ]),
+    (&["mod_fallout4_connecticut"], &[
+        // North-central Connecticut, from Cromwell to Windsor, Ellington, Vernon, Coventry and Andover.
+        ("Cromwell", "Cromwell, Connecticut"),
+        ("Windsor", "Windsor, Connecticut"),
+        ("Ellington", "Ellington, Connecticut"),
+        ("Coventry", "Coventry, Connecticut"),
+        ("Andover Junction", "Andover, Connecticut"),
+        ("Mount Vernon Church", "Vernon, Connecticut"),
+    ]),
+    (&["mod_fallout4_project_empire"], &[
+        // Puget Sound's towns, from Aberdeen and Olympia to Victoria and Anacortes.
+        ("Oak Harbor", "Oak Harbor, Washington"),
+        ("Anacortes", "Anacortes, Washington"),
+        ("Sedro-Wooley", "Sedro-Woolley, Washington"),
+        ("Quilcene", "Quilcene, Washington"),
+        ("Poulsbo", "Poulsbo, Washington"),
+        ("Silverdale", "Silverdale, Washington"),
+        ("Bremerton", "Bremerton, Washington"),
+        ("Port Orchart", "Port Orchard, Washington"),
+        ("Gorst", "Gorst, Washington"),
+        ("Aberdeen", "Aberdeen, Washington"),
+        ("Everett", "Everett, Washington"),
+        ("Merysville", "Marysville, Washington"),
+        ("Port Townsend", "Port Townsend, Washington"),
+        ("Port Angeles", "Port Angeles, Washington"),
+        ("Sequim", "Sequim, Washington"),
+        ("Shoreline", "Shoreline, Washington"),
+        ("Sooke", "Sooke, British Columbia"),
+        ("Victoria", "Victoria, British Columbia"),
+        ("Burlington", "Burlington, Washington"),
+        ("Mt Vernon", "Mount Vernon, Washington"),
+        ("Tacoma", "Tacoma, Washington"),
+        ("Lakewood", "Lakewood, Washington"),
+        ("Olympia", "Olympia, Washington"),
+        ("South Hill", "South Hill, Washington"),
+        ("Kent", "Kent, Washington"),
+        ("Renton", "Renton, Washington"),
+        ("Burien", "Burien, Washington"),
+        ("Seattle", "Seattle, Washington"),
+        ("Bellevue", "Bellevue, Washington"),
+        ("Redmondd", "Redmond, Washington"),
+        ("Issaquah", "Issaquah, Washington"),
     ]),
     (&["fallout76"], &[
         // Fallout 76: Appalachia rearranges West Virginia (it puts Grafton, Clarksburg, Philippi and Prickett's
@@ -460,10 +542,22 @@ const REAL_COORDS: &[(&[&str], &[(&str, &str)])] = &[
     ]),
 ];
 
+fn scope_covers(scope: &str, source: &str) -> bool {
+    source.strip_prefix(scope).is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))
+}
+
 /// The real places anchoring `source` (a cluster id; see `REAL_COORDS`).
-pub fn real_coords(source: &str) -> impl Iterator<Item = &'static (&'static str, &'static str)> + '_ {
+fn real_coords(source: &str) -> impl Iterator<Item = &'static (&'static str, &'static str)> + '_ {
     REAL_COORDS.iter()
-        .filter(move |(scopes, _)| scopes.iter().any(|s| source.strip_prefix(s).is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))))
+        .filter(move |(scopes, _)| scopes.iter().any(|s| scope_covers(s, source)))
+        .flat_map(|(_, places)| places.iter())
+}
+
+/// The real places written for `source` itself: its own group (the one listing it first), not the ones it
+/// shares (a mod extending a game's worldspace shares the game's).
+pub fn own_real_coords(source: &str) -> impl Iterator<Item = &'static (&'static str, &'static str)> + '_ {
+    REAL_COORDS.iter()
+        .filter(move |(scopes, _)| scopes.first().is_some_and(|s| scope_covers(s, source)))
         .flat_map(|(_, places)| places.iter())
 }
 

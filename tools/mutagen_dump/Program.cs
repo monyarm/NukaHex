@@ -5,7 +5,7 @@
 //
 // Usage: mutagen_dump <Fallout3|FalloutNV|Fallout4> <data dir> <worldspace EditorID> <out.json> [--added-only] [plugin...]
 // Always loads every official master of the game present in the data folder (base game + all DLC),
-// in the game's implicit order, then the given plugins (a mod's, Fallout 3 / New Vegas only), and
+// in the game's implicit order, then the given plugins (a mod's), and
 // reports winning overrides. --added-only keeps only the cells those plugins add (a mod extending a
 // game's worldspace), and the map markers everywhere.
 
@@ -18,9 +18,11 @@ if (args.Length < 4)
     return 2;
 }
 var release = Enum.Parse<GameRelease>(args[0]);
+var plugins = args[4..].Where(a => a != "--added-only").ToArray();
+var addedOnly = args[4..].Contains("--added-only");
 return release == GameRelease.Fallout4
-    ? Fallout4Dump.Run(args[1], args[2], args[3])
-    : Fallout3Dump.Run(release, args[1], args[2], args[3], args[4..].Where(a => a != "--added-only").ToArray(), args[4..].Contains("--added-only"));
+    ? Fallout4Dump.Run(args[1], args[2], args[3], plugins, addedOnly)
+    : Fallout3Dump.Run(release, args[1], args[2], args[3], plugins, addedOnly);
 
 static class Output
 {

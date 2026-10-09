@@ -10,7 +10,7 @@ using Mutagen.Bethesda.Plugins.Order;
 
 static class Fallout4Dump
 {
-    public static int Run(string dataDir, string worldEdid, string outPath)
+    public static int Run(string dataDir, string worldEdid, string outPath, string[] plugins, bool addedOnly)
     {
         var release = GameRelease.Fallout4;
         // The official masters, then the Creation Club plugins the game lists (Fallout4.ccc, next to Data).
@@ -19,8 +19,10 @@ static class Fallout4Dump
         var masters = Implicits.Get(release).BaseMasters
             .Concat(creations.Select(c => ModKey.FromFileName(c)))
             .Where(mk => File.Exists(Path.Combine(dataDir, mk.FileName)))
+            .Concat(plugins.Select(p => ModKey.FromFileName(p)))
             .Distinct()
             .ToArray();
+        var pluginKeys = plugins.Select(p => ModKey.FromFileName(p)).ToHashSet();
         using var env = GameEnvironment.Typical.Builder<IFallout4Mod, IFallout4ModGetter>(release)
             .WithTargetDataFolder(dataDir)
             .WithLoadOrder(masters)
@@ -42,10 +44,12 @@ static class Fallout4Dump
 
         // Cells: grid position and water.
         var cells = new Dictionary<FormKey, Dictionary<string, object?>>();
+        var newCells = new HashSet<FormKey>(); // created by the given plugins
         foreach (var ctx in order.Cell().WinningContextOverrides(lc))
         {
             if (!InWorld(ctx) || ctx.Record.Grid == null) continue;
             var c = ctx.Record;
+            if (pluginKeys.Contains(c.FormKey.ModKey)) newCells.Add(c.FormKey);
             cells[c.FormKey] = new()
             {
                 ["x"] = c.Grid.Point.X,
@@ -97,6 +101,18 @@ static class Fallout4Dump
                 BitConverter.ToUInt16(bytes.Span.Slice(i * 8, 2)),
                 MathF.Round(BitConverter.ToSingle(bytes.Span.Slice(i * 8 + 4, 4)), 3),
             }).ToArray();
+        }
+
+        // --added-only: the cells the plugins add, or whose landscape they reshape (as in Fallout3.cs).
+        var addedGrid = new HashSet<(int, int)>();
+        if (addedOnly)
+        {
+            var reshaped = order.Landscape().WinningContextOverrides(lc)
+                .Where(ctx => pluginKeys.Contains(ctx.ModKey) && ctx.TryGetParent<ICellGetter>(out _))
+                .Select(ctx => { ctx.TryGetParent<ICellGetter>(out var cell); return cell!.FormKey; })
+                .ToHashSet();
+            foreach (var key in cells.Keys.Where(k => !newCells.Contains(k) && !reshaped.Contains(k)).ToList()) cells.Remove(key);
+            foreach (var c in cells.Values) addedGrid.Add(((int)c["x"]!, (int)c["y"]!));
         }
 
         // Land textures referenced anywhere.
@@ -156,6 +172,7 @@ static class Fallout4Dump
             }
             if (ws.FormKey != world.FormKey) continue;
             if (r.MapMarker is { } m) markers.Add(Marker(m)!);
+            if (addedOnly && !addedGrid.Contains(((int)MathF.Floor(pos.Value.X / 4096), (int)MathF.Floor(pos.Value.Y / 4096)))) continue;
             if (r.TeleportDestination != null) doors.Add(new[] { pos.Value.X, pos.Value.Y });
             // Statics and trees with their footprint (object bounds x scale, in square units) and mesh path;
             // which meshes count as buildings or vegetation is decided in Rust.

@@ -6,9 +6,8 @@
 ## Bethesda games (Mutagen)
 - Fallout 3 and Fallout 4 on the Mutagen path (FO4 via `Mutagen.Bethesda.Fallout4`).
 - Mod plugins: done for Fallout 3 (`mods.rs` manifest; Nexus files downloaded by hand into
-  `~/Downloads`, as portmod does, since Nexus API download links need Premium). Next: New Vegas, then
-  Fallout 4 (its helper does not take mod plugins yet). Optionally: Nexus downloads through the API
-  when a Premium key is set.
+  `~/Downloads`, as portmod does, since Nexus API download links need Premium), New Vegas, and Fallout 4's
+  helper (mods in progress). Optionally: Nexus downloads through the API when a Premium key is set.
 - Mutagen 0.54.4 cannot read compressed FO3/NV BSA entries (`BsaFileRecord.AsStream` wraps an `InflaterInputStream` in a `FramedStream` that asks for its `Length`); report upstream if BSA contents are ever needed.
 
 ## Warp
